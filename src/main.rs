@@ -17,6 +17,14 @@ struct Statement {
     statement_type: StatementType,
 }
 
+// const USERNAME_SIZE: usize = 32;
+// const EMAIL_SIZE: usize = 255;
+struct Row<'a> {
+    id: u32,
+    username: &'a [u8],
+    email: &'a [u8],
+}
+
 fn main() -> std::io::Result<()> {
     let mut buffer = String::new();
 
@@ -73,7 +81,24 @@ fn prepare_statement(input: &str) -> Result<Statement, &str> {
 
 fn execute_statement(statement: &Statement) {
     match statement.statement_type {
-        StatementType::Select => println!("do select"),
-        StatementType::Insert => println!("do insert"),
+        StatementType::Select => {
+            println!("do select")
+        }
+        StatementType::Insert => {
+            // let row = Row {
+            //     id: 32,
+            //     username: b"apple",
+            //     email: b"job@apple.com",
+            // };
+
+            // let file = std::fs::OpenOptions::new()
+            //     .create(true)
+            //     .write(true)
+            //     .open("data.db")
+            //     .unwrap();
+
+            // file.write(row);
+            println!("do insert")
+        }
     }
 }
