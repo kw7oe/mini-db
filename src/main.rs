@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::{io::Write, process::exit};
 
 #[derive(Debug)]
@@ -17,12 +18,23 @@ struct Statement {
     statement_type: StatementType,
 }
 
-// const USERNAME_SIZE: usize = 32;
-// const EMAIL_SIZE: usize = 255;
-struct Row<'a> {
+#[macro_use]
+extern crate serde_big_array;
+big_array! {
+    BigArray;
+    32, 255
+}
+
+const USERNAME_SIZE: usize = 32;
+const EMAIL_SIZE: usize = 255;
+
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+struct Row {
     id: u32,
-    username: &'a [u8],
-    email: &'a [u8],
+    #[serde(with = "BigArray")]
+    username: [u8; USERNAME_SIZE],
+    #[serde(with = "BigArray")]
+    email: [u8; EMAIL_SIZE],
 }
 
 fn main() -> std::io::Result<()> {
@@ -85,19 +97,38 @@ fn execute_statement(statement: &Statement) {
             println!("do select")
         }
         StatementType::Insert => {
-            // let row = Row {
-            //     id: 32,
-            //     username: b"apple",
-            //     email: b"job@apple.com",
-            // };
+            let u = "apple";
+            let m = "joe@apple.com";
+            let mut username: [u8; USERNAME_SIZE] = [0; USERNAME_SIZE];
+            let mut email: [u8; EMAIL_SIZE] = [0; EMAIL_SIZE];
 
-            // let file = std::fs::OpenOptions::new()
-            //     .create(true)
-            //     .write(true)
-            //     .open("data.db")
-            //     .unwrap();
+            let mut index = 0;
+            for c in u.bytes() {
+                username[index] = c;
+                index += 1;
+            }
 
-            // file.write(row);
+            index = 0;
+            for c in m.bytes() {
+                email[index] = c;
+                index += 1;
+            }
+
+            let row = Row {
+                id: 32,
+                username,
+                email,
+            };
+
+            let bytes = bincode::serialize(&row).unwrap();
+
+            let mut file = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open("data.db")
+                .unwrap();
+
+            let _ = file.write(&bytes);
             println!("do insert")
         }
     }
