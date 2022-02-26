@@ -27,7 +27,7 @@ fn main() -> std::io::Result<()> {
             exit(0);
         }
 
-        print!("{}", output);
+        println!("{}", output);
 
         println!("Executed.");
         buffer.clear();
@@ -69,5 +69,49 @@ mod test {
         let mut table = Table::new();
         let output = handle_input(&mut table, ".dfaskfd");
         assert_eq!(output, "Unrecognized command '.dfaskfd'.");
+    }
+
+    #[test]
+    fn invalid_statement() {
+        let mut table = Table::new();
+        let output = handle_input(&mut table, "insert apple apple apple");
+        assert_eq!(
+            output,
+            "Unrecognized keyword at start of 'insert apple apple apple'."
+        );
+    }
+
+    #[test]
+    fn select_statement() {
+        let mut table = Table::new();
+
+        let mut output = handle_input(&mut table, "select");
+        assert_eq!(output, "");
+
+        handle_input(&mut table, "insert 1 john john@email.com");
+        handle_input(&mut table, "insert 2 wick wick@email.com");
+
+        output = handle_input(&mut table, "select");
+        println!("{}", output);
+        assert_eq!(
+            output,
+            "(1, john, john@email.com)\n(2, wick, wick@email.com)\n"
+        );
+    }
+
+    #[test]
+    fn insert_statement() {
+        let mut table = Table::new();
+        let mut output = handle_input(&mut table, "insert 1 john john@email.com");
+        assert_eq!(
+            output,
+            "inserting to page 0 with row offset 0 and byte offset 0...\n"
+        );
+
+        output = handle_input(&mut table, "insert 1 john john@email.com");
+        assert_eq!(
+            output,
+            "inserting to page 0 with row offset 1 and byte offset 291...\n"
+        );
     }
 }

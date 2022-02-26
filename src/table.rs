@@ -19,8 +19,8 @@ impl std::fmt::Debug for Row {
             f,
             "({}, {}, {})",
             self.id,
-            String::from_utf8_lossy(&self.username),
-            String::from_utf8_lossy(&self.email)
+            String::from_utf8_lossy(&self.username).trim_end_matches(char::from(0)),
+            String::from_utf8_lossy(&self.email).trim_end_matches(char::from(0))
         )
     }
 }
@@ -88,7 +88,8 @@ impl Table {
         }
     }
 
-    pub fn select(&self) {
+    pub fn select(&self) -> String {
+        let mut output = String::new();
         for i in 0..self.num_rows {
             let page_num = i / ROWS_PER_PAGE;
             let row_offset = i % ROWS_PER_PAGE;
@@ -97,17 +98,17 @@ impl Table {
             let bytes = &self.pages[page_num][byte_offset..byte_offset + ROW_SIZE];
             let row: Row = bincode::deserialize(&bytes).unwrap();
 
-            println!("{:?}", row);
+            output.push_str(&format!("{:?}\n", row));
         }
+
+        output
     }
 
-    pub fn insert(&mut self, row: &Row) {
+    pub fn insert(&mut self, row: &Row) -> String {
         let row_in_bytes = bincode::serialize(row).unwrap();
         let page_num = self.num_rows / ROWS_PER_PAGE;
         let row_offset = self.num_rows % ROWS_PER_PAGE;
         let byte_offset = row_offset * ROW_SIZE;
-
-        println!("inserting to page {page_num} with row offset {row_offset} and byte offset {byte_offset}...");
 
         // Copy each byte from row into our pages.
         let mut j = 0;
@@ -116,5 +117,7 @@ impl Table {
             j += 1;
         }
         self.num_rows += 1;
+
+        format!("inserting to page {page_num} with row offset {row_offset} and byte offset {byte_offset}...\n")
     }
 }

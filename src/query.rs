@@ -51,13 +51,7 @@ pub fn prepare_statement(input: &str) -> Result<Statement, &str> {
 
 pub fn execute_statement(table: &mut Table, statement: &Statement) -> String {
     match statement.statement_type {
-        StatementType::Select => {
-            table.select();
-        }
-        StatementType::Insert => {
-            table.insert(statement.row.as_ref().unwrap());
-        }
+        StatementType::Select => table.select(),
+        StatementType::Insert => table.insert(statement.row.as_ref().unwrap()),
     }
-
-    "".to_string()
 }
