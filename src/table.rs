@@ -19,6 +19,12 @@ impl std::fmt::Debug for Row {
             f,
             "({}, {}, {})",
             self.id,
+            // Since we are converting from a fixed size array, there will be NULL
+            // characters at the end. Hence, we need to trim it.
+            //
+            // While it doesn't impact outputing to the display, it caused
+            // issue with our test, as the result will have additional character while
+            // our expectation don't.
             String::from_utf8_lossy(&self.username).trim_end_matches(char::from(0)),
             String::from_utf8_lossy(&self.email).trim_end_matches(char::from(0))
         )
