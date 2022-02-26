@@ -27,7 +27,7 @@ pub fn handle_meta_command(command: &str) -> MetaCommand {
     }
 }
 
-pub fn prepare_statement(input: &str) -> Result<Statement, &str> {
+pub fn prepare_statement(input: &str) -> Result<Statement, String> {
     if input.starts_with("select") {
         return Ok(Statement {
             statement_type: StatementType::Select,
@@ -36,17 +36,18 @@ pub fn prepare_statement(input: &str) -> Result<Statement, &str> {
     }
 
     if input.starts_with("insert") {
-        if let Ok(row) = Row::from_statement(&input) {
-            return Ok(Statement {
-                statement_type: StatementType::Insert,
-                row: Some(row),
-            });
-        } else {
-            return Err("invalid insert statement");
+        match Row::from_statement(&input) {
+            Ok(row) => {
+                return Ok(Statement {
+                    statement_type: StatementType::Insert,
+                    row: Some(row),
+                })
+            }
+            Err(e) => return Err(e),
         }
     }
 
-    return Err("unrecognized statement");
+    return Err("unrecognized statement".to_string());
 }
 
 pub fn execute_statement(table: &mut Table, statement: &Statement) -> String {

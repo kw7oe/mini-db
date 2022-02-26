@@ -33,17 +33,25 @@ impl std::fmt::Debug for Row {
 
 impl Row {
     // Alternatively can move to prepare_insert instead.
-    pub fn from_statement(statement: &str) -> Result<Row, &str> {
+    pub fn from_statement(statement: &str) -> Result<Row, String> {
         let insert_statement: Vec<&str> = statement.split(" ").collect();
         match insert_statement[..] {
             ["insert", id, name, email] => {
                 if let Ok(id) = id.parse::<u32>() {
+                    if name.len() > USERNAME_SIZE {
+                        return Err("Name is too long.".to_string());
+                    }
+
+                    if email.len() > EMAIL_SIZE {
+                        return Err("Email is too long.".to_string());
+                    }
+
                     Ok(Self::create(id, name, email))
                 } else {
-                    Err("invalid id")
+                    Err("ID must be positive.".to_string())
                 }
             }
-            _ => Err("invalid insert statement"),
+            _ => Err(format!("Unrecognized keyword at start of '{statement}'.")),
         }
     }
 

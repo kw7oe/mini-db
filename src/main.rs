@@ -49,7 +49,7 @@ fn handle_input(table: &mut Table, input: &str) -> String {
 
     match prepare_statement(&input) {
         Ok(statement) => execute_statement(table, &statement),
-        Err(_reason) => format!("Unrecognized keyword at start of '{input}'."),
+        Err(reason) => reason,
     }
 }
 
@@ -74,10 +74,10 @@ mod test {
     #[test]
     fn invalid_statement() {
         let mut table = Table::new();
-        let output = handle_input(&mut table, "insert apple apple apple");
+        let output = handle_input(&mut table, "insert 1 apple apple apple");
         assert_eq!(
             output,
-            "Unrecognized keyword at start of 'insert apple apple apple'."
+            "Unrecognized keyword at start of 'insert 1 apple apple apple'."
         );
     }
 
@@ -85,13 +85,13 @@ mod test {
     fn select_statement() {
         let mut table = Table::new();
 
-        let mut output = handle_input(&mut table, "select");
+        let output = handle_input(&mut table, "select");
         assert_eq!(output, "");
 
         handle_input(&mut table, "insert 1 john john@email.com");
         handle_input(&mut table, "insert 2 wick wick@email.com");
 
-        output = handle_input(&mut table, "select");
+        let output = handle_input(&mut table, "select");
         println!("{}", output);
         assert_eq!(
             output,
@@ -102,16 +102,44 @@ mod test {
     #[test]
     fn insert_statement() {
         let mut table = Table::new();
-        let mut output = handle_input(&mut table, "insert 1 john john@email.com");
+
+        let output = handle_input(&mut table, "insert 1 john john@email.com");
         assert_eq!(
             output,
             "inserting to page 0 with row offset 0 and byte offset 0...\n"
         );
 
-        output = handle_input(&mut table, "insert 1 john john@email.com");
+        let output = handle_input(&mut table, "insert 1 john john@email.com");
         assert_eq!(
             output,
             "inserting to page 0 with row offset 1 and byte offset 291...\n"
         );
+    }
+
+    #[test]
+    fn error_when_id_is_negative() {
+        let mut table = Table::new();
+        let output = handle_input(&mut table, "insert -1 john john@email.com");
+        assert_eq!(output, "ID must be positive.");
+    }
+
+    #[test]
+    fn error_when_string_are_too_long() {
+        let mut table = Table::new();
+        let mut username = String::new();
+        for _ in 0..33 {
+            username.push_str("a");
+        }
+
+        let output = handle_input(&mut table, &format!("insert 1 {username} john@email.com"));
+        assert_eq!(output, "Name is too long.");
+
+        let mut email = String::new();
+        for _ in 0..256 {
+            email.push_str("a");
+        }
+
+        let output = handle_input(&mut table, &format!("insert 1 john {email}"));
+        assert_eq!(output, "Email is too long.");
     }
 }
