@@ -1,10 +1,10 @@
 use crate::table::*;
-use std::process::exit;
 
 #[derive(Debug)]
 pub enum MetaCommand {
     // Success,
     Unrecognized,
+    Exit,
 }
 
 #[derive(Debug)]
@@ -21,9 +21,9 @@ pub struct Statement {
 
 pub fn handle_meta_command(command: &str) -> MetaCommand {
     if command.eq(".exit") {
-        exit(0)
+        MetaCommand::Exit
     } else {
-        return MetaCommand::Unrecognized;
+        MetaCommand::Unrecognized
     }
 }
 
@@ -49,14 +49,15 @@ pub fn prepare_statement(input: &str) -> Result<Statement, &str> {
     return Err("unrecognized statement");
 }
 
-pub fn execute_statement(table: &mut Table, statement: &Statement) {
+pub fn execute_statement(table: &mut Table, statement: &Statement) -> String {
     match statement.statement_type {
         StatementType::Select => {
             table.select();
         }
         StatementType::Insert => {
-            println!("{:?}", statement.row);
             table.insert(statement.row.as_ref().unwrap());
         }
     }
+
+    "".to_string()
 }
