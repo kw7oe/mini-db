@@ -117,6 +117,32 @@ mod test {
     }
 
     #[test]
+    fn insert_string_at_max_length() {
+        let mut table = Table::new();
+        let mut username = String::new();
+        for _ in 0..32 {
+            username.push_str("a");
+        }
+
+        let output = handle_input(&mut table, &format!("insert 1 {username} john@email.com"));
+        assert_eq!(
+            output,
+            "inserting to page 0 with row offset 0 and byte offset 0...\n"
+        );
+
+        let mut email = String::new();
+        for _ in 0..255 {
+            email.push_str("a");
+        }
+
+        let output = handle_input(&mut table, &format!("insert 1 john {email}"));
+        assert_eq!(
+            output,
+            "inserting to page 0 with row offset 1 and byte offset 291...\n"
+        );
+    }
+
+    #[test]
     fn error_when_id_is_negative() {
         let mut table = Table::new();
         let output = handle_input(&mut table, "insert -1 john john@email.com");
