@@ -29,13 +29,25 @@ big_array! {
 const USERNAME_SIZE: usize = 32;
 const EMAIL_SIZE: usize = 255;
 
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, PartialEq)]
 struct Row {
     id: u32,
     #[serde(with = "BigArray")]
     username: [u8; USERNAME_SIZE],
     #[serde(with = "BigArray")]
     email: [u8; EMAIL_SIZE],
+}
+
+impl std::fmt::Debug for Row {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "({}, {}, {})",
+            self.id,
+            String::from_utf8_lossy(&self.username),
+            String::from_utf8_lossy(&self.email)
+        )
+    }
 }
 
 impl Row {
@@ -100,6 +112,19 @@ impl Table {
         }
     }
 
+    fn select(&self) {
+        for i in 0..self.num_rows {
+            let page_num = i / ROWS_PER_PAGE;
+            let row_offset = i % ROWS_PER_PAGE;
+            let byte_offset = row_offset * ROW_SIZE;
+
+            let bytes = &self.pages[page_num][byte_offset..byte_offset + ROW_SIZE];
+            let row: Row = bincode::deserialize(&bytes).unwrap();
+
+            println!("{:?}", row);
+        }
+    }
+
     fn insert(&mut self, row: &Vec<u8>) {
         let page_num = self.num_rows / ROWS_PER_PAGE;
         let row_offset = self.num_rows % ROWS_PER_PAGE;
@@ -113,6 +138,7 @@ impl Table {
             self.pages[page_num][i] = row[j];
             j += 1;
         }
+        self.num_rows += 1;
     }
 }
 
@@ -180,7 +206,7 @@ fn prepare_statement(input: &str) -> Result<Statement, &str> {
 fn execute_statement(table: &mut Table, statement: &Statement) {
     match statement.statement_type {
         StatementType::Select => {
-            println!("do select")
+            table.select();
         }
         StatementType::Insert => {
             println!(
