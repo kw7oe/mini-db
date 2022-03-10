@@ -14,7 +14,7 @@ mod query;
 mod table;
 
 fn main() -> std::io::Result<()> {
-    let mut table = Table::new();
+    let mut table = Table::new("data.db".to_string());
     let mut buffer = String::new();
 
     loop {
@@ -59,21 +59,21 @@ mod test {
 
     #[test]
     fn exit_command() {
-        let mut table = Table::new();
+        let mut table = Table::new("test.db".to_string());
         let output = handle_input(&mut table, ".exit");
         assert_eq!(output, "Exit");
     }
 
     #[test]
     fn unrecognized_command() {
-        let mut table = Table::new();
+        let mut table = Table::new("test.db".to_string());
         let output = handle_input(&mut table, ".dfaskfd");
         assert_eq!(output, "Unrecognized command '.dfaskfd'.");
     }
 
     #[test]
     fn invalid_statement() {
-        let mut table = Table::new();
+        let mut table = Table::new("test.db".to_string());
         let output = handle_input(&mut table, "insert 1 apple apple apple");
         assert_eq!(
             output,
@@ -83,7 +83,7 @@ mod test {
 
     #[test]
     fn select_statement() {
-        let mut table = Table::new();
+        let mut table = Table::new("test.db".to_string());
 
         let output = handle_input(&mut table, "select");
         assert_eq!(output, "");
@@ -101,7 +101,7 @@ mod test {
 
     #[test]
     fn insert_statement() {
-        let mut table = Table::new();
+        let mut table = Table::new("test.db".to_string());
 
         let output = handle_input(&mut table, "insert 1 john john@email.com");
         assert_eq!(
@@ -118,7 +118,7 @@ mod test {
 
     #[test]
     fn insert_string_at_max_length() {
-        let mut table = Table::new();
+        let mut table = Table::new("test.db".to_string());
         let mut username = String::new();
         for _ in 0..32 {
             username.push_str("a");
@@ -144,14 +144,14 @@ mod test {
 
     #[test]
     fn error_when_id_is_negative() {
-        let mut table = Table::new();
+        let mut table = Table::new("test.db".to_string());
         let output = handle_input(&mut table, "insert -1 john john@email.com");
         assert_eq!(output, "ID must be positive.");
     }
 
     #[test]
     fn error_when_string_are_too_long() {
-        let mut table = Table::new();
+        let mut table = Table::new("test.db".to_string());
         let mut username = String::new();
         for _ in 0..33 {
             username.push_str("a");
@@ -167,5 +167,19 @@ mod test {
 
         let output = handle_input(&mut table, &format!("insert 1 john {email}"));
         assert_eq!(output, "Email is too long.");
+    }
+
+    #[test]
+    fn persist_data_to_file() {
+        let mut table = Table::new("test.db".to_string());
+
+        handle_input(&mut table, "insert 1 john john@email.com");
+        let output = handle_input(&mut table, "select");
+        assert_eq!(output, "(1, john, john@email.com)\n");
+        drop(table);
+
+        let mut reopen_table = Table::new("test.db".to_string());
+        let output = handle_input(&mut reopen_table, "select");
+        assert_eq!(output, "(1, john, john@email.com)\n");
     }
 }

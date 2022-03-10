@@ -1,3 +1,5 @@
+use std::fs::{File, OpenOptions};
+
 use crate::BigArray;
 use serde::{Deserialize, Serialize};
 
@@ -84,15 +86,32 @@ const PAGE_SIZE: usize = 4096;
 const TABLE_MAX_PAGE: usize = 100;
 const ROWS_PER_PAGE: usize = PAGE_SIZE / ROW_SIZE;
 
+pub struct Pager {
+    file: File,
+    pages: Vec<[u8; PAGE_SIZE]>,
+}
+
 pub struct Table {
     num_rows: usize,
+    pager: Pager,
     pages: [[u8; PAGE_SIZE]; TABLE_MAX_PAGE],
 }
 
 impl Table {
-    pub fn new() -> Table {
+    pub fn new(file_path: String) -> Table {
+        let file = OpenOptions::new()
+            .read(true)
+            .append(true)
+            .create(true)
+            .open(file_path)
+            .unwrap();
+
         Table {
             num_rows: 0,
+            pager: Pager {
+                file,
+                pages: Vec::new(),
+            },
             // This is not ideal as we are initializing
             // the memory we don't need.
             //
