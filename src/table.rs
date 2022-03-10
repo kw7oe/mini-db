@@ -1,4 +1,8 @@
-use std::fs::{File, OpenOptions};
+use std::{
+    fs::{File, OpenOptions},
+    io::BufReader,
+    path::{Path, PathBuf},
+};
 
 use crate::BigArray;
 use serde::{Deserialize, Serialize};
@@ -87,48 +91,78 @@ const TABLE_MAX_PAGE: usize = 100;
 const ROWS_PER_PAGE: usize = PAGE_SIZE / ROW_SIZE;
 
 pub struct Pager {
-    file: File,
+    write_file: File,
+    read_file: File,
     pages: Vec<[u8; PAGE_SIZE]>,
+}
+
+impl Pager {
+    pub fn new(path: impl Into<PathBuf>) -> Pager {
+        let path = path.into();
+
+        let write_file = OpenOptions::new()
+            .read(true)
+            .append(true)
+            .create(true)
+            .open(&path)
+            .unwrap();
+
+        let read_file = File::open(&path).unwrap();
+
+        Pager {
+            write_file,
+            read_file,
+            pages: Vec::new(),
+        }
+    }
+
+    pub fn get_cursor_info(&self, row: usize) -> (usize, usize, usize) {
+        let page_num = row / ROWS_PER_PAGE;
+        let row_offset = row % ROWS_PER_PAGE;
+        let byte_offset = row_offset * ROW_SIZE;
+
+        (page_num, row_offset, byte_offset)
+    }
+
+    pub fn get_mut_cursor_info(&mut self, row: usize) -> (usize, usize, usize) {
+        let (page_num, row_offset, byte_offset) = self.get_cursor_info(row);
+
+        if self.pages.get(page_num).is_none() {
+            println!("initialize {page_num}");
+            self.pages.insert(page_num, [0; PAGE_SIZE]);
+        }
+
+        (page_num, row_offset, byte_offset)
+    }
+
+    pub fn get_bytes(&self, row: usize) -> &[u8] {
+        let (page_num, _row_offset, byte_offset) = self.get_cursor_info(row);
+        &self.pages[page_num][byte_offset..byte_offset + ROW_SIZE]
+    }
+
+    pub fn get_mut_bytes(&mut self, row: usize) -> &mut [u8] {
+        let (page_num, _row_offset, byte_offset) = self.get_mut_cursor_info(row);
+        &mut self.pages[page_num][byte_offset..byte_offset + ROW_SIZE]
+    }
 }
 
 pub struct Table {
     num_rows: usize,
     pager: Pager,
-    pages: [[u8; PAGE_SIZE]; TABLE_MAX_PAGE],
 }
 
 impl Table {
-    pub fn new(file_path: String) -> Table {
-        let file = OpenOptions::new()
-            .read(true)
-            .append(true)
-            .create(true)
-            .open(file_path)
-            .unwrap();
-
+    pub fn new(path: impl Into<PathBuf>) -> Table {
         Table {
             num_rows: 0,
-            pager: Pager {
-                file,
-                pages: Vec::new(),
-            },
-            // This is not ideal as we are initializing
-            // the memory we don't need.
-            //
-            // Ideally, we want to allocate the space
-            // as we needed.
-            pages: [[0; PAGE_SIZE]; TABLE_MAX_PAGE],
+            pager: Pager::new(path),
         }
     }
 
     pub fn select(&self) -> String {
         let mut output = String::new();
         for i in 0..self.num_rows {
-            let page_num = i / ROWS_PER_PAGE;
-            let row_offset = i % ROWS_PER_PAGE;
-            let byte_offset = row_offset * ROW_SIZE;
-
-            let bytes = &self.pages[page_num][byte_offset..byte_offset + ROW_SIZE];
+            let bytes = self.pager.get_bytes(i);
             let row: Row = bincode::deserialize(&bytes).unwrap();
 
             output.push_str(&format!("{:?}\n", row));
@@ -139,15 +173,11 @@ impl Table {
 
     pub fn insert(&mut self, row: &Row) -> String {
         let row_in_bytes = bincode::serialize(row).unwrap();
-        let page_num = self.num_rows / ROWS_PER_PAGE;
-        let row_offset = self.num_rows % ROWS_PER_PAGE;
-        let byte_offset = row_offset * ROW_SIZE;
+        let (page_num, row_offset, byte_offset) = self.pager.get_cursor_info(self.num_rows);
+        let bytes = self.pager.get_mut_bytes(self.num_rows);
 
-        // Copy each byte from row into our pages.
-        let mut j = 0;
-        for i in byte_offset..byte_offset + ROW_SIZE {
-            self.pages[page_num][i] = row_in_bytes[j];
-            j += 1;
+        for i in 0..ROW_SIZE {
+            bytes[i] = row_in_bytes[i];
         }
         self.num_rows += 1;
 
