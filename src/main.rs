@@ -62,6 +62,8 @@ mod test {
         let mut table = Table::new("test.db".to_string());
         let output = handle_input(&mut table, ".exit");
         assert_eq!(output, "Exit");
+
+        clean_test();
     }
 
     #[test]
@@ -69,6 +71,8 @@ mod test {
         let mut table = Table::new("test.db".to_string());
         let output = handle_input(&mut table, ".dfaskfd");
         assert_eq!(output, "Unrecognized command '.dfaskfd'.");
+
+        clean_test();
     }
 
     #[test]
@@ -79,6 +83,8 @@ mod test {
             output,
             "Unrecognized keyword at start of 'insert 1 apple apple apple'."
         );
+
+        clean_test();
     }
 
     #[test]
@@ -97,6 +103,8 @@ mod test {
             output,
             "(1, john, john@email.com)\n(2, wick, wick@email.com)\n"
         );
+
+        clean_test();
     }
 
     #[test]
@@ -114,6 +122,8 @@ mod test {
             output,
             "inserting to page 0 with row offset 1 and byte offset 291...\n"
         );
+
+        clean_test();
     }
 
     #[test]
@@ -140,6 +150,8 @@ mod test {
             output,
             "inserting to page 0 with row offset 1 and byte offset 291...\n"
         );
+
+        clean_test();
     }
 
     #[test]
@@ -147,6 +159,8 @@ mod test {
         let mut table = Table::new("test.db".to_string());
         let output = handle_input(&mut table, "insert -1 john john@email.com");
         assert_eq!(output, "ID must be positive.");
+
+        clean_test();
     }
 
     #[test]
@@ -167,6 +181,8 @@ mod test {
 
         let output = handle_input(&mut table, &format!("insert 1 john {email}"));
         assert_eq!(output, "Email is too long.");
+
+        clean_test();
     }
 
     #[test]
@@ -181,5 +197,11 @@ mod test {
         let mut reopen_table = Table::new("test.db".to_string());
         let output = handle_input(&mut reopen_table, "select");
         assert_eq!(output, "(1, john, john@email.com)\n");
+
+        clean_test();
+    }
+
+    fn clean_test() {
+        let _ = std::fs::remove_file("test.db");
     }
 }

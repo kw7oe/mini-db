@@ -1,7 +1,8 @@
 use std::{
     fs::{File, OpenOptions},
-    io::BufReader,
-    path::{Path, PathBuf},
+    io::SeekFrom,
+    io::{Read, Seek, Write},
+    path::PathBuf,
 };
 
 use crate::BigArray;
@@ -87,12 +88,13 @@ impl Row {
 
 const ROW_SIZE: usize = USERNAME_SIZE + EMAIL_SIZE + 4; // u32 is 4 x u8;
 const PAGE_SIZE: usize = 4096;
-const TABLE_MAX_PAGE: usize = 100;
+// const TABLE_MAX_PAGE: usize = 100;
 const ROWS_PER_PAGE: usize = PAGE_SIZE / ROW_SIZE;
 
 pub struct Pager {
     write_file: File,
     read_file: File,
+    file_len: usize,
     pages: Vec<[u8; PAGE_SIZE]>,
 }
 
@@ -108,10 +110,12 @@ impl Pager {
             .unwrap();
 
         let read_file = File::open(&path).unwrap();
+        let file_len = read_file.metadata().unwrap().len() as usize;
 
         Pager {
             write_file,
             read_file,
+            file_len,
             pages: Vec::new(),
         }
     }
@@ -124,25 +128,46 @@ impl Pager {
         (page_num, row_offset, byte_offset)
     }
 
-    pub fn get_mut_cursor_info(&mut self, row: usize) -> (usize, usize, usize) {
+    pub fn get_page(&mut self, row: usize) -> (usize, usize, usize) {
         let (page_num, row_offset, byte_offset) = self.get_cursor_info(row);
 
         if self.pages.get(page_num).is_none() {
-            println!("initialize {page_num}");
+            let mut number_of_pages = self.file_len / PAGE_SIZE;
+
+            if self.file_len % PAGE_SIZE != 0 {
+                // We wrote a partial page
+                number_of_pages += 1;
+            }
+
             self.pages.insert(page_num, [0; PAGE_SIZE]);
+            if page_num < number_of_pages {
+                println!("initialze from file");
+                let offset = page_num as i64 * PAGE_SIZE as i64;
+                if let Ok(_) = self.read_file.seek(SeekFrom::Current(offset)) {
+                    if let Ok(read_len) = self.read_file.read(&mut self.pages[page_num]) {
+                        println!("save {read_len} len");
+                    };
+                }
+            }
         }
 
         (page_num, row_offset, byte_offset)
     }
 
-    pub fn get_bytes(&self, row: usize) -> &[u8] {
-        let (page_num, _row_offset, byte_offset) = self.get_cursor_info(row);
+    pub fn get_bytes(&mut self, row: usize) -> &[u8] {
+        let (page_num, _row_offset, byte_offset) = self.get_page(row);
         &self.pages[page_num][byte_offset..byte_offset + ROW_SIZE]
     }
 
     pub fn get_mut_bytes(&mut self, row: usize) -> &mut [u8] {
-        let (page_num, _row_offset, byte_offset) = self.get_mut_cursor_info(row);
+        let (page_num, _row_offset, byte_offset) = self.get_page(row);
         &mut self.pages[page_num][byte_offset..byte_offset + ROW_SIZE]
+    }
+
+    pub fn flush(&mut self) {
+        for bytes in &self.pages {
+            self.write_file.write(bytes).unwrap();
+        }
     }
 }
 
@@ -153,13 +178,14 @@ pub struct Table {
 
 impl Table {
     pub fn new(path: impl Into<PathBuf>) -> Table {
+        let pager = Pager::new(path);
         Table {
-            num_rows: 0,
-            pager: Pager::new(path),
+            num_rows: pager.file_len / PAGE_SIZE,
+            pager,
         }
     }
 
-    pub fn select(&self) -> String {
+    pub fn select(&mut self) -> String {
         let mut output = String::new();
         for i in 0..self.num_rows {
             let bytes = self.pager.get_bytes(i);
@@ -180,6 +206,7 @@ impl Table {
             bytes[i] = row_in_bytes[i];
         }
         self.num_rows += 1;
+        self.pager.flush();
 
         format!("inserting to page {page_num} with row offset {row_offset} and byte offset {byte_offset}...\n")
     }
