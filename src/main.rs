@@ -190,13 +190,19 @@ mod test {
         let mut table = Table::new("test.db".to_string());
 
         handle_input(&mut table, "insert 1 john john@email.com");
+        handle_input(&mut table, "insert 2 wick wick@email.com");
         let output = handle_input(&mut table, "select");
-        assert_eq!(output, "(1, john, john@email.com)\n");
-        drop(table);
+        assert_eq!(
+            output,
+            "(1, john, john@email.com)\n(2, wick, wick@email.com)\n"
+        );
 
         let mut reopen_table = Table::new("test.db".to_string());
         let output = handle_input(&mut reopen_table, "select");
-        assert_eq!(output, "(1, john, john@email.com)\n");
+        assert_eq!(
+            output,
+            "(1, john, john@email.com)\n(2, wick, wick@email.com)\n"
+        );
 
         clean_test();
     }

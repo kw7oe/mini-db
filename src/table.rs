@@ -103,8 +103,7 @@ impl Pager {
         let path = path.into();
 
         let write_file = OpenOptions::new()
-            .read(true)
-            .append(true)
+            .write(true)
             .create(true)
             .open(&path)
             .unwrap();
@@ -141,8 +140,8 @@ impl Pager {
 
             self.pages.insert(page_num, [0; PAGE_SIZE]);
             if page_num < number_of_pages {
-                println!("initialze from file");
                 let offset = page_num as i64 * PAGE_SIZE as i64;
+
                 if let Ok(_) = self.read_file.seek(SeekFrom::Current(offset)) {
                     if let Ok(read_len) = self.read_file.read(&mut self.pages[page_num]) {
                         println!("save {read_len} len");
@@ -164,10 +163,10 @@ impl Pager {
         &mut self.pages[page_num][byte_offset..byte_offset + ROW_SIZE]
     }
 
-    pub fn flush(&mut self) {
-        for bytes in &self.pages {
-            self.write_file.write(bytes).unwrap();
-        }
+    pub fn flush(&mut self, page_num: usize, byte_offset: usize) {
+        self.write_file
+            .write(&self.pages[page_num][byte_offset..byte_offset + ROW_SIZE])
+            .unwrap();
     }
 }
 
@@ -180,7 +179,7 @@ impl Table {
     pub fn new(path: impl Into<PathBuf>) -> Table {
         let pager = Pager::new(path);
         Table {
-            num_rows: pager.file_len / PAGE_SIZE,
+            num_rows: pager.file_len / ROW_SIZE,
             pager,
         }
     }
@@ -206,7 +205,7 @@ impl Table {
             bytes[i] = row_in_bytes[i];
         }
         self.num_rows += 1;
-        self.pager.flush();
+        self.pager.flush(page_num, byte_offset);
 
         format!("inserting to page {page_num} with row offset {row_offset} and byte offset {byte_offset}...\n")
     }
