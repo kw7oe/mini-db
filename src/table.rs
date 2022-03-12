@@ -91,6 +91,35 @@ const PAGE_SIZE: usize = 4096;
 // const TABLE_MAX_PAGE: usize = 100;
 const ROWS_PER_PAGE: usize = PAGE_SIZE / ROW_SIZE;
 
+pub struct Cursor {
+    row_num: usize,
+    end_of_table: bool,
+}
+
+impl Cursor {
+    pub fn table_start(table: &Table) -> Cursor {
+        Cursor {
+            row_num: 0,
+            end_of_table: table.num_rows == 0,
+        }
+    }
+
+    pub fn table_end(table: &Table) -> Cursor {
+        Cursor {
+            row_num: table.num_rows,
+            end_of_table: true,
+        }
+    }
+
+    fn advance(&mut self, table: &Table) {
+        self.row_num += 1;
+
+        if self.row_num >= table.num_rows {
+            self.end_of_table = true;
+        }
+    }
+}
+
 pub struct Pager {
     write_file: File,
     read_file: File,
@@ -163,10 +192,27 @@ impl Pager {
         &mut self.pages[page_num][byte_offset..byte_offset + ROW_SIZE]
     }
 
-    pub fn flush(&mut self, page_num: usize, byte_offset: usize) {
+    pub fn flush(&mut self, row: usize) {
+        let (page_num, _row_offset, byte_offset) = self.get_page(row);
         self.write_file
             .write(&self.pages[page_num][byte_offset..byte_offset + ROW_SIZE])
             .unwrap();
+    }
+
+    pub fn serialize_row(&mut self, row: &Row, cursor: &Cursor) {
+        let row_in_bytes = bincode::serialize(row).unwrap();
+        let bytes = self.get_mut_bytes(cursor.row_num);
+
+        for i in 0..ROW_SIZE {
+            bytes[i] = row_in_bytes[i];
+        }
+
+        self.flush(cursor.row_num);
+    }
+
+    pub fn deserialize_row(&mut self, row: usize) -> Row {
+        let bytes = self.get_bytes(row);
+        bincode::deserialize(&bytes).unwrap()
     }
 }
 
@@ -185,27 +231,24 @@ impl Table {
     }
 
     pub fn select(&mut self) -> String {
+        let mut cursor = Cursor::table_start(self);
         let mut output = String::new();
-        for i in 0..self.num_rows {
-            let bytes = self.pager.get_bytes(i);
-            let row: Row = bincode::deserialize(&bytes).unwrap();
 
+        while !cursor.end_of_table {
+            let row = self.pager.deserialize_row(cursor.row_num);
             output.push_str(&format!("{:?}\n", row));
+            cursor.advance(self);
         }
 
         output
     }
 
     pub fn insert(&mut self, row: &Row) -> String {
-        let row_in_bytes = bincode::serialize(row).unwrap();
-        let (page_num, row_offset, byte_offset) = self.pager.get_cursor_info(self.num_rows);
-        let bytes = self.pager.get_mut_bytes(self.num_rows);
+        let cursor = Cursor::table_end(self);
+        let (page_num, row_offset, byte_offset) = self.pager.get_cursor_info(cursor.row_num);
 
-        for i in 0..ROW_SIZE {
-            bytes[i] = row_in_bytes[i];
-        }
+        self.pager.serialize_row(row, &cursor);
         self.num_rows += 1;
-        self.pager.flush(page_num, byte_offset);
 
         format!("inserting to page {page_num} with row offset {row_offset} and byte offset {byte_offset}...\n")
     }
