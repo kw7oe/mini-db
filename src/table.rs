@@ -92,34 +92,42 @@ const PAGE_SIZE: usize = 4096;
 // const TABLE_MAX_PAGE: usize = 100;
 const ROWS_PER_PAGE: usize = PAGE_SIZE / ROW_SIZE;
 
+#[derive(Debug)]
 pub struct Cursor {
-    row_num: usize,
+    page_num: usize,
     pub cell_num: usize,
     end_of_table: bool,
 }
 
 impl Cursor {
-    pub fn table_start(table: &Table) -> Cursor {
+    pub fn table_start(table: &mut Table) -> Cursor {
+        let page_num = table.root_page_num;
+        let num_of_cells = table.pager.get_page(page_num).num_of_cells as usize;
+
         Cursor {
-            row_num: 0,
+            page_num,
             cell_num: 0,
-            end_of_table: table.num_rows == 0,
+            end_of_table: num_of_cells == 0,
         }
     }
 
-    pub fn table_end(table: &Table) -> Cursor {
+    pub fn table_end(table: &mut Table) -> Cursor {
+        let page_num = table.pager.num_pages;
+        let num_of_cells = table.pager.get_page(table.pager.num_pages).num_of_cells as usize;
+
         Cursor {
-            row_num: table.num_rows,
-            // TODO: Fix this. This is wrong.
-            cell_num: 0,
+            page_num,
+            cell_num: num_of_cells,
             end_of_table: true,
         }
     }
 
-    fn advance(&mut self, table: &Table) {
-        self.row_num += 1;
+    fn advance(&mut self, table: &mut Table) {
+        self.cell_num += 1;
 
-        if self.row_num >= table.num_rows {
+        let num_of_cells = table.pager.get_page(self.page_num).num_of_cells as usize;
+
+        if self.cell_num >= num_of_cells {
             self.end_of_table = true;
         }
     }
@@ -129,7 +137,7 @@ pub struct Pager {
     write_file: File,
     read_file: File,
     file_len: usize,
-    pages: Vec<[u8; PAGE_SIZE]>,
+    num_pages: usize,
     nodes: Vec<Node>,
 }
 
@@ -150,7 +158,7 @@ impl Pager {
             write_file,
             read_file,
             file_len,
-            pages: Vec::new(),
+            num_pages: file_len / PAGE_SIZE,
             nodes: Vec::new(),
         }
     }
@@ -163,10 +171,8 @@ impl Pager {
         (page_num, row_offset, byte_offset)
     }
 
-    pub fn get_page(&mut self, row: usize) -> (usize, usize, usize) {
-        let (page_num, row_offset, byte_offset) = self.get_cursor_info(row);
-
-        if self.pages.get(page_num).is_none() {
+    pub fn get_page(&mut self, page_num: usize) -> &Node {
+        if self.nodes.get(page_num).is_none() {
             let mut number_of_pages = self.file_len / PAGE_SIZE;
 
             if self.file_len % PAGE_SIZE != 0 {
@@ -174,57 +180,42 @@ impl Pager {
                 number_of_pages += 1;
             }
 
-            self.pages.insert(page_num, [0; PAGE_SIZE]);
+            self.nodes.insert(page_num, Node::new(true, NodeType::Leaf));
             if page_num < number_of_pages {
                 let offset = page_num as i64 * PAGE_SIZE as i64;
 
-                if let Ok(_) = self.read_file.seek(SeekFrom::Current(offset)) {
-                    if let Ok(read_len) = self.read_file.read(&mut self.pages[page_num]) {
-                        println!("save {read_len} len");
-                    };
-                }
+                // if let Ok(_) = self.read_file.seek(SeekFrom::Current(offset)) {
+                //     if let Ok(read_len) = self.read_file.read(&mut self.nodes[page_num].cells) {
+                //         println!("save {read_len} len");
+                //     };
+                // }
             }
         }
 
-        (page_num, row_offset, byte_offset)
+        &self.nodes[page_num]
     }
 
-    pub fn get_bytes(&mut self, row: usize) -> &[u8] {
-        let (page_num, _row_offset, byte_offset) = self.get_page(row);
-        &self.pages[page_num][byte_offset..byte_offset + ROW_SIZE]
-    }
-
-    pub fn get_mut_bytes(&mut self, row: usize) -> &mut [u8] {
-        let (page_num, _row_offset, byte_offset) = self.get_page(row);
-        &mut self.pages[page_num][byte_offset..byte_offset + ROW_SIZE]
-    }
-
-    pub fn flush(&mut self, row: usize) {
-        let (page_num, _row_offset, byte_offset) = self.get_page(row);
+    pub fn flush(&mut self, cursor: &Cursor) {
+        let node = self.get_page(cursor.page_num);
         self.write_file
-            .write(&self.pages[page_num][byte_offset..byte_offset + ROW_SIZE])
+            .write(&self.nodes[cursor.page_num].read_value(cursor.cell_num))
             .unwrap();
     }
 
     pub fn serialize_row(&mut self, row: &Row, cursor: &Cursor) {
-        let row_in_bytes = bincode::serialize(row).unwrap();
-        let bytes = self.get_mut_bytes(cursor.row_num);
-
-        for i in 0..ROW_SIZE {
-            bytes[i] = row_in_bytes[i];
-        }
-
-        self.flush(cursor.row_num);
+        let node = self.get_page(cursor.page_num);
+        self.nodes[cursor.page_num].insert(row, cursor);
+        self.flush(&cursor);
     }
 
-    pub fn deserialize_row(&mut self, row: usize) -> Row {
-        let bytes = self.get_bytes(row);
-        bincode::deserialize(&bytes).unwrap()
+    pub fn deserialize_row(&mut self, cursor: &Cursor) -> Row {
+        let node = self.get_page(cursor.page_num);
+        self.nodes[cursor.page_num].get(cursor.cell_num)
     }
 }
 
 pub struct Table {
-    num_rows: usize,
+    root_page_num: usize,
     pager: Pager,
 }
 
@@ -232,7 +223,7 @@ impl Table {
     pub fn new(path: impl Into<PathBuf>) -> Table {
         let pager = Pager::new(path);
         Table {
-            num_rows: pager.file_len / ROW_SIZE,
+            root_page_num: 0,
             pager,
         }
     }
@@ -242,7 +233,7 @@ impl Table {
         let mut output = String::new();
 
         while !cursor.end_of_table {
-            let row = self.pager.deserialize_row(cursor.row_num);
+            let row = self.pager.deserialize_row(&cursor);
             output.push_str(&format!("{:?}\n", row));
             cursor.advance(self);
         }
@@ -252,11 +243,10 @@ impl Table {
 
     pub fn insert(&mut self, row: &Row) -> String {
         let cursor = Cursor::table_end(self);
-        let (page_num, row_offset, byte_offset) = self.pager.get_cursor_info(cursor.row_num);
-
         self.pager.serialize_row(row, &cursor);
-        self.num_rows += 1;
-
-        format!("inserting to page {page_num} with row offset {row_offset} and byte offset {byte_offset}...\n")
+        format!(
+            "inserting into page: {}, cell: {}...\n",
+            cursor.page_num, cursor.cell_num
+        )
     }
 }

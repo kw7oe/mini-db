@@ -114,16 +114,10 @@ mod test {
         let mut table = Table::new("test.db".to_string());
 
         let output = handle_input(&mut table, "insert 1 john john@email.com");
-        assert_eq!(
-            output,
-            "inserting to page 0 with row offset 0 and byte offset 0...\n"
-        );
+        assert_eq!(output, "inserting into page: 0, cell: 0...\n");
 
         let output = handle_input(&mut table, "insert 1 john john@email.com");
-        assert_eq!(
-            output,
-            "inserting to page 0 with row offset 1 and byte offset 291...\n"
-        );
+        assert_eq!(output, "inserting into page: 0, cell: 1...\n");
 
         clean_test();
     }
@@ -137,10 +131,7 @@ mod test {
         }
 
         let output = handle_input(&mut table, &format!("insert 1 {username} john@email.com"));
-        assert_eq!(
-            output,
-            "inserting to page 0 with row offset 0 and byte offset 0...\n"
-        );
+        assert_eq!(output, "inserting into page: 0, cell: 0...\n");
 
         let mut email = String::new();
         for _ in 0..255 {
@@ -148,10 +139,7 @@ mod test {
         }
 
         let output = handle_input(&mut table, &format!("insert 1 john {email}"));
-        assert_eq!(
-            output,
-            "inserting to page 0 with row offset 1 and byte offset 291...\n"
-        );
+        assert_eq!(output, "inserting into page: 0, cell: 1...\n");
 
         clean_test();
     }

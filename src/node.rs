@@ -43,7 +43,7 @@ pub struct Node {
     parent_offset: u32,
 
     // Leaf
-    num_of_cells: u32,
+    pub num_of_cells: u32,
     // Body
     cells: Vec<Cell>,
 }
@@ -66,13 +66,12 @@ pub fn print_constant() {
 }
 
 impl Node {
-    fn new(is_root: bool, node_type: NodeType) -> Node {
-        let num_of_cells = 10;
+    pub fn new(is_root: bool, node_type: NodeType) -> Node {
         Node {
             node_type,
             is_root,
             parent_offset: 0,
-            num_of_cells,
+            num_of_cells: 0,
             cells: Vec::new(),
         }
     }
@@ -89,12 +88,6 @@ impl Node {
         }
     }
 
-    fn read_value(&mut self, cell_num: usize) -> Row {
-        let offset = LEAF_NODE_KEY_SIZE;
-        bincode::deserialize(&self.cells[cell_num].0[offset..offset + LEAF_NODE_VALUE_SIZE])
-            .unwrap()
-    }
-
     fn write_value(&mut self, row: &Row, cell_num: usize) {
         let offset = LEAF_NODE_KEY_SIZE;
         let row_in_bytes = bincode::serialize(row).unwrap();
@@ -104,7 +97,17 @@ impl Node {
         }
     }
 
-    fn insert(&mut self, row: &Row, cursor: &Cursor) {
+    pub fn read_value(&mut self, cell_num: usize) -> &[u8] {
+        let offset = LEAF_NODE_KEY_SIZE;
+        &self.cells[cell_num].0[offset..offset + LEAF_NODE_VALUE_SIZE]
+    }
+
+    pub fn get(&mut self, cell_num: usize) -> Row {
+        let bytes = self.read_value(cell_num);
+        bincode::deserialize(bytes).unwrap()
+    }
+
+    pub fn insert(&mut self, row: &Row, cursor: &Cursor) {
         if self.num_of_cells as usize >= LEAF_NODE_MAX_CELLS {
             println!("Need to implement split leaf node");
             return;
@@ -128,9 +131,9 @@ mod test {
         let bytes = bincode::serialize(&node).unwrap();
         println!("{:?}", bytes);
 
-        let table = Table::new("test.db");
+        let mut table = Table::new("test.db");
         let row = Row::from_statement("insert 1 john john@email.com").unwrap();
-        let cursor = Cursor::table_end(&table);
+        let cursor = Cursor::table_end(&mut table);
         node.insert(&row, &cursor);
         println!("{:?}", node);
 
