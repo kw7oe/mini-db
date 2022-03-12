@@ -14,7 +14,7 @@ const EMAIL_SIZE: usize = 255;
 
 #[derive(Serialize, Deserialize, PartialEq)]
 pub struct Row {
-    id: u32,
+    pub id: u32,
     #[serde(with = "BigArray")]
     username: [u8; USERNAME_SIZE],
     #[serde(with = "BigArray")]
@@ -94,6 +94,7 @@ const ROWS_PER_PAGE: usize = PAGE_SIZE / ROW_SIZE;
 
 pub struct Cursor {
     row_num: usize,
+    pub cell_num: usize,
     end_of_table: bool,
 }
 
@@ -101,6 +102,7 @@ impl Cursor {
     pub fn table_start(table: &Table) -> Cursor {
         Cursor {
             row_num: 0,
+            cell_num: 0,
             end_of_table: table.num_rows == 0,
         }
     }
@@ -108,6 +110,8 @@ impl Cursor {
     pub fn table_end(table: &Table) -> Cursor {
         Cursor {
             row_num: table.num_rows,
+            // TODO: Fix this. This is wrong.
+            cell_num: 0,
             end_of_table: true,
         }
     }
