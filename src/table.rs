@@ -5,6 +5,7 @@ use std::{
     path::PathBuf,
 };
 
+use crate::node::{Node, NodeType};
 use crate::BigArray;
 use serde::{Deserialize, Serialize};
 
@@ -86,7 +87,7 @@ impl Row {
     }
 }
 
-const ROW_SIZE: usize = USERNAME_SIZE + EMAIL_SIZE + 4; // u32 is 4 x u8;
+pub const ROW_SIZE: usize = USERNAME_SIZE + EMAIL_SIZE + 4; // u32 is 4 x u8;
 const PAGE_SIZE: usize = 4096;
 // const TABLE_MAX_PAGE: usize = 100;
 const ROWS_PER_PAGE: usize = PAGE_SIZE / ROW_SIZE;
@@ -125,6 +126,7 @@ pub struct Pager {
     read_file: File,
     file_len: usize,
     pages: Vec<[u8; PAGE_SIZE]>,
+    nodes: Vec<Node>,
 }
 
 impl Pager {
@@ -145,6 +147,7 @@ impl Pager {
             read_file,
             file_len,
             pages: Vec::new(),
+            nodes: Vec::new(),
         }
     }
 
