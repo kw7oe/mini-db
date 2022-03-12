@@ -5,7 +5,7 @@ use std::{
     path::PathBuf,
 };
 
-use crate::node::{Node, NodeType};
+use crate::node::{Node, NodeType, COMMON_NODE_HEADER_SIZE, LEAF_NODE_HEADER_SIZE};
 use crate::BigArray;
 use serde::{Deserialize, Serialize};
 
@@ -163,14 +163,6 @@ impl Pager {
         }
     }
 
-    pub fn get_cursor_info(&self, row: usize) -> (usize, usize, usize) {
-        let page_num = row / ROWS_PER_PAGE;
-        let row_offset = row % ROWS_PER_PAGE;
-        let byte_offset = row_offset * ROW_SIZE;
-
-        (page_num, row_offset, byte_offset)
-    }
-
     pub fn get_page(&mut self, page_num: usize) -> &Node {
         if self.nodes.get(page_num).is_none() {
             let mut number_of_pages = self.file_len / PAGE_SIZE;
@@ -181,14 +173,23 @@ impl Pager {
             }
 
             self.nodes.insert(page_num, Node::new(true, NodeType::Leaf));
+
             if page_num < number_of_pages {
                 let offset = page_num as i64 * PAGE_SIZE as i64;
 
-                // if let Ok(_) = self.read_file.seek(SeekFrom::Current(offset)) {
-                //     if let Ok(read_len) = self.read_file.read(&mut self.nodes[page_num].cells) {
-                //         println!("save {read_len} len");
-                //     };
-                // }
+                if let Ok(_) = self.read_file.seek(SeekFrom::Current(offset)) {
+                    let mut buffer = [0; PAGE_SIZE];
+                    // Per file is
+                    if let Ok(read_len) = self.read_file.read(&mut buffer) {
+                        let node = self.nodes.get_mut(page_num).unwrap();
+                        node.set_header(&buffer[0..LEAF_NODE_HEADER_SIZE]);
+                        node.set_cell(&buffer[LEAF_NODE_HEADER_SIZE..]);
+                        println!("{:?}", node);
+                    };
+                }
+            } else {
+                let bytes = &self.nodes[page_num].get_header();
+                self.write_file.write(bytes).unwrap();
             }
         }
 
@@ -197,9 +198,18 @@ impl Pager {
 
     pub fn flush(&mut self, cursor: &Cursor) {
         let node = self.get_page(cursor.page_num);
+        let num_of_cells_bytes = &node.num_of_cells.to_le_bytes();
+
         self.write_file
-            .write(&self.nodes[cursor.page_num].read_value(cursor.cell_num))
+            .write(&self.nodes[cursor.page_num].get_cell(cursor.cell_num))
             .unwrap();
+
+        self.write_file
+            .seek(SeekFrom::Start(COMMON_NODE_HEADER_SIZE as u64))
+            .unwrap();
+
+        self.write_file.write(num_of_cells_bytes).unwrap();
+        self.write_file.seek(SeekFrom::End(0)).unwrap();
     }
 
     pub fn serialize_row(&mut self, row: &Row, cursor: &Cursor) {

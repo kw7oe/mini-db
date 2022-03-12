@@ -3,7 +3,7 @@ use crate::BigArray;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone)]
-#[serde(into = "u8")]
+#[serde(into = "u8", from = "u8")]
 pub enum NodeType {
     Internal,
     Leaf,
@@ -15,11 +15,21 @@ impl From<NodeType> for u8 {
     }
 }
 
+impl From<u8> for NodeType {
+    fn from(value: u8) -> NodeType {
+        match value {
+            0 => NodeType::Internal,
+            1 => NodeType::Leaf,
+            _ => unreachable!(),
+        }
+    }
+}
+
 const MAX_NODE_SIZE: usize = 4096;
-const COMMON_NODE_HEADER_SIZE: usize =
+pub const COMMON_NODE_HEADER_SIZE: usize =
     std::mem::size_of::<NodeType>() + std::mem::size_of::<bool>() + std::mem::size_of::<u32>();
 
-const LEAF_NODE_HEADER_SIZE: usize = COMMON_NODE_HEADER_SIZE + std::mem::size_of::<u32>();
+pub const LEAF_NODE_HEADER_SIZE: usize = COMMON_NODE_HEADER_SIZE + std::mem::size_of::<u32>();
 const LEAF_NODE_SPACE_FOR_CELLS: usize = MAX_NODE_SIZE - LEAF_NODE_HEADER_SIZE;
 
 const LEAF_NODE_KEY_SIZE: usize = std::mem::size_of::<u32>();
@@ -74,6 +84,56 @@ impl Node {
             num_of_cells: 0,
             cells: Vec::new(),
         }
+    }
+
+    pub fn set_header(&mut self, bytes: &[u8]) {
+        println!("header: {:?}", bytes);
+        let node_type_bytes = [bytes[0]];
+        self.node_type = bincode::deserialize(&node_type_bytes).unwrap();
+
+        let is_root_bytes = [bytes[1]];
+        self.is_root = bincode::deserialize(&is_root_bytes).unwrap();
+
+        let parent_offset_bytes = &bytes[2..6];
+        self.parent_offset = bincode::deserialize(parent_offset_bytes).unwrap();
+
+        let num_of_cells_bytes = &bytes[6..10];
+        println!("num_of_cells_bytes: {:?}", num_of_cells_bytes);
+        self.num_of_cells = bincode::deserialize(num_of_cells_bytes).unwrap();
+    }
+
+    pub fn set_cell(&mut self, bytes: &[u8]) {
+        // let max_size = self.num_of_cells as usize * LEAF_NODE_CELL_SIZE;
+        // let bytes = &bytes[0..max_size];
+
+        // println!("{:?}", bytes);
+        // println!(
+        //     "cell size: {}, byte size: {}",
+        //     std::mem::size_of::<Cell>(),
+        //     bytes.len()
+        // );
+        // self.cells = bincode::deserialize::<Vec<Cell>>(&bytes).unwrap();
+        //
+        for i in 0..self.num_of_cells as usize {
+            let offset = i * LEAF_NODE_CELL_SIZE;
+            let cell = bincode::deserialize(&bytes[offset..offset + LEAF_NODE_CELL_SIZE]).unwrap();
+            self.cells.insert(i, cell);
+        }
+    }
+
+    pub fn get_header(&mut self) -> [u8; LEAF_NODE_HEADER_SIZE] {
+        let mut result = [0; LEAF_NODE_HEADER_SIZE];
+        let bytes = bincode::serialize(self).unwrap();
+
+        for i in 0..LEAF_NODE_HEADER_SIZE {
+            result[i] = bytes[i];
+        }
+
+        result
+    }
+
+    pub fn get_cell(&mut self, cell_num: usize) -> &[u8] {
+        &self.cells[cell_num].0
     }
 
     fn write_key(&mut self, key: u32, cell_num: usize) {
