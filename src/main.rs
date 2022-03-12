@@ -1,4 +1,4 @@
-use crate::node::LEAF_NODE_SPACE_FOR_CELLS;
+use crate::node::LEAF_NODE_CELL_SIZE;
 use crate::query::*;
 use crate::table::*;
 use std::io::Write;
@@ -8,7 +8,7 @@ use std::process::exit;
 extern crate serde_big_array;
 big_array! {
     BigArray;
-    32, 255, LEAF_NODE_SPACE_FOR_CELLS
+    32, 255, LEAF_NODE_CELL_SIZE
 }
 
 mod node;
