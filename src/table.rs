@@ -179,12 +179,10 @@ impl Pager {
 
                 if let Ok(_) = self.read_file.seek(SeekFrom::Current(offset)) {
                     let mut buffer = [0; PAGE_SIZE];
-                    // Per file is
-                    if let Ok(read_len) = self.read_file.read(&mut buffer) {
+                    if let Ok(_read_len) = self.read_file.read(&mut buffer) {
                         let node = self.nodes.get_mut(page_num).unwrap();
                         node.set_header(&buffer[0..LEAF_NODE_HEADER_SIZE]);
                         node.set_cell(&buffer[LEAF_NODE_HEADER_SIZE..]);
-                        println!("{:?}", node);
                     };
                 }
             } else {

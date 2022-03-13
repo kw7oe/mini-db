@@ -100,7 +100,6 @@ mod test {
         handle_input(&mut table, "insert 2 wick wick@email.com");
 
         let output = handle_input(&mut table, "select");
-        println!("{}", output);
         assert_eq!(
             output,
             "(1, john, john@email.com)\n(2, wick, wick@email.com)\n"

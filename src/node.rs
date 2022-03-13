@@ -87,7 +87,6 @@ impl Node {
     }
 
     pub fn set_header(&mut self, bytes: &[u8]) {
-        println!("header: {:?}", bytes);
         let node_type_bytes = [bytes[0]];
         self.node_type = bincode::deserialize(&node_type_bytes).unwrap();
 
@@ -98,27 +97,34 @@ impl Node {
         self.parent_offset = bincode::deserialize(parent_offset_bytes).unwrap();
 
         let num_of_cells_bytes = &bytes[6..10];
-        println!("num_of_cells_bytes: {:?}", num_of_cells_bytes);
         self.num_of_cells = bincode::deserialize(num_of_cells_bytes).unwrap();
     }
 
-    pub fn set_cell(&mut self, bytes: &[u8]) {
-        // let max_size = self.num_of_cells as usize * LEAF_NODE_CELL_SIZE;
-        // let bytes = &bytes[0..max_size];
-
-        // println!("{:?}", bytes);
-        // println!(
-        //     "cell size: {}, byte size: {}",
-        //     std::mem::size_of::<Cell>(),
-        //     bytes.len()
-        // );
-        // self.cells = bincode::deserialize::<Vec<Cell>>(&bytes).unwrap();
+    pub fn set_cell(&mut self, cell_bytes: &[u8]) {
+        // The reason we can't use bincode to directly deserialize our bytes
+        // into Vec<Cell> is because Vec<Cell> binary format will includes a
+        // u64 (8 bytes) column that (seems like) representing the length of the
+        // Vec<Cell>.
         //
-        for i in 0..self.num_of_cells as usize {
-            let offset = i * LEAF_NODE_CELL_SIZE;
-            let cell = bincode::deserialize(&bytes[offset..offset + LEAF_NODE_CELL_SIZE]).unwrap();
-            self.cells.insert(i, cell);
-        }
+        // However, when we persist a cell to disk, we are only writing Cell
+        // binary format and we are tracking our own number of cells by using a
+        // separate column with a u32 (4 bytes) data type.
+        //
+        // Hence, to deserialize with bincode directly into Vec<Cell>,  we append
+        // the num_of_cells as 8 bytes into our bytes first.
+        let max_size = self.num_of_cells as usize * LEAF_NODE_CELL_SIZE;
+        let mut bytes = (self.num_of_cells as u64).to_le_bytes().to_vec();
+        let cell_bytes = &mut cell_bytes[0..max_size].to_vec();
+        bytes.append(cell_bytes);
+        self.cells = bincode::deserialize_from(&bytes[..]).unwrap();
+
+        // Alternatively, we could just deserialize a cell bytes into Cell
+        // and insert into Vec<Cell> manually.
+        // for i in 0..self.num_of_cells as usize {
+        //     let offset = i * LEAF_NODE_CELL_SIZE;
+        //     let cell = bincode::deserialize(&bytes[offset..offset + LEAF_NODE_CELL_SIZE]).unwrap();
+        //     self.cells.insert(i, cell);
+        // }
     }
 
     pub fn get_header(&mut self) -> [u8; LEAF_NODE_HEADER_SIZE] {
