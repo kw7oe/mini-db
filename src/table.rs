@@ -119,7 +119,7 @@ impl Cursor {
 
         if node.node_type == NodeType::Leaf {
             match node.search(key) {
-                Ok(index) => Err("duplicate key\n".to_string()),
+                Ok(_index) => Err("duplicate key\n".to_string()),
                 Err(index) => Ok(Cursor {
                     page_num,
                     cell_num: index,
@@ -191,11 +191,11 @@ impl Pager {
                     if let Ok(_read_len) = self.read_file.read(&mut buffer) {
                         let node = self.nodes.get_mut(page_num).unwrap();
                         node.set_header(&buffer[0..LEAF_NODE_HEADER_SIZE]);
-                        node.set_cell(&buffer[LEAF_NODE_HEADER_SIZE..]);
+                        node.set_cells(&buffer[LEAF_NODE_HEADER_SIZE..]);
                     };
                 }
             } else {
-                let bytes = &self.nodes[page_num].get_header();
+                let bytes = &self.nodes[page_num].header();
                 self.write_file.write(bytes).unwrap();
             }
         }
@@ -208,7 +208,7 @@ impl Pager {
         let num_of_cells_bytes = &node.num_of_cells.to_le_bytes();
 
         self.write_file
-            .write(&self.nodes[cursor.page_num].get_cell(cursor.cell_num))
+            .write(&self.nodes[cursor.page_num].cells(cursor.cell_num))
             .unwrap();
 
         self.write_file

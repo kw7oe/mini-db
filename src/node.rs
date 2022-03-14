@@ -49,6 +49,28 @@ impl Cell {
         let key_bytes = &self.0[0..4];
         bincode::deserialize(&key_bytes).unwrap()
     }
+
+    pub fn value(&mut self) -> &[u8] {
+        let offset = LEAF_NODE_KEY_SIZE;
+        &self.0[offset..offset + LEAF_NODE_VALUE_SIZE]
+    }
+
+    fn write_key(&mut self, key: u32) {
+        let mut j = 0;
+        for i in key.to_le_bytes() {
+            self.0[j] = i;
+            j += 1;
+        }
+    }
+
+    fn write_value(&mut self, row: &Row) {
+        let offset = LEAF_NODE_KEY_SIZE;
+        let row_in_bytes = bincode::serialize(row).unwrap();
+
+        for i in 0..ROW_SIZE {
+            self.0[offset + i] = row_in_bytes[i];
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -107,7 +129,7 @@ impl Node {
         self.num_of_cells = bincode::deserialize(num_of_cells_bytes).unwrap();
     }
 
-    pub fn set_cell(&mut self, cell_bytes: &[u8]) {
+    pub fn set_cells(&mut self, cell_bytes: &[u8]) {
         // The reason we can't use bincode to directly deserialize our bytes
         // into Vec<Cell> is because Vec<Cell> binary format will includes a
         // u64 (8 bytes) column that (seems like) representing the length of the
@@ -134,7 +156,7 @@ impl Node {
         // }
     }
 
-    pub fn get_header(&mut self) -> [u8; LEAF_NODE_HEADER_SIZE] {
+    pub fn header(&mut self) -> [u8; LEAF_NODE_HEADER_SIZE] {
         let mut result = [0; LEAF_NODE_HEADER_SIZE];
         let bytes = bincode::serialize(self).unwrap();
 
@@ -145,34 +167,8 @@ impl Node {
         result
     }
 
-    pub fn get_cell(&mut self, cell_num: usize) -> &[u8] {
+    pub fn cells(&mut self, cell_num: usize) -> &[u8] {
         &self.cells[cell_num].0
-    }
-
-    fn write_key(&mut self, key: u32, cell_num: usize) {
-        if self.cells.get(cell_num).is_none() {
-            self.cells.insert(cell_num, Cell([0; LEAF_NODE_CELL_SIZE]))
-        }
-
-        let mut j = 0;
-        for i in key.to_le_bytes() {
-            self.cells[cell_num].0[j] = i;
-            j += 1;
-        }
-    }
-
-    fn write_value(&mut self, row: &Row, cell_num: usize) {
-        let offset = LEAF_NODE_KEY_SIZE;
-        let row_in_bytes = bincode::serialize(row).unwrap();
-
-        for i in 0..ROW_SIZE {
-            self.cells[cell_num].0[offset + i] = row_in_bytes[i];
-        }
-    }
-
-    pub fn read_value(&mut self, cell_num: usize) -> &[u8] {
-        let offset = LEAF_NODE_KEY_SIZE;
-        &self.cells[cell_num].0[offset..offset + LEAF_NODE_VALUE_SIZE]
     }
 
     pub fn search(&self, key: u32) -> Result<usize, usize> {
@@ -180,19 +176,34 @@ impl Node {
     }
 
     pub fn get(&mut self, cell_num: usize) -> Row {
-        let bytes = self.read_value(cell_num);
+        let bytes = self.cells[cell_num].value();
         bincode::deserialize(bytes).unwrap()
     }
 
     pub fn insert(&mut self, row: &Row, cursor: &Cursor) {
-        if self.num_of_cells as usize >= LEAF_NODE_MAX_CELLS {
+        let num_of_cells = self.num_of_cells as usize;
+        if num_of_cells >= LEAF_NODE_MAX_CELLS {
             println!("Need to implement split leaf node");
             return;
-        } else {
-            self.num_of_cells += 1;
-            self.write_key(row.id, cursor.cell_num);
-            self.write_value(row, cursor.cell_num);
         }
+
+        // Make room for new cell.
+        //
+        // Else, it will be the current cell at cell_num will be override by
+        // new cell.
+        if cursor.cell_num < num_of_cells {
+            self.cells
+                .insert(cursor.cell_num, Cell([0; LEAF_NODE_CELL_SIZE]));
+        }
+
+        if self.cells.get(cursor.cell_num).is_none() {
+            self.cells
+                .insert(cursor.cell_num, Cell([0; LEAF_NODE_CELL_SIZE]))
+        }
+
+        self.num_of_cells += 1;
+        self.cells[cursor.cell_num].write_key(row.id);
+        self.cells[cursor.cell_num].write_value(row);
     }
 }
 

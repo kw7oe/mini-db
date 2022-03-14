@@ -112,11 +112,14 @@ mod test {
     fn insert_statement() {
         let mut table = Table::new("test.db".to_string());
 
+        let output = handle_input(&mut table, "insert 2 john john@email.com");
+        assert_eq!(output, "inserting into page: 0, cell: 0...\n");
+
         let output = handle_input(&mut table, "insert 1 john john@email.com");
         assert_eq!(output, "inserting into page: 0, cell: 0...\n");
 
-        let output = handle_input(&mut table, "insert 2 john john@email.com");
-        assert_eq!(output, "inserting into page: 0, cell: 1...\n");
+        let output = handle_input(&mut table, "insert 3 john john@email.com");
+        assert_eq!(output, "inserting into page: 0, cell: 2...\n");
 
         clean_test();
     }
