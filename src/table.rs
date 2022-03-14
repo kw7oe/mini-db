@@ -5,9 +5,7 @@ use std::{
     path::PathBuf,
 };
 
-use crate::node::{
-    Node, NodeType, COMMON_NODE_HEADER_SIZE, LEAF_NODE_HEADER_SIZE, LEAF_NODE_MAX_CELLS,
-};
+use crate::node::{Node, NodeType, LEAF_NODE_MAX_CELLS};
 use crate::BigArray;
 use serde::{Deserialize, Serialize};
 
@@ -190,8 +188,7 @@ impl Pager {
                     let mut buffer = [0; PAGE_SIZE];
                     if let Ok(_read_len) = self.read_file.read(&mut buffer) {
                         let node = self.nodes.get_mut(page_num).unwrap();
-                        node.set_header(&buffer[0..LEAF_NODE_HEADER_SIZE]);
-                        node.set_cells(&buffer[LEAF_NODE_HEADER_SIZE..]);
+                        node.from_bytes(&buffer);
                     };
                 }
             }

@@ -37,6 +37,11 @@ const LEAF_NODE_VALUE_SIZE: usize = ROW_SIZE;
 pub const LEAF_NODE_CELL_SIZE: usize = LEAF_NODE_KEY_SIZE + LEAF_NODE_VALUE_SIZE;
 pub const LEAF_NODE_MAX_CELLS: usize = LEAF_NODE_SPACE_FOR_CELLS / LEAF_NODE_CELL_SIZE;
 
+pub const INTERNAL_NODE_RIGHT_CHILD_SIZE: usize = std::mem::size_of::<u32>();
+pub const INTERNAL_NODE_NUM_KEYS_SIZE: usize = std::mem::size_of::<u32>();
+pub const INTERNAL_NODE_HEADER_SIZE: usize =
+    COMMON_NODE_HEADER_SIZE + INTERNAL_NODE_RIGHT_CHILD_SIZE + INTERNAL_NODE_NUM_KEYS_SIZE;
+
 // We have to define a custom type in order to have a  define
 // serde attributes in Vec<T>.
 //
@@ -83,6 +88,10 @@ pub struct Node {
 
     // Leaf
     pub num_of_cells: u32,
+
+    // Internal
+    right_child_offset: u32,
+
     // Body
     pub cells: Vec<Cell>,
 }
@@ -110,12 +119,26 @@ impl Node {
             node_type,
             is_root,
             parent_offset: 0,
+            right_child_offset: 0,
             num_of_cells: 0,
             cells: Vec::new(),
         }
     }
 
-    pub fn set_header(&mut self, bytes: &[u8]) {
+    pub fn from_bytes(&mut self, bytes: &[u8]) {
+        self.set_common_header(&bytes[0..COMMON_NODE_HEADER_SIZE]);
+
+        if self.node_type == NodeType::Leaf {
+            self.set_leaf_header(&bytes[COMMON_NODE_HEADER_SIZE..LEAF_NODE_HEADER_SIZE]);
+            self.set_leaf_cells(&bytes[LEAF_NODE_HEADER_SIZE..]);
+        }
+
+        if self.node_type == NodeType::Internal {
+            self.set_internal_header(&bytes[COMMON_NODE_HEADER_SIZE..INTERNAL_NODE_HEADER_SIZE]);
+        }
+    }
+
+    pub fn set_common_header(&mut self, bytes: &[u8]) {
         let node_type_bytes = [bytes[0]];
         self.node_type = bincode::deserialize(&node_type_bytes).unwrap();
 
@@ -124,12 +147,22 @@ impl Node {
 
         let parent_offset_bytes = &bytes[2..6];
         self.parent_offset = bincode::deserialize(parent_offset_bytes).unwrap();
+    }
 
-        let num_of_cells_bytes = &bytes[6..10];
+    pub fn set_leaf_header(&mut self, bytes: &[u8]) {
+        let num_of_cells_bytes = &bytes[0..4];
         self.num_of_cells = bincode::deserialize(num_of_cells_bytes).unwrap();
     }
 
-    pub fn set_cells(&mut self, cell_bytes: &[u8]) {
+    pub fn set_internal_header(&mut self, bytes: &[u8]) {
+        let num_of_cells_bytes = &bytes[0..4];
+        self.num_of_cells = bincode::deserialize(num_of_cells_bytes).unwrap();
+
+        let right_child_offset_bytes = &bytes[4..8];
+        self.right_child_offset = bincode::deserialize(right_child_offset_bytes).unwrap();
+    }
+
+    pub fn set_leaf_cells(&mut self, cell_bytes: &[u8]) {
         // The reason we can't use bincode to directly deserialize our bytes
         // into Vec<Cell> is because Vec<Cell> binary format will includes a
         // u64 (8 bytes) column that (seems like) representing the length of the
@@ -156,12 +189,21 @@ impl Node {
         // }
     }
 
-    pub fn header(&self) -> [u8; LEAF_NODE_HEADER_SIZE] {
-        let mut result = [0; LEAF_NODE_HEADER_SIZE];
-        let bytes = bincode::serialize(self).unwrap();
+    pub fn header(&self) -> Vec<u8> {
+        let mut result = Vec::new();
 
-        for i in 0..LEAF_NODE_HEADER_SIZE {
-            result[i] = bytes[i];
+        if self.node_type == NodeType::Leaf {
+            let bytes = bincode::serialize(self).unwrap();
+
+            for i in 0..LEAF_NODE_HEADER_SIZE {
+                result.insert(i, bytes[i]);
+            }
+        } else {
+            let bytes = bincode::serialize(self).unwrap();
+
+            for i in 0..INTERNAL_NODE_HEADER_SIZE {
+                result.insert(i, bytes[i]);
+            }
         }
 
         result
