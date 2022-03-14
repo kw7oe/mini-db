@@ -194,34 +194,50 @@ impl Pager {
                         node.set_cells(&buffer[LEAF_NODE_HEADER_SIZE..]);
                     };
                 }
-            } else {
-                let bytes = &self.nodes[page_num].header();
-                self.write_file.write(bytes).unwrap();
             }
         }
 
         &self.nodes[page_num]
     }
 
-    pub fn flush(&mut self, cursor: &Cursor) {
-        let node = self.get_page(cursor.page_num);
-        let num_of_cells_bytes = &node.num_of_cells.to_le_bytes();
+    pub fn flush_all(&mut self) {
+        // Again, the reason why we can't just deserialize whole node
+        // with bincode is because we are tracking our own num_of_cells.
+        //
+        // So, if we just use deserialize directly, it will also include
+        // the node.cells len by Vec<Cell>.
+        //
+        // Ideally, we should have just need to call bincode deserialize.
+        for node in &self.nodes {
+            let header_bytes = node.header();
+            self.write_file.write(&header_bytes).unwrap();
 
-        self.write_file
-            .write(&self.nodes[cursor.page_num].cells(cursor.cell_num))
-            .unwrap();
-
-        self.write_file
-            .seek(SeekFrom::Start(COMMON_NODE_HEADER_SIZE as u64))
-            .unwrap();
-
-        self.write_file.write(num_of_cells_bytes).unwrap();
-        self.write_file.seek(SeekFrom::End(0)).unwrap();
+            for c in &node.cells {
+                let cell_bytes = bincode::serialize(c).unwrap();
+                self.write_file.write(&cell_bytes).unwrap();
+            }
+        }
     }
+
+    // pub fn flush(&mut self, cursor: &Cursor) {
+    //     let node = self.get_page(cursor.page_num);
+    //     let num_of_cells_bytes = &node.num_of_cells.to_le_bytes();
+
+    //     self.write_file
+    //         .write(&self.nodes[cursor.page_num].cells(cursor.cell_num))
+    //         .unwrap();
+
+    //     self.write_file
+    //         .seek(SeekFrom::Start(COMMON_NODE_HEADER_SIZE as u64))
+    //         .unwrap();
+
+    //     self.write_file.write(num_of_cells_bytes).unwrap();
+    //     self.write_file.seek(SeekFrom::End(0)).unwrap();
+    // }
 
     pub fn serialize_row(&mut self, row: &Row, cursor: &Cursor) {
         self.nodes[cursor.page_num].insert(row, cursor);
-        self.flush(&cursor);
+        // self.flush(&cursor);
     }
 
     pub fn deserialize_row(&mut self, cursor: &Cursor) -> Row {
@@ -241,6 +257,10 @@ impl Table {
             root_page_num: 0,
             pager,
         }
+    }
+
+    pub fn flush(&mut self) {
+        self.pager.flush_all();
     }
 
     pub fn select(&mut self) -> String {

@@ -42,7 +42,7 @@ pub const LEAF_NODE_MAX_CELLS: usize = LEAF_NODE_SPACE_FOR_CELLS / LEAF_NODE_CEL
 //
 // See: https://github.com/serde-rs/serde/issues/723
 #[derive(Serialize, Deserialize, Debug)]
-struct Cell(#[serde(with = "BigArray")] [u8; LEAF_NODE_CELL_SIZE]);
+pub struct Cell(#[serde(with = "BigArray")] [u8; LEAF_NODE_CELL_SIZE]);
 
 impl Cell {
     fn key(&self) -> u32 {
@@ -84,7 +84,7 @@ pub struct Node {
     // Leaf
     pub num_of_cells: u32,
     // Body
-    cells: Vec<Cell>,
+    pub cells: Vec<Cell>,
 }
 
 pub fn print_constant() {
@@ -156,7 +156,7 @@ impl Node {
         // }
     }
 
-    pub fn header(&mut self) -> [u8; LEAF_NODE_HEADER_SIZE] {
+    pub fn header(&self) -> [u8; LEAF_NODE_HEADER_SIZE] {
         let mut result = [0; LEAF_NODE_HEADER_SIZE];
         let bytes = bincode::serialize(self).unwrap();
 
@@ -167,7 +167,7 @@ impl Node {
         result
     }
 
-    pub fn cells(&mut self, cell_num: usize) -> &[u8] {
+    pub fn cells(&self, cell_num: usize) -> &[u8] {
         &self.cells[cell_num].0
     }
 
