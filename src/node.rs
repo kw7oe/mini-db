@@ -205,6 +205,39 @@ impl Node {
         self.cells[cursor.cell_num].write_key(row.id);
         self.cells[cursor.cell_num].write_value(row);
     }
+
+    pub fn print(&self, indentation_level: usize) {
+        if self.node_type == NodeType::Leaf {
+            indent(indentation_level);
+            println!("- leaf (size {})", self.num_of_cells);
+            for c in &self.cells {
+                indent(indentation_level + 1);
+                println!("- {}", c.key());
+            }
+        }
+
+        if self.node_type == NodeType::Internal {
+            indent(indentation_level);
+            println!("- internal (size {})", self.num_of_cells);
+
+            // for c in &self.cells {
+            //     let child = get_child(&c);
+            //     child.print(indentation_level + 1);
+
+            //     indent(indentation_level + 1);
+            //     println!("- key {}", get_key(&c));
+            // }
+
+            // let child = self.right_child();
+            // child.print(indentation_level + 1);
+        }
+    }
+}
+
+pub fn indent(level: usize) {
+    for _ in 0..level {
+        print!("  ");
+    }
 }
 
 #[cfg(test)]

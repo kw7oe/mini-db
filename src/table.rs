@@ -243,6 +243,11 @@ impl Pager {
     pub fn deserialize_row(&mut self, cursor: &Cursor) -> Row {
         self.nodes[cursor.page_num].get(cursor.cell_num)
     }
+
+    pub fn print_tree(&mut self) {
+        let node = self.get_page(0);
+        node.print(0);
+    }
 }
 
 pub struct Table {
@@ -293,5 +298,9 @@ impl Table {
             }
             Err(message) => message,
         }
+    }
+
+    pub fn print(&mut self) {
+        self.pager.print_tree();
     }
 }

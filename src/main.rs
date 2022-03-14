@@ -211,6 +211,8 @@ mod test {
             "(1, wick, wick@email.com)\n(2, john, john@email.com)\n"
         );
 
+        reopen_table.print();
+
         clean_test();
     }
 
