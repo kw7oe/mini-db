@@ -2,7 +2,7 @@ use crate::table::{Cursor, Row, ROW_SIZE};
 use crate::BigArray;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Debug, Copy, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone)]
 #[serde(into = "u8", from = "u8")]
 pub enum NodeType {
     Internal,
@@ -35,7 +35,7 @@ const LEAF_NODE_SPACE_FOR_CELLS: usize = MAX_NODE_SIZE - LEAF_NODE_HEADER_SIZE;
 const LEAF_NODE_KEY_SIZE: usize = std::mem::size_of::<u32>();
 const LEAF_NODE_VALUE_SIZE: usize = ROW_SIZE;
 pub const LEAF_NODE_CELL_SIZE: usize = LEAF_NODE_KEY_SIZE + LEAF_NODE_VALUE_SIZE;
-const LEAF_NODE_MAX_CELLS: usize = LEAF_NODE_SPACE_FOR_CELLS / LEAF_NODE_CELL_SIZE;
+pub const LEAF_NODE_MAX_CELLS: usize = LEAF_NODE_SPACE_FOR_CELLS / LEAF_NODE_CELL_SIZE;
 
 // We have to define a custom type in order to have a  define
 // serde attributes in Vec<T>.
@@ -44,12 +44,19 @@ const LEAF_NODE_MAX_CELLS: usize = LEAF_NODE_SPACE_FOR_CELLS / LEAF_NODE_CELL_SI
 #[derive(Serialize, Deserialize, Debug)]
 struct Cell(#[serde(with = "BigArray")] [u8; LEAF_NODE_CELL_SIZE]);
 
+impl Cell {
+    fn key(&self) -> u32 {
+        let key_bytes = &self.0[0..4];
+        bincode::deserialize(&key_bytes).unwrap()
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Node {
     // Header
     // Common
-    node_type: NodeType,
-    is_root: bool,
+    pub node_type: NodeType,
+    pub is_root: bool,
     parent_offset: u32,
 
     // Leaf
@@ -168,6 +175,10 @@ impl Node {
         &self.cells[cell_num].0[offset..offset + LEAF_NODE_VALUE_SIZE]
     }
 
+    pub fn search(&self, key: u32) -> Result<usize, usize> {
+        self.cells.binary_search_by(|cell| cell.key().cmp(&key))
+    }
+
     pub fn get(&mut self, cell_num: usize) -> Row {
         let bytes = self.read_value(cell_num);
         bincode::deserialize(bytes).unwrap()
@@ -186,24 +197,4 @@ impl Node {
 }
 
 #[cfg(test)]
-mod test {
-    use super::*;
-    use crate::table::Table;
-
-    #[test]
-    fn test() {
-        print_constant();
-        let mut node = Node::new(true, NodeType::Leaf);
-        let bytes = bincode::serialize(&node).unwrap();
-        println!("{:?}", bytes);
-
-        let mut table = Table::new("test.db");
-        let row = Row::from_statement("insert 1 john john@email.com").unwrap();
-        let cursor = Cursor::table_end(&mut table);
-        node.insert(&row, &cursor);
-        println!("{:?}", node);
-
-        let row = node.read_value(cursor.cell_num);
-        println!("{:?}", row);
-    }
-}
+mod test {}

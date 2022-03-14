@@ -115,7 +115,7 @@ mod test {
         let output = handle_input(&mut table, "insert 1 john john@email.com");
         assert_eq!(output, "inserting into page: 0, cell: 0...\n");
 
-        let output = handle_input(&mut table, "insert 1 john john@email.com");
+        let output = handle_input(&mut table, "insert 2 john john@email.com");
         assert_eq!(output, "inserting into page: 0, cell: 1...\n");
 
         clean_test();
@@ -137,8 +137,21 @@ mod test {
             email.push_str("a");
         }
 
-        let output = handle_input(&mut table, &format!("insert 1 john {email}"));
+        let output = handle_input(&mut table, &format!("insert 2 john {email}"));
         assert_eq!(output, "inserting into page: 0, cell: 1...\n");
+
+        clean_test();
+    }
+
+    #[test]
+    fn error_when_duplicate_key() {
+        let mut table = Table::new("test.db".to_string());
+
+        let output = handle_input(&mut table, "insert 1 john john@email.com");
+        assert_eq!(output, "inserting into page: 0, cell: 0...\n");
+
+        let output = handle_input(&mut table, "insert 1 john john@email.com");
+        assert_eq!(output, "duplicate key\n");
 
         clean_test();
     }

@@ -5,7 +5,9 @@ use std::{
     path::PathBuf,
 };
 
-use crate::node::{Node, NodeType, COMMON_NODE_HEADER_SIZE, LEAF_NODE_HEADER_SIZE};
+use crate::node::{
+    Node, NodeType, COMMON_NODE_HEADER_SIZE, LEAF_NODE_HEADER_SIZE, LEAF_NODE_MAX_CELLS,
+};
 use crate::BigArray;
 use serde::{Deserialize, Serialize};
 
@@ -90,7 +92,6 @@ impl Row {
 pub const ROW_SIZE: usize = USERNAME_SIZE + EMAIL_SIZE + 4; // u32 is 4 x u8;
 const PAGE_SIZE: usize = 4096;
 // const TABLE_MAX_PAGE: usize = 100;
-const ROWS_PER_PAGE: usize = PAGE_SIZE / ROW_SIZE;
 
 #[derive(Debug)]
 pub struct Cursor {
@@ -111,14 +112,22 @@ impl Cursor {
         }
     }
 
-    pub fn table_end(table: &mut Table) -> Cursor {
-        let page_num = table.pager.num_pages;
-        let num_of_cells = table.pager.get_page(table.pager.num_pages).num_of_cells as usize;
+    pub fn table_find(table: &mut Table, key: u32) -> Result<Cursor, String> {
+        let page_num = table.root_page_num;
+        let node = table.pager.get_page(page_num);
+        let num_of_cells = node.num_of_cells as usize;
 
-        Cursor {
-            page_num,
-            cell_num: num_of_cells,
-            end_of_table: true,
+        if node.node_type == NodeType::Leaf {
+            match node.search(key) {
+                Ok(index) => Err("duplicate key\n".to_string()),
+                Err(index) => Ok(Cursor {
+                    page_num,
+                    cell_num: index,
+                    end_of_table: index == num_of_cells,
+                }),
+            }
+        } else {
+            panic!("need to implement search for internal node");
         }
     }
 
@@ -211,13 +220,11 @@ impl Pager {
     }
 
     pub fn serialize_row(&mut self, row: &Row, cursor: &Cursor) {
-        let node = self.get_page(cursor.page_num);
         self.nodes[cursor.page_num].insert(row, cursor);
         self.flush(&cursor);
     }
 
     pub fn deserialize_row(&mut self, cursor: &Cursor) -> Row {
-        let node = self.get_page(cursor.page_num);
         self.nodes[cursor.page_num].get(cursor.cell_num)
     }
 }
@@ -250,11 +257,21 @@ impl Table {
     }
 
     pub fn insert(&mut self, row: &Row) -> String {
-        let cursor = Cursor::table_end(self);
-        self.pager.serialize_row(row, &cursor);
-        format!(
-            "inserting into page: {}, cell: {}...\n",
-            cursor.page_num, cursor.cell_num
-        )
+        let node = self.pager.get_page(self.root_page_num);
+        if node.num_of_cells as usize >= LEAF_NODE_MAX_CELLS {
+            panic!("table full")
+        }
+
+        match Cursor::table_find(self, row.id) {
+            Ok(cursor) => {
+                self.pager.serialize_row(row, &cursor);
+
+                format!(
+                    "inserting into page: {}, cell: {}...\n",
+                    cursor.page_num, cursor.cell_num
+                )
+            }
+            Err(message) => message,
+        }
     }
 }
