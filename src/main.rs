@@ -231,6 +231,28 @@ mod test {
         clean_test();
     }
 
+    #[test]
+    fn persist_leaf_and_internal_node_to_file() {
+        let mut table = Table::new("test.db".to_string());
+
+        for i in 1..15 {
+            handle_input(&mut table, &format!("insert {i} user{i} user{i}@email.com"));
+        }
+        let output = handle_input(&mut table, "select");
+        let expected_output: Vec<String> = (1..15)
+            .map(|i| format!("({i}, user{i}, user{i}@email.com)"))
+            .collect();
+
+        assert_eq!(output, expected_output.join("\n"));
+        table.flush();
+
+        let mut reopen_table = Table::new("test.db".to_string());
+        let output = handle_input(&mut reopen_table, "select");
+        assert_eq!(output, expected_output.join("\n"));
+
+        clean_test();
+    }
+
     fn clean_test() {
         let _ = std::fs::remove_file("test.db");
     }

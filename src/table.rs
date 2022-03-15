@@ -113,8 +113,7 @@ impl Cursor {
         }
     }
 
-    pub fn table_find(table: &mut Table, key: u32) -> Result<Cursor, String> {
-        let page_num = table.root_page_num;
+    pub fn table_find(table: &mut Table, page_num: usize, key: u32) -> Result<Cursor, String> {
         let node = table.pager.get_page(page_num);
         let num_of_cells = node.num_of_cells as usize;
 
@@ -128,7 +127,11 @@ impl Cursor {
                 }),
             }
         } else {
-            panic!("need to implement search for internal node");
+            if let Ok(page_num) = node.search(key) {
+                Self::table_find(table, page_num, key)
+            } else {
+                Err("something went wrong".to_string())
+            }
         }
     }
 
@@ -363,7 +366,8 @@ impl Table {
     }
 
     pub fn insert(&mut self, row: &Row) -> String {
-        match Cursor::table_find(self, row.id) {
+        let page_num = self.root_page_num;
+        match Cursor::table_find(self, page_num, row.id) {
             Ok(cursor) => {
                 self.pager.serialize_row(row, &cursor);
 

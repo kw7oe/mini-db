@@ -173,12 +173,15 @@ impl Node {
         self.set_common_header(&bytes[0..COMMON_NODE_HEADER_SIZE]);
 
         if self.node_type == NodeType::Leaf {
+            println!("--- form leaf node from bytes");
             self.set_leaf_header(&bytes[COMMON_NODE_HEADER_SIZE..LEAF_NODE_HEADER_SIZE]);
             self.set_leaf_cells(&bytes[LEAF_NODE_HEADER_SIZE..]);
         }
 
         if self.node_type == NodeType::Internal {
+            println!("--- form internal node from bytes");
             self.set_internal_header(&bytes[COMMON_NODE_HEADER_SIZE..INTERNAL_NODE_HEADER_SIZE]);
+            self.set_internal_cells(&bytes[INTERNAL_NODE_HEADER_SIZE..]);
         }
     }
 
@@ -233,6 +236,14 @@ impl Node {
         // }
     }
 
+    pub fn set_internal_cells(&mut self, cell_bytes: &[u8]) {
+        let max_size = self.num_of_cells as usize * INTERNAL_NODE_CELL_SIZE;
+        let mut bytes = (self.num_of_cells as u64).to_le_bytes().to_vec();
+        let cell_bytes = &mut cell_bytes[0..max_size].to_vec();
+        bytes.append(cell_bytes);
+        self.internal_cells = bincode::deserialize_from(&bytes[..]).unwrap();
+    }
+
     pub fn header(&self) -> Vec<u8> {
         let mut result = Vec::new();
 
@@ -275,7 +286,25 @@ impl Node {
     }
 
     pub fn search(&self, key: u32) -> Result<usize, usize> {
-        self.cells.binary_search_by(|cell| cell.key().cmp(&key))
+        if self.node_type == NodeType::Leaf {
+            return self.cells.binary_search_by(|cell| cell.key().cmp(&key));
+        }
+
+        let index = match self
+            .internal_cells
+            .binary_search_by(|cell| cell.key().cmp(&key))
+        {
+            Ok(index) => index,
+            Err(index) => index,
+        };
+
+        let child_pointer = if index == self.num_of_cells as usize {
+            self.right_child_offset
+        } else {
+            self.internal_cells[index].child_pointer()
+        };
+
+        Ok(child_pointer as usize)
     }
 
     pub fn get(&mut self, cell_num: usize) -> Row {
