@@ -126,6 +126,21 @@ mod test {
     }
 
     #[test]
+    fn insert_up_to_3_leaf_node() {
+        let mut table = Table::new("test.db".to_string());
+
+        for i in 1..15 {
+            handle_input(&mut table, &format!("insert {i} user{i} user{i}@email.com"));
+        }
+
+        table.print();
+
+        handle_input(&mut table, &format!("insert 15 user15 user15@email.com"));
+
+        clean_test();
+    }
+
+    #[test]
     fn insert_string_at_max_length() {
         let mut table = Table::new("test.db".to_string());
         let mut username = String::new();

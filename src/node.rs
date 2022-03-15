@@ -36,11 +36,15 @@ const LEAF_NODE_KEY_SIZE: usize = std::mem::size_of::<u32>();
 const LEAF_NODE_VALUE_SIZE: usize = ROW_SIZE;
 pub const LEAF_NODE_CELL_SIZE: usize = LEAF_NODE_KEY_SIZE + LEAF_NODE_VALUE_SIZE;
 pub const LEAF_NODE_MAX_CELLS: usize = LEAF_NODE_SPACE_FOR_CELLS / LEAF_NODE_CELL_SIZE;
+pub const LEAF_NODE_RIGHT_SPLIT_COUNT: usize = (LEAF_NODE_MAX_CELLS + 1) / 2;
+pub const LEAF_NODE_LEFT_SPLIT_COUNT: usize =
+    (LEAF_NODE_MAX_CELLS + 1) - LEAF_NODE_RIGHT_SPLIT_COUNT;
 
 pub const INTERNAL_NODE_RIGHT_CHILD_SIZE: usize = std::mem::size_of::<u32>();
 pub const INTERNAL_NODE_NUM_KEYS_SIZE: usize = std::mem::size_of::<u32>();
 pub const INTERNAL_NODE_HEADER_SIZE: usize =
     COMMON_NODE_HEADER_SIZE + INTERNAL_NODE_RIGHT_CHILD_SIZE + INTERNAL_NODE_NUM_KEYS_SIZE;
+const INTERNAL_NODE_CELL_SIZE: usize = std::mem::size_of::<u32>() + std::mem::size_of::<u32>();
 
 // We have to define a custom type in order to have a  define
 // serde attributes in Vec<T>.
@@ -49,8 +53,11 @@ pub const INTERNAL_NODE_HEADER_SIZE: usize =
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Cell(#[serde(with = "BigArray")] [u8; LEAF_NODE_CELL_SIZE]);
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct InternalCell([u8; INTERNAL_NODE_CELL_SIZE]);
+
 impl Cell {
-    fn key(&self) -> u32 {
+    pub fn key(&self) -> u32 {
         let key_bytes = &self.0[0..4];
         bincode::deserialize(&key_bytes).unwrap()
     }
@@ -78,22 +85,58 @@ impl Cell {
     }
 }
 
+impl InternalCell {
+    pub fn new(pointer: u32, key: u32) -> Self {
+        let mut cell = Self([0; INTERNAL_NODE_CELL_SIZE]);
+        cell.write_child_pointer(pointer);
+        cell.write_key(key);
+        cell
+    }
+
+    pub fn child_pointer(&self) -> u32 {
+        let bytes = &self.0[0..4];
+        bincode::deserialize(&bytes).unwrap()
+    }
+
+    fn write_child_pointer(&mut self, pointer: u32) {
+        let mut j = 0;
+        for i in pointer.to_le_bytes() {
+            self.0[j] = i;
+            j += 1;
+        }
+    }
+
+    pub fn key(&self) -> u32 {
+        let bytes = &self.0[4..8];
+        bincode::deserialize(&bytes).unwrap()
+    }
+
+    fn write_key(&mut self, key: u32) {
+        let mut j = 4;
+        for i in key.to_le_bytes() {
+            self.0[j] = i;
+            j += 1;
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Node {
     // Header
     // Common
     pub node_type: NodeType,
     pub is_root: bool,
-    parent_offset: u32,
+    pub parent_offset: u32,
 
     // Leaf
     pub num_of_cells: u32,
 
     // Internal
-    right_child_offset: u32,
+    pub right_child_offset: u32,
 
     // Body
     pub cells: Vec<Cell>,
+    pub internal_cells: Vec<InternalCell>,
 }
 
 pub fn print_constant() {
@@ -122,6 +165,7 @@ impl Node {
             right_child_offset: 0,
             num_of_cells: 0,
             cells: Vec::new(),
+            internal_cells: Vec::new(),
         }
     }
 
@@ -210,7 +254,24 @@ impl Node {
     }
 
     pub fn cells(&self, cell_num: usize) -> &[u8] {
-        &self.cells[cell_num].0
+        if self.node_type == NodeType::Leaf {
+            &self.cells[cell_num].0
+        } else {
+            &self.internal_cells[cell_num].0
+        }
+    }
+
+    pub fn get_max_key(&self) -> u32 {
+        match self.node_type {
+            NodeType::Leaf => {
+                let cell = &self.cells[self.num_of_cells as usize - 1];
+                cell.key()
+            }
+            NodeType::Internal => {
+                let internal_cell = &self.internal_cells[self.num_of_cells as usize - 1];
+                internal_cell.key()
+            }
+        }
     }
 
     pub fn search(&self, key: u32) -> Result<usize, usize> {
@@ -224,10 +285,6 @@ impl Node {
 
     pub fn insert(&mut self, row: &Row, cursor: &Cursor) {
         let num_of_cells = self.num_of_cells as usize;
-        if num_of_cells >= LEAF_NODE_MAX_CELLS {
-            println!("Need to implement split leaf node");
-            return;
-        }
 
         // Make room for new cell.
         //
@@ -247,40 +304,14 @@ impl Node {
         self.cells[cursor.cell_num].write_key(row.id);
         self.cells[cursor.cell_num].write_value(row);
     }
-
-    pub fn print(&self, indentation_level: usize) {
-        if self.node_type == NodeType::Leaf {
-            indent(indentation_level);
-            println!("- leaf (size {})", self.num_of_cells);
-            for c in &self.cells {
-                indent(indentation_level + 1);
-                println!("- {}", c.key());
-            }
-        }
-
-        if self.node_type == NodeType::Internal {
-            indent(indentation_level);
-            println!("- internal (size {})", self.num_of_cells);
-
-            // for c in &self.cells {
-            //     let child = get_child(&c);
-            //     child.print(indentation_level + 1);
-
-            //     indent(indentation_level + 1);
-            //     println!("- key {}", get_key(&c));
-            // }
-
-            // let child = self.right_child();
-            // child.print(indentation_level + 1);
-        }
-    }
-}
-
-pub fn indent(level: usize) {
-    for _ in 0..level {
-        print!("  ");
-    }
 }
 
 #[cfg(test)]
-mod test {}
+mod test {
+    use super::*;
+
+    #[test]
+    fn basic() {
+        print_constant();
+    }
+}
