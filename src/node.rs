@@ -133,6 +133,7 @@ pub struct Node {
 
     // Internal
     pub right_child_offset: u32,
+    pub next_leaf_offset: u32,
 
     // Body
     pub cells: Vec<Cell>,
@@ -163,6 +164,7 @@ impl Node {
             is_root,
             parent_offset: 0,
             right_child_offset: 0,
+            next_leaf_offset: 0,
             num_of_cells: 0,
             cells: Vec::new(),
             internal_cells: Vec::new(),

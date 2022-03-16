@@ -102,18 +102,25 @@ pub struct Cursor {
 }
 
 impl Cursor {
-    pub fn table_start(table: &mut Table) -> Cursor {
+    pub fn table_start(table: &mut Table) -> Self {
         let page_num = table.root_page_num;
-        let num_of_cells = table.pager.get_page(page_num).num_of_cells as usize;
+        if let Ok(mut cursor) = Self::table_find(table, page_num, 0) {
+            let num_of_cells = table.pager.get_page(cursor.page_num).num_of_cells as usize;
 
-        Cursor {
-            page_num,
-            cell_num: 0,
-            end_of_table: num_of_cells == 0,
+            cursor.end_of_table = num_of_cells == 0;
+            cursor
+        } else {
+            let num_of_cells = table.pager.get_page(page_num).num_of_cells as usize;
+
+            Cursor {
+                page_num,
+                cell_num: 0,
+                end_of_table: num_of_cells == 0,
+            }
         }
     }
 
-    pub fn table_find(table: &mut Table, page_num: usize, key: u32) -> Result<Cursor, String> {
+    pub fn table_find(table: &mut Table, page_num: usize, key: u32) -> Result<Self, String> {
         let node = table.pager.get_page(page_num);
         let num_of_cells = node.num_of_cells as usize;
 
@@ -138,10 +145,16 @@ impl Cursor {
     fn advance(&mut self, table: &mut Table) {
         self.cell_num += 1;
 
-        let num_of_cells = table.pager.get_page(self.page_num).num_of_cells as usize;
+        let node = table.pager.get_page(self.page_num);
+        let num_of_cells = node.num_of_cells as usize;
 
         if self.cell_num >= num_of_cells {
-            self.end_of_table = true;
+            if node.next_leaf_offset == 0 {
+                self.end_of_table = true;
+            } else {
+                self.page_num = node.next_leaf_offset as usize;
+                self.cell_num = 0;
+            }
         }
     }
 }
@@ -213,12 +226,20 @@ impl Pager {
         // Ideally, we should have just need to call bincode deserialize.
         for node in &self.nodes {
             let header_bytes = node.header();
+            println!("header_bytes: {:?}", header_bytes);
             self.write_file.write(&header_bytes).unwrap();
 
+            // if node.node_type == NodeType::Leaf {
             for c in &node.cells {
                 let cell_bytes = bincode::serialize(c).unwrap();
                 self.write_file.write(&cell_bytes).unwrap();
             }
+            // } else {
+            //     for c in &node.internal_cells {
+            //         let cell_bytes = bincode::serialize(c).unwrap();
+            //         self.write_file.write(&cell_bytes).unwrap();
+            //     }
+            // }
         }
     }
 
@@ -256,7 +277,10 @@ impl Pager {
 
         root_node.num_of_cells += 1;
         root_node.right_child_offset = cursor.page_num as u32 + 2;
+
         old_node.parent_offset = 0;
+        old_node.next_leaf_offset = cursor.page_num as u32 + 2;
+
         new_node.parent_offset = 0;
 
         let left_max_key = old_node.get_max_key();

@@ -240,10 +240,10 @@ mod test {
         }
         let output = handle_input(&mut table, "select");
         let expected_output: Vec<String> = (1..15)
-            .map(|i| format!("({i}, user{i}, user{i}@email.com)"))
+            .map(|i| format!("({i}, user{i}, user{i}@email.com)\n"))
             .collect();
 
-        assert_eq!(output, expected_output.join("\n"));
+        assert_eq!(output, expected_output.join(""));
         table.flush();
 
         let mut reopen_table = Table::new("test.db".to_string());
