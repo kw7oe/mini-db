@@ -144,8 +144,7 @@ impl Cursor {
 
     fn advance(&mut self, table: &mut Table) {
         self.cell_num += 1;
-
-        let node = table.pager.get_page(self.page_num);
+        let node = &mut table.pager.get_page(self.page_num);
         let num_of_cells = node.num_of_cells as usize;
 
         if self.cell_num >= num_of_cells {
@@ -192,7 +191,7 @@ impl Pager {
     pub fn get_page(&mut self, page_num: usize) -> &Node {
         if self.nodes.get(page_num).is_none() {
             let mut number_of_pages = self.file_len / PAGE_SIZE;
-
+            println!("number_of_pages: {number_of_pages}");
             if self.file_len % PAGE_SIZE != 0 {
                 // We wrote a partial page
                 number_of_pages += 1;
@@ -201,9 +200,9 @@ impl Pager {
             self.nodes.insert(page_num, Node::new(true, NodeType::Leaf));
 
             if page_num < number_of_pages {
-                let offset = page_num as i64 * PAGE_SIZE as i64;
+                let offset = page_num as u64 * PAGE_SIZE as u64;
 
-                if let Ok(_) = self.read_file.seek(SeekFrom::Current(offset)) {
+                if let Ok(_) = self.read_file.seek(SeekFrom::Start(offset)) {
                     let mut buffer = [0; PAGE_SIZE];
                     if let Ok(_read_len) = self.read_file.read(&mut buffer) {
                         let node = self.nodes.get_mut(page_num).unwrap();
@@ -226,20 +225,36 @@ impl Pager {
         // Ideally, we should have just need to call bincode deserialize.
         for node in &self.nodes {
             let header_bytes = node.header();
-            println!("header_bytes: {:?}", header_bytes);
-            self.write_file.write(&header_bytes).unwrap();
+            let mut size = self.write_file.write(&header_bytes).unwrap();
 
-            // if node.node_type == NodeType::Leaf {
-            for c in &node.cells {
-                let cell_bytes = bincode::serialize(c).unwrap();
-                self.write_file.write(&cell_bytes).unwrap();
+            if node.node_type == NodeType::Leaf {
+                for c in &node.cells {
+                    let cell_bytes = bincode::serialize(c).unwrap();
+                    size += self.write_file.write(&cell_bytes).unwrap();
+                }
+            } else {
+                for c in &node.internal_cells {
+                    let cell_bytes = bincode::serialize(c).unwrap();
+                    size += self.write_file.write(&cell_bytes).unwrap();
+                }
             }
-            // } else {
-            //     for c in &node.internal_cells {
-            //         let cell_bytes = bincode::serialize(c).unwrap();
-            //         self.write_file.write(&cell_bytes).unwrap();
-            //     }
-            // }
+
+            // Okay, we need to backfill the space because we are assuming
+            // per page is always with PAGE_SIZE.
+            //
+            // If we didn't fill up the space, what would happen is when we read
+            // from file, we will not have an accurate number of pages because file with
+            // PAGE_SIZE might contain multiple pages. In theory, you can still keep
+            // track of the number of pages in the file, tricky part would then be,
+            // how do we identify the page offset of each page? We will have to read each
+            // page to find out the next page offset.
+            //
+            // So long story short, let's just backfill the space...
+            let remaining_space = PAGE_SIZE - size;
+            let vec = vec![0; remaining_space];
+            size += self.write_file.write(&vec).unwrap();
+
+            println!("--- write {size} to disk");
         }
     }
 
@@ -316,6 +331,7 @@ impl Pager {
     }
 
     pub fn deserialize_row(&mut self, cursor: &Cursor) -> Row {
+        self.get_page(cursor.page_num);
         self.nodes[cursor.page_num].get(cursor.cell_num)
     }
 

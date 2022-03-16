@@ -248,7 +248,7 @@ mod test {
 
         let mut reopen_table = Table::new("test.db".to_string());
         let output = handle_input(&mut reopen_table, "select");
-        assert_eq!(output, expected_output.join("\n"));
+        assert_eq!(output, expected_output.join(""));
 
         clean_test();
     }

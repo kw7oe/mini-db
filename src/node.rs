@@ -29,7 +29,8 @@ const MAX_NODE_SIZE: usize = 4096;
 pub const COMMON_NODE_HEADER_SIZE: usize =
     std::mem::size_of::<NodeType>() + std::mem::size_of::<bool>() + std::mem::size_of::<u32>();
 
-pub const LEAF_NODE_HEADER_SIZE: usize = COMMON_NODE_HEADER_SIZE + std::mem::size_of::<u32>();
+pub const LEAF_NODE_HEADER_SIZE: usize =
+    COMMON_NODE_HEADER_SIZE + std::mem::size_of::<u32>() + std::mem::size_of::<u32>();
 const LEAF_NODE_SPACE_FOR_CELLS: usize = MAX_NODE_SIZE - LEAF_NODE_HEADER_SIZE;
 
 const LEAF_NODE_KEY_SIZE: usize = std::mem::size_of::<u32>();
@@ -44,7 +45,7 @@ pub const INTERNAL_NODE_RIGHT_CHILD_SIZE: usize = std::mem::size_of::<u32>();
 pub const INTERNAL_NODE_NUM_KEYS_SIZE: usize = std::mem::size_of::<u32>();
 pub const INTERNAL_NODE_HEADER_SIZE: usize =
     COMMON_NODE_HEADER_SIZE + INTERNAL_NODE_RIGHT_CHILD_SIZE + INTERNAL_NODE_NUM_KEYS_SIZE;
-const INTERNAL_NODE_CELL_SIZE: usize = std::mem::size_of::<u32>() + std::mem::size_of::<u32>();
+pub const INTERNAL_NODE_CELL_SIZE: usize = std::mem::size_of::<u32>() + std::mem::size_of::<u32>();
 
 // We have to define a custom type in order to have a  define
 // serde attributes in Vec<T>.
@@ -201,6 +202,9 @@ impl Node {
     pub fn set_leaf_header(&mut self, bytes: &[u8]) {
         let num_of_cells_bytes = &bytes[0..4];
         self.num_of_cells = bincode::deserialize(num_of_cells_bytes).unwrap();
+
+        let next_leaf_offset_bytes = &bytes[4..8];
+        self.next_leaf_offset = bincode::deserialize(next_leaf_offset_bytes).unwrap();
     }
 
     pub fn set_internal_header(&mut self, bytes: &[u8]) {
@@ -252,8 +256,18 @@ impl Node {
         if self.node_type == NodeType::Leaf {
             let bytes = bincode::serialize(self).unwrap();
 
-            for i in 0..LEAF_NODE_HEADER_SIZE {
+            for i in 0..COMMON_NODE_HEADER_SIZE {
                 result.insert(i, bytes[i]);
+            }
+
+            let num_of_cells_bytes = bincode::serialize(&self.num_of_cells).unwrap();
+            for byte in num_of_cells_bytes {
+                result.push(byte);
+            }
+
+            let next_leaf_offset_bytes = bincode::serialize(&self.next_leaf_offset).unwrap();
+            for byte in next_leaf_offset_bytes {
+                result.push(byte);
             }
         } else {
             let bytes = bincode::serialize(self).unwrap();
@@ -319,7 +333,7 @@ impl Node {
 
         // Make room for new cell.
         //
-        // Else, it will be the current cell at cell_num will be override by
+        // Else, the current cell at cell_num will be override by
         // new cell.
         if cursor.cell_num < num_of_cells {
             self.cells
