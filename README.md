@@ -4,7 +4,8 @@ An attempt to write SQLite in Rust to learn about database
 internals.
 
 Currently, it is directly following the [Let's Build a Simple Database][0] tutorial.
-The code is implemented up to Part 11 of the tutorial.
+The code is implemented up to Part 12 of the tutorial. Code
+is quite messy as I'm still figuring out the right abstraction.
 
 Once we completed the topic cover by the tutorial, we would try to extend
 further as well.
