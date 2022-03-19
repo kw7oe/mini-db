@@ -308,8 +308,9 @@ impl Pager {
     }
 
     pub fn split_and_insert_leaf_node(&mut self, cursor: &Cursor, row: &Row) {
-        println!("--- split_and_insert_leaf_node");
+        println!("--- split_and_insert_leaf_node: {}", row.id);
         let mut old_node = self.nodes.remove(cursor.page_num);
+        let old_max = old_node.get_max_key();
         old_node.insert(row, cursor);
 
         let mut new_node = Node::new(false, old_node.node_type);
@@ -325,8 +326,49 @@ impl Pager {
         if old_node.is_root {
             self.create_new_root(cursor, old_node, new_node);
         } else {
+            new_node.next_leaf_offset = old_node.next_leaf_offset + 1;
+            old_node.next_leaf_offset = cursor.page_num as u32 + 1;
+
+            let parent_page_num = old_node.parent_offset as usize;
+            let parent = &mut self.nodes[parent_page_num];
+            let new_max = old_node.get_max_key();
+            parent.update_internal_key(old_max, new_max);
             self.nodes.insert(cursor.page_num, new_node);
             self.nodes.insert(cursor.page_num, old_node);
+            self.insert_internal_node(parent_page_num, cursor.page_num + 1);
+            println!("{:?}", self.nodes);
+        }
+    }
+
+    pub fn insert_internal_node(&mut self, parent_page_num: usize, new_child_page_num: usize) {
+        let parent_right_child_offset = self.nodes[parent_page_num].right_child_offset as usize;
+        let new_node = &self.nodes[new_child_page_num];
+        let new_child_max_key = new_node.get_max_key();
+
+        let right_child = &self.nodes[parent_right_child_offset];
+        let right_max_key = right_child.get_max_key();
+
+        let parent = &mut self.nodes[parent_page_num];
+        let original_num_keys = parent.num_of_cells;
+        parent.num_of_cells += 1;
+
+        if original_num_keys >= 3 {
+            panic!("Need to split internal node\n");
+        }
+
+        let index = parent.internal_search(new_child_max_key);
+        if new_child_max_key > right_max_key {
+            parent.right_child_offset = new_child_page_num as u32;
+            parent.internal_insert(
+                index,
+                InternalCell::new(parent_right_child_offset as u32, right_max_key),
+            );
+        } else {
+            parent.right_child_offset += 1;
+            parent.internal_insert(
+                index,
+                InternalCell::new(new_child_page_num as u32, new_child_max_key),
+            );
         }
     }
 
@@ -418,6 +460,10 @@ impl Table {
             }
             Err(message) => message,
         }
+    }
+
+    pub fn debug(&mut self) {
+        println!("{:?}", self.pager.nodes);
     }
 
     pub fn print(&mut self) {
