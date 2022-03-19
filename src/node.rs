@@ -51,10 +51,10 @@ pub const INTERNAL_NODE_CELL_SIZE: usize = std::mem::size_of::<u32>() + std::mem
 // serde attributes in Vec<T>.
 //
 // See: https://github.com/serde-rs/serde/issues/723
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize)]
 pub struct Cell(#[serde(with = "BigArray")] [u8; LEAF_NODE_CELL_SIZE]);
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize)]
 pub struct InternalCell([u8; INTERNAL_NODE_CELL_SIZE]);
 
 impl Cell {
@@ -63,7 +63,7 @@ impl Cell {
         bincode::deserialize(&key_bytes).unwrap()
     }
 
-    pub fn value(&mut self) -> &[u8] {
+    pub fn value(&self) -> &[u8] {
         let offset = LEAF_NODE_KEY_SIZE;
         &self.0[offset..offset + LEAF_NODE_VALUE_SIZE]
     }
@@ -83,6 +83,12 @@ impl Cell {
         for i in 0..ROW_SIZE {
             self.0[offset + i] = row_in_bytes[i];
         }
+    }
+}
+
+impl std::fmt::Debug for Cell {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.key())
     }
 }
 
@@ -118,6 +124,17 @@ impl InternalCell {
             self.0[j] = i;
             j += 1;
         }
+    }
+}
+
+impl std::fmt::Debug for InternalCell {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "InternalCell(key: {}, child_pointer: {})",
+            self.key(),
+            self.child_pointer()
+        )
     }
 }
 
@@ -348,6 +365,24 @@ impl Node {
         self.num_of_cells += 1;
         self.cells[cursor.cell_num].write_key(row.id);
         self.cells[cursor.cell_num].write_value(row);
+    }
+
+    pub fn internal_insert(&mut self, index: usize, cell: InternalCell) {
+        self.internal_cells.insert(index, cell);
+    }
+
+    pub fn internal_search(&self, key: u32) -> usize {
+        match self.internal_cells.binary_search_by(|c| c.key().cmp(&key)) {
+            Ok(index) => index,
+            Err(index) => index,
+        }
+    }
+
+    pub fn update_internal_key(&mut self, old_key: u32, new_key: u32) {
+        let index = self.internal_search(old_key);
+        if index < self.internal_cells.len() {
+            self.internal_cells[index].write_key(new_key);
+        }
     }
 }
 
