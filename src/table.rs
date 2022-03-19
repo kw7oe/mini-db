@@ -10,11 +10,12 @@ use crate::node::{
     LEAF_NODE_RIGHT_SPLIT_COUNT,
 };
 use crate::row::Row;
+use crate::tree::Tree;
 const PAGE_SIZE: usize = 4096;
 
 #[derive(Debug)]
 pub struct Cursor {
-    page_num: usize,
+    pub page_num: usize,
     pub cell_num: usize,
     end_of_table: bool,
 }
@@ -80,8 +81,7 @@ pub struct Pager {
     write_file: File,
     read_file: File,
     file_len: usize,
-    num_pages: usize,
-    nodes: Vec<Node>,
+    tree: Tree,
 }
 
 impl Pager {
@@ -101,13 +101,12 @@ impl Pager {
             write_file,
             read_file,
             file_len,
-            num_pages: file_len / PAGE_SIZE,
-            nodes: Vec::new(),
+            tree: Tree::new(),
         }
     }
 
     pub fn get_page(&mut self, page_num: usize) -> &Node {
-        if self.nodes.get(page_num).is_none() {
+        if self.tree.nodes().get(page_num).is_none() {
             let mut number_of_pages = self.file_len / PAGE_SIZE;
             println!("number_of_pages: {number_of_pages}");
             if self.file_len % PAGE_SIZE != 0 {
@@ -115,7 +114,9 @@ impl Pager {
                 number_of_pages += 1;
             }
 
-            self.nodes.insert(page_num, Node::new(true, NodeType::Leaf));
+            self.tree
+                .mut_nodes()
+                .insert(page_num, Node::new(true, NodeType::Leaf));
 
             if page_num < number_of_pages {
                 let offset = page_num as u64 * PAGE_SIZE as u64;
@@ -123,14 +124,14 @@ impl Pager {
                 if let Ok(_) = self.read_file.seek(SeekFrom::Start(offset)) {
                     let mut buffer = [0; PAGE_SIZE];
                     if let Ok(_read_len) = self.read_file.read(&mut buffer) {
-                        let node = self.nodes.get_mut(page_num).unwrap();
+                        let node = self.tree.mut_nodes().get_mut(page_num).unwrap();
                         node.from_bytes(&buffer);
                     };
                 }
             }
         }
 
-        &self.nodes[page_num]
+        &self.tree.nodes()[page_num]
     }
 
     pub fn flush_all(&mut self) {
@@ -141,7 +142,7 @@ impl Pager {
         // the node.cells len by Vec<Cell>.
         //
         // Ideally, we should have just need to call bincode deserialize.
-        for node in &self.nodes {
+        for node in self.tree.nodes() {
             let header_bytes = node.header();
             let mut size = self.write_file.write(&header_bytes).unwrap();
 
@@ -193,144 +194,23 @@ impl Pager {
     // }
 
     pub fn serialize_row(&mut self, row: &Row, cursor: &Cursor) {
-        let node = &mut self.nodes[cursor.page_num];
+        let node = &mut self.tree.mut_nodes()[cursor.page_num];
         let num_of_cells = node.num_of_cells as usize;
         if num_of_cells >= LEAF_NODE_MAX_CELLS {
-            self.split_and_insert_leaf_node(cursor, row);
+            self.tree.split_and_insert_leaf_node(cursor, row);
         } else {
             node.insert(row, cursor);
         }
         // self.flush(&cursor);
     }
 
-    pub fn create_new_root(&mut self, cursor: &Cursor, mut old_node: Node, mut new_node: Node) {
-        println!("--- create_new_root: cursor.page_num: {}", cursor.page_num);
-        let mut root_node = Node::new(true, NodeType::Internal);
-        old_node.is_root = false;
-
-        root_node.num_of_cells += 1;
-        root_node.right_child_offset = cursor.page_num as u32 + 2;
-
-        old_node.parent_offset = 0;
-        old_node.next_leaf_offset = cursor.page_num as u32 + 2;
-
-        new_node.parent_offset = 0;
-
-        let left_max_key = old_node.get_max_key();
-        let cell = InternalCell::new(cursor.page_num as u32 + 1, left_max_key);
-        root_node.internal_cells.insert(0, cell);
-
-        self.nodes.insert(0, root_node);
-        self.nodes.insert(cursor.page_num + 1, old_node);
-        self.nodes.insert(cursor.page_num + 2, new_node);
-    }
-
-    pub fn split_and_insert_leaf_node(&mut self, cursor: &Cursor, row: &Row) {
-        println!("--- split_and_insert_leaf_node: {}", row.id);
-        let mut old_node = self.nodes.remove(cursor.page_num);
-        let old_max = old_node.get_max_key();
-        old_node.insert(row, cursor);
-
-        let mut new_node = Node::new(false, old_node.node_type);
-
-        for _i in 0..LEAF_NODE_RIGHT_SPLIT_COUNT {
-            let cell = old_node.cells.remove(LEAF_NODE_LEFT_SPLIT_COUNT);
-            old_node.num_of_cells -= 1;
-
-            new_node.cells.push(cell);
-            new_node.num_of_cells += 1;
-        }
-
-        if old_node.is_root {
-            self.create_new_root(cursor, old_node, new_node);
-        } else {
-            new_node.next_leaf_offset = old_node.next_leaf_offset + 1;
-            old_node.next_leaf_offset = cursor.page_num as u32 + 1;
-
-            let parent_page_num = old_node.parent_offset as usize;
-            let parent = &mut self.nodes[parent_page_num];
-            let new_max = old_node.get_max_key();
-            parent.update_internal_key(old_max, new_max);
-            self.nodes.insert(cursor.page_num, new_node);
-            self.nodes.insert(cursor.page_num, old_node);
-            self.insert_internal_node(parent_page_num, cursor.page_num + 1);
-            println!("{:?}", self.nodes);
-        }
-    }
-
-    pub fn insert_internal_node(&mut self, parent_page_num: usize, new_child_page_num: usize) {
-        let parent_right_child_offset = self.nodes[parent_page_num].right_child_offset as usize;
-        let new_node = &self.nodes[new_child_page_num];
-        let new_child_max_key = new_node.get_max_key();
-
-        let right_child = &self.nodes[parent_right_child_offset];
-        let right_max_key = right_child.get_max_key();
-
-        let parent = &mut self.nodes[parent_page_num];
-        let original_num_keys = parent.num_of_cells;
-        parent.num_of_cells += 1;
-
-        if original_num_keys >= 3 {
-            panic!("Need to split internal node\n");
-        }
-
-        let index = parent.internal_search(new_child_max_key);
-        if new_child_max_key > right_max_key {
-            parent.right_child_offset = new_child_page_num as u32;
-            parent.internal_insert(
-                index,
-                InternalCell::new(parent_right_child_offset as u32, right_max_key),
-            );
-        } else {
-            parent.right_child_offset += 1;
-            parent.internal_insert(
-                index,
-                InternalCell::new(new_child_page_num as u32, new_child_max_key),
-            );
-        }
-    }
-
     pub fn deserialize_row(&mut self, cursor: &Cursor) -> Row {
         self.get_page(cursor.page_num);
-        self.nodes[cursor.page_num].get(cursor.cell_num)
-    }
-
-    pub fn print_node(&self, node: &Node, indent_level: usize) {
-        if node.node_type == NodeType::Internal {
-            indent(indent_level);
-            println!("- internal (size {})", node.num_of_cells);
-
-            for c in &node.internal_cells {
-                let child_index = c.child_pointer() as usize;
-                let node = &self.nodes[child_index];
-                self.print_node(&node, indent_level + 1);
-
-                indent(indent_level + 1);
-                println!("- key {}", c.key());
-            }
-
-            let child_index = node.right_child_offset as usize;
-            let node = &self.nodes[child_index];
-            self.print_node(&node, indent_level + 1);
-        } else if node.node_type == NodeType::Leaf {
-            indent(indent_level);
-            println!("- leaf (size {})", node.num_of_cells);
-            for c in &node.cells {
-                indent(indent_level + 1);
-                println!("- {}", c.key());
-            }
-        }
+        self.tree.mut_nodes()[cursor.page_num].get(cursor.cell_num)
     }
 
     pub fn print_tree(&self) {
-        let node = &self.nodes[0];
-        self.print_node(node, 0);
-    }
-}
-
-pub fn indent(level: usize) {
-    for _ in 0..level {
-        print!("  ");
+        self.tree.print();
     }
 }
 
@@ -378,10 +258,6 @@ impl Table {
             }
             Err(message) => message,
         }
-    }
-
-    pub fn debug(&mut self) {
-        println!("{:?}", self.pager.nodes);
     }
 
     pub fn print(&mut self) {

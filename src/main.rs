@@ -15,6 +15,7 @@ mod node;
 mod query;
 mod row;
 mod table;
+mod tree;
 
 fn main() -> std::io::Result<()> {
     let mut table = Table::new("data.db".to_string());
