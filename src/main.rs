@@ -13,6 +13,7 @@ big_array! {
 
 mod node;
 mod query;
+mod row;
 mod table;
 
 fn main() -> std::io::Result<()> {

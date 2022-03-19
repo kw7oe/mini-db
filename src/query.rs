@@ -1,3 +1,4 @@
+use crate::row::Row;
 use crate::table::*;
 
 #[derive(Debug)]

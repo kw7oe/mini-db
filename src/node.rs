@@ -1,4 +1,5 @@
-use crate::table::{Cursor, Row, ROW_SIZE};
+use crate::row::{Row, ROW_SIZE};
+use crate::table::Cursor;
 use crate::BigArray;
 use serde::{Deserialize, Serialize};
 
