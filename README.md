@@ -6,6 +6,24 @@ internals.
 It is implemented following the [Let's Build a Simple Database][0] tutorial.
 The codebase now contain all the implementation in the tutorial.
 
+## What's Next?
+
+Since we have completed through the tutorial of Let's Build a Simple Database,
+we will have to come up with our own checklist for this project. Here's a
+quick breakdown on what I'm going to implement next:
+
+- [ ] Add test case for splitting node and updating parent, where the new node is the most right child.
+- [ ] Implement split on parent node.
+- [ ] Implement delete operation for `sqlite`.
+- [ ] Implement deletion for B+ Tree. _(this main contain multiple sub parts as well)_
+- [ ] Implement update operation for `sqlite`.
+- [ ] Implement buffer pool for our database. _([Reference][1])_
+- [ ] Implement concurrency control for our database.
+- [ ] Implement recovery mechanism for our database.
+- [ ] Make it a distributed database????
+
+_(subject to changes as we progress)_
+
 ## End Goal
 
 The main focus is writing a storage engine from scratch. This means
@@ -23,8 +41,6 @@ as our execution engine.
 We would just write a simple enough query and execution engine
 so we can test out our database.
 
-[0]: https://cstack.github.io/db_tutorial/
-
 ## Testing
 
 Since we are creating and removing file of the same name in our tests,
@@ -37,3 +53,13 @@ in `cargo test`:
 ```sh
 cargo test -- --test-threads=1
 ```
+
+## References
+
+- [Let's Build a Simple Database][0]
+- [Database Internals](https://www.databass.dev/)
+- [CMU 5-445/645 Intro to Database Systems (Fall 2019) Youtube Playlist](https://www.youtube.com/playlist?list=PLSE8ODhjZXjbohkNBWQs_otTrBTrjyohi)
+- [CMU 15-445/645 (Fall 2021)](https://15445.courses.cs.cmu.edu/fall2021/)
+
+[0]: https://cstack.github.io/db_tutorial/
+[1]: https://15445.courses.cs.cmu.edu/fall2021/project1/
