@@ -13,7 +13,7 @@ we will have to come up with our own checklist for this project. Here's a
 quick breakdown on what I'm going to implement next:
 
 - [x] Add test case for splitting node and updating parent, where the new node is not the most right child.
-- [ ] Implement split on parent node.
+- [x] Implement split on internal node.
 - [ ] Implement delete operation for `sqlite`.
 - [ ] Implement deletion for B+ Tree. _(this main contain multiple sub parts as well)_
 - [ ] Implement update operation for `sqlite`.

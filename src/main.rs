@@ -342,7 +342,7 @@ mod test {
     }
 
     #[test]
-    fn insert_and_split_at_parent_node() {
+    fn insert_and_split_internal_node() {
         let mut table = Table::new("test.db".to_string());
 
         for i in 1..36 {
