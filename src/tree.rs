@@ -70,7 +70,48 @@ impl Tree {
             self.0.insert(cursor.page_num, new_node);
             self.0.insert(cursor.page_num, old_node);
             self.insert_internal_node(parent_page_num, cursor.page_num + 1);
-            println!("{:?}", self.0);
+            self.maybe_split_internal_node(parent_page_num);
+        }
+    }
+
+    pub fn maybe_split_internal_node(&mut self, parent_page_num: usize) {
+        let max_num_cells_for_internal_node = 3;
+        let last_unused_page_num = self.0.len() as u32;
+        let node = &mut self.0[parent_page_num];
+
+        if node.num_of_cells > max_num_cells_for_internal_node {
+            let split_at_index = node.num_of_cells as usize / 2;
+
+            let mut left_node = Node::new(false, node.node_type);
+            let mut right_node = Node::new(false, node.node_type);
+
+            for i in 0..split_at_index {
+                let ic = node.internal_cells.remove(0);
+                left_node.internal_insert(i, ic);
+                left_node.num_of_cells += 1;
+            }
+
+            let ic = node.internal_cells.remove(0);
+            left_node.right_child_offset = ic.child_pointer();
+            left_node.parent_offset = parent_page_num as u32;
+
+            for i in 0..node.internal_cells.len() {
+                let ic = node.internal_cells.remove(0);
+                right_node.internal_insert(i, ic);
+                right_node.num_of_cells += 1;
+            }
+            right_node.right_child_offset = node.right_child_offset;
+            right_node.parent_offset = parent_page_num as u32;
+
+            let ic = InternalCell::new(last_unused_page_num, ic.key());
+            node.right_child_offset = last_unused_page_num + 1;
+            node.internal_insert(0, ic);
+
+            self.0.push(left_node);
+            self.0.push(right_node);
+
+            // TODO: update left node and right node children
+            // parent offset
         }
     }
 
@@ -83,12 +124,7 @@ impl Tree {
         let right_max_key = right_child.get_max_key();
 
         let parent = &mut self.0[parent_page_num];
-        let original_num_keys = parent.num_of_cells;
         parent.num_of_cells += 1;
-
-        if original_num_keys >= 3 {
-            panic!("Need to split internal node\n");
-        }
 
         let index = parent.internal_search(new_child_max_key);
         if new_child_max_key > right_max_key {

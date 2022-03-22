@@ -342,6 +342,68 @@ mod test {
     }
 
     #[test]
+    fn insert_and_split_at_parent_node() {
+        let mut table = Table::new("test.db".to_string());
+
+        for i in 1..36 {
+            handle_input(&mut table, &format!("insert {i} user{i} user{i}@email.com"));
+        }
+
+        let expected_output = "- internal (size 4)
+  - internal (size 2)
+    - leaf (size 7)
+      - 1
+      - 2
+      - 3
+      - 4
+      - 5
+      - 6
+      - 7
+    - key 7
+    - leaf (size 7)
+      - 8
+      - 9
+      - 10
+      - 11
+      - 12
+      - 13
+      - 14
+    - key 14
+    - leaf (size 7)
+      - 15
+      - 16
+      - 17
+      - 18
+      - 19
+      - 20
+      - 21
+  - key 21
+  - internal (size 1)
+    - leaf (size 7)
+      - 22
+      - 23
+      - 24
+      - 25
+      - 26
+      - 27
+      - 28
+    - key 28
+    - leaf (size 7)
+      - 29
+      - 30
+      - 31
+      - 32
+      - 33
+      - 34
+      - 35
+";
+        let output = table.to_string();
+        assert_eq!(output, expected_output);
+
+        clean_test();
+    }
+
+    #[test]
     fn insert_string_at_max_length() {
         let mut table = Table::new("test.db".to_string());
         let mut username = String::new();
