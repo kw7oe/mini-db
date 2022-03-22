@@ -108,41 +108,48 @@ impl Tree {
         }
     }
 
-    pub fn print_node(&self, node: &Node, indent_level: usize) {
+    pub fn node_to_string(&self, node: &Node, indent_level: usize) -> String {
+        let mut result = String::new();
+
         if node.node_type == NodeType::Internal {
-            indent(indent_level);
-            println!("- internal (size {})", node.num_of_cells);
+            for _ in 0..indent_level {
+                result += "  ";
+            }
+            result += &format!("- internal (size {})\n", node.num_of_cells);
 
             for c in &node.internal_cells {
                 let child_index = c.child_pointer() as usize;
                 let node = &self.0[child_index];
-                self.print_node(&node, indent_level + 1);
+                result += &self.node_to_string(&node, indent_level + 1);
 
-                indent(indent_level + 1);
-                println!("- key {}", c.key());
+                for _ in 0..indent_level + 1 {
+                    result += "  ";
+                }
+                result += &format!("- key {}\n", c.key());
             }
 
             let child_index = node.right_child_offset as usize;
             let node = &self.0[child_index];
-            self.print_node(&node, indent_level + 1);
+            result += &self.node_to_string(&node, indent_level + 1);
         } else if node.node_type == NodeType::Leaf {
-            indent(indent_level);
-            println!("- leaf (size {})", node.num_of_cells);
+            for _ in 0..indent_level {
+                result += "  ";
+            }
+
+            result += &format!("- leaf (size {})\n", node.num_of_cells);
             for c in &node.cells {
-                indent(indent_level + 1);
-                println!("- {}", c.key());
+                for _ in 0..indent_level + 1 {
+                    result += "  ";
+                }
+                result += &format!("- {}\n", c.key());
             }
         }
+
+        result
     }
 
-    pub fn print(&self) {
+    pub fn to_string(&self) -> String {
         let node = &self.0[0];
-        self.print_node(node, 0);
-    }
-}
-
-pub fn indent(level: usize) {
-    for _ in 0..level {
-        print!("  ");
+        self.node_to_string(node, 0)
     }
 }

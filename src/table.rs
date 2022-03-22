@@ -208,10 +208,6 @@ impl Pager {
         self.get_page(cursor.page_num);
         self.tree.mut_nodes()[cursor.page_num].get(cursor.cell_num)
     }
-
-    pub fn print_tree(&self) {
-        self.tree.print();
-    }
 }
 
 pub struct Table {
@@ -260,7 +256,7 @@ impl Table {
         }
     }
 
-    pub fn print(&mut self) {
-        self.pager.print_tree();
+    pub fn to_string(&mut self) -> String {
+        self.pager.tree.to_string()
     }
 }

@@ -135,9 +135,30 @@ mod test {
             handle_input(&mut table, &format!("insert {i} user{i} user{i}@email.com"));
         }
 
-        table.print();
-
         handle_input(&mut table, &format!("insert 15 user15 user15@email.com"));
+
+        let expected_output = "- internal (size 1)
+  - leaf (size 7)
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    - 7
+  - key 7
+  - leaf (size 8)
+    - 8
+    - 9
+    - 10
+    - 11
+    - 12
+    - 13
+    - 14
+    - 15
+";
+        let output = table.to_string();
+        assert_eq!(output, expected_output);
 
         clean_test();
     }
@@ -182,7 +203,47 @@ mod test {
             handle_input(&mut table, input);
         }
 
-        table.print();
+        let expected_output = "- internal (size 3)
+  - leaf (size 7)
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    - 7
+  - key 7
+  - leaf (size 8)
+    - 8
+    - 9
+    - 10
+    - 11
+    - 12
+    - 13
+    - 14
+    - 15
+  - key 15
+  - leaf (size 7)
+    - 16
+    - 17
+    - 18
+    - 19
+    - 20
+    - 21
+    - 22
+  - key 22
+  - leaf (size 8)
+    - 23
+    - 24
+    - 25
+    - 26
+    - 27
+    - 28
+    - 29
+    - 30
+";
+        let output = table.to_string();
+        assert_eq!(output, expected_output);
 
         clean_test();
     }
@@ -232,8 +293,51 @@ mod test {
             handle_input(&mut table, input);
         }
 
-        table.print();
-
+        let expected_output = "- internal (size 3)
+  - leaf (size 9)
+    - 1
+    - 2
+    - 4
+    - 5
+    - 7
+    - 10
+    - 13
+    - 14
+    - 19
+  - key 19
+  - leaf (size 7)
+    - 21
+    - 22
+    - 23
+    - 24
+    - 25
+    - 26
+    - 27
+  - key 27
+  - leaf (size 7)
+    - 28
+    - 30
+    - 31
+    - 32
+    - 34
+    - 40
+    - 41
+  - key 41
+  - leaf (size 11)
+    - 53
+    - 55
+    - 58
+    - 60
+    - 64
+    - 66
+    - 70
+    - 72
+    - 76
+    - 88
+    - 90
+";
+        let output = table.to_string();
+        assert_eq!(output, expected_output);
         clean_test()
     }
 
@@ -322,8 +426,6 @@ mod test {
             output,
             "(1, wick, wick@email.com)\n(2, john, john@email.com)\n"
         );
-
-        reopen_table.print();
 
         clean_test();
     }
