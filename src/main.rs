@@ -143,7 +143,7 @@ mod test {
     }
 
     #[test]
-    fn insert_up_to_4_leaf_node() {
+    fn insert_up_to_4_leaf_node_split_when_child_max_key_larger_than_right_max_key() {
         let mut table = Table::new("test.db".to_string());
         let inputs = [
             "insert 18 user18 person18@example.com",
@@ -185,6 +185,56 @@ mod test {
         table.print();
 
         clean_test();
+    }
+
+    #[test]
+    fn insert_up_to_4_leaf_node_split_when_child_max_key_not_larger_than_right_max_key() {
+        let mut table = Table::new("test.db".to_string());
+        let inputs = [
+            "insert 1 user18 person18@example.com",
+            "insert 4 user7 person7@example.com",
+            "insert 7 user10 person10@example.com",
+            "insert 10 user29 person29@example.com",
+            "insert 13 user23 person23@example.com",
+            "insert 14 user4 person4@example.com",
+            "insert 19 user14 person14@example.com",
+            "insert 24 user30 person30@example.com",
+            "insert 27 user15 person15@example.com",
+            "insert 30 user26 person26@example.com",
+            "insert 40 user22 person22@example.com",
+            "insert 55 user19 person19@example.com",
+            "insert 41 user2 person2@example.com",
+            "insert 34 user1 person1@example.com",
+            "insert 21 user21 person21@example.com",
+            "insert 60 user11 person11@example.com",
+            "insert 64 user6 person6@example.com",
+            "insert 58 user20 person20@example.com",
+            "insert 76 user5 person5@example.com",
+            "insert 88 user8 person8@example.com",
+            "insert 90 user9 person9@example.com",
+            "insert 70 user3 person3@example.com",
+            "insert 5 user12 person12@example.com",
+            "insert 2 user27 person27@example.com",
+            "insert 72 user17 person17@example.com",
+            "insert 66 user16 person16@example.com",
+            "insert 53 user13 person13@example.com",
+            "insert 34 user24 person24@example.com",
+            "insert 22 user25 person25@example.com",
+            "insert 23 user25 person25@example.com",
+            "insert 25 user25 person25@example.com",
+            "insert 26 user25 person25@example.com",
+            "insert 28 user25 person25@example.com",
+            "insert 31 user25 person25@example.com",
+            "insert 32 user25 person25@example.com",
+        ];
+
+        for input in inputs {
+            handle_input(&mut table, input);
+        }
+
+        table.print();
+
+        clean_test()
     }
 
     #[test]

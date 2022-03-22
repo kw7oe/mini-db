@@ -59,6 +59,7 @@ impl Tree {
         if old_node.is_root {
             self.create_new_root(cursor, old_node, new_node);
         } else {
+            println!("--- split leaf node and update parent");
             new_node.next_leaf_offset = old_node.next_leaf_offset + 1;
             old_node.next_leaf_offset = cursor.page_num as u32 + 1;
 
@@ -91,12 +92,14 @@ impl Tree {
 
         let index = parent.internal_search(new_child_max_key);
         if new_child_max_key > right_max_key {
+            println!("--- child max key: {new_child_max_key} > right_max_key: {right_max_key}");
             parent.right_child_offset = new_child_page_num as u32;
             parent.internal_insert(
                 index,
                 InternalCell::new(parent_right_child_offset as u32, right_max_key),
             );
         } else {
+            println!("--- child max key: {new_child_max_key} <= right_max_key: {right_max_key}");
             parent.right_child_offset += 1;
             parent.internal_insert(
                 index,
