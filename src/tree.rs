@@ -4,6 +4,7 @@ use crate::node::{
 use crate::row::Row;
 use crate::Cursor;
 
+#[derive(Debug)]
 pub struct Tree(Vec<Node>);
 impl Tree {
     pub fn new() -> Self {
@@ -60,7 +61,11 @@ impl Tree {
             self.create_new_root(cursor, old_node, new_node);
         } else {
             println!("--- split leaf node and update parent");
-            new_node.next_leaf_offset = old_node.next_leaf_offset + 1;
+            if old_node.next_leaf_offset == 0 {
+                new_node.next_leaf_offset = old_node.next_leaf_offset;
+            } else {
+                new_node.next_leaf_offset = old_node.next_leaf_offset + 1;
+            }
             old_node.next_leaf_offset = cursor.page_num as u32 + 1;
 
             let parent_page_num = old_node.parent_offset as usize;

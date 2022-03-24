@@ -5,10 +5,7 @@ use std::{
     path::PathBuf,
 };
 
-use crate::node::{
-    InternalCell, Node, NodeType, LEAF_NODE_LEFT_SPLIT_COUNT, LEAF_NODE_MAX_CELLS,
-    LEAF_NODE_RIGHT_SPLIT_COUNT,
-};
+use crate::node::{Node, NodeType, LEAF_NODE_MAX_CELLS};
 use crate::row::Row;
 use crate::tree::Tree;
 const PAGE_SIZE: usize = 4096;
