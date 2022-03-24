@@ -1,10 +1,7 @@
-use crate::node::{
-    InternalCell, Node, NodeType, LEAF_NODE_LEFT_SPLIT_COUNT, LEAF_NODE_RIGHT_SPLIT_COUNT,
-};
+use crate::node::{InternalCell, Node, NodeType, LEAF_NODE_RIGHT_SPLIT_COUNT};
 use crate::row::Row;
 use crate::Cursor;
 
-#[derive(Debug)]
 pub struct Tree(Vec<Node>);
 impl Tree {
     pub fn new() -> Self {
@@ -22,28 +19,29 @@ impl Tree {
     pub fn create_new_root(
         &mut self,
         cursor: &Cursor,
-        old_node_page_num: usize,
-        mut new_node: Node,
+        right_node_page_num: usize,
+        mut left_node: Node,
     ) {
         println!("--- create_new_root: cursor.page_num: {}", cursor.page_num);
-        let old_node = self.0.get_mut(old_node_page_num).unwrap();
+        let right_node = self.0.get_mut(right_node_page_num).unwrap();
         let mut root_node = Node::new(true, NodeType::Internal);
-        old_node.is_root = false;
+        right_node.is_root = false;
 
         root_node.num_of_cells += 1;
-        root_node.right_child_offset = cursor.page_num as u32 + 2;
+        root_node.right_child_offset = (right_node_page_num + 1) as u32;
 
-        old_node.parent_offset = 0;
-        old_node.next_leaf_offset = cursor.page_num as u32 + 2;
+        right_node.parent_offset = 0;
+        right_node.next_leaf_offset = 0;
 
-        new_node.parent_offset = 0;
+        left_node.next_leaf_offset = (right_node_page_num + 1) as u32;
+        left_node.parent_offset = 0;
 
-        let left_max_key = old_node.get_max_key();
-        let cell = InternalCell::new(cursor.page_num as u32 + 1, left_max_key);
+        let left_max_key = left_node.get_max_key();
+        let cell = InternalCell::new((right_node_page_num + 2) as u32, left_max_key);
         root_node.internal_cells.insert(0, cell);
 
         self.0.insert(0, root_node);
-        self.0.insert(cursor.page_num + 2, new_node);
+        self.0.push(left_node);
     }
 
     pub fn split_and_insert_leaf_node(&mut self, cursor: &Cursor, row: &Row) {
@@ -56,7 +54,7 @@ impl Tree {
         let mut left_node = Node::new(false, right_node.node_type);
 
         for _i in 0..LEAF_NODE_RIGHT_SPLIT_COUNT {
-            let cell = right_node.cells.remove(LEAF_NODE_LEFT_SPLIT_COUNT);
+            let cell = right_node.cells.remove(0);
             right_node.num_of_cells -= 1;
 
             left_node.cells.push(cell);
@@ -209,5 +207,15 @@ impl Tree {
     pub fn to_string(&self) -> String {
         let node = &self.0[0];
         self.node_to_string(node, 0)
+    }
+}
+
+impl std::fmt::Debug for Tree {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Tree {{\n").unwrap();
+        for (i, c) in self.0.iter().enumerate() {
+            write!(f, "  {i}: {:?}\n", c).unwrap();
+        }
+        write!(f, "}}")
     }
 }

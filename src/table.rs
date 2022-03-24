@@ -63,6 +63,7 @@ impl Cursor {
         let node = &mut table.pager.get_page(self.page_num);
         let num_of_cells = node.num_of_cells as usize;
 
+        println!("Cursor: {:?}", self);
         if self.cell_num >= num_of_cells {
             if node.next_leaf_offset == 0 {
                 self.end_of_table = true;
@@ -234,6 +235,7 @@ impl Table {
         let mut cursor = Cursor::table_start(self);
         let mut output = String::new();
 
+        println!("Tree: {:?}", self.pager.tree);
         while !cursor.end_of_table {
             let row = self.pager.deserialize_row(&cursor);
             output.push_str(&format!("{:?}\n", row));
