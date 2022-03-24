@@ -157,6 +157,8 @@ pub struct Node {
     // Body
     pub cells: Vec<Cell>,
     pub internal_cells: Vec<InternalCell>,
+
+    pub has_initialize: bool,
 }
 
 pub fn print_constant() {
@@ -177,7 +179,7 @@ pub fn print_constant() {
 }
 
 impl Node {
-    pub fn new(is_root: bool, node_type: NodeType) -> Node {
+    pub fn new(is_root: bool, node_type: NodeType) -> Self {
         Node {
             node_type,
             is_root,
@@ -185,9 +187,16 @@ impl Node {
             right_child_offset: 0,
             next_leaf_offset: 0,
             num_of_cells: 0,
+            has_initialize: true,
             cells: Vec::new(),
             internal_cells: Vec::new(),
         }
+    }
+
+    pub fn unintialize() -> Self {
+        let mut node = Self::new(true, NodeType::Leaf);
+        node.has_initialize = false;
+        node
     }
 
     pub fn from_bytes(&mut self, bytes: &[u8]) {

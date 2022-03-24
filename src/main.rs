@@ -349,7 +349,7 @@ mod test {
             handle_input(&mut table, &format!("insert {i} user{i} user{i}@email.com"));
         }
 
-        let expected_output = "- internal (size 4)
+        let expected_output = "- internal (size 1)
   - internal (size 2)
     - leaf (size 7)
       - 1

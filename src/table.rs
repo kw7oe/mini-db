@@ -104,16 +104,22 @@ impl Pager {
 
     pub fn get_page(&mut self, page_num: usize) -> &Node {
         if self.tree.nodes().get(page_num).is_none() {
+            if page_num > self.tree.nodes().len() {
+                for i in self.tree.nodes().len()..page_num {
+                    self.tree.mut_nodes().insert(i, Node::unintialize());
+                }
+            }
+
+            self.tree.mut_nodes().insert(page_num, Node::unintialize());
+        }
+
+        let node = self.tree.mut_nodes().get_mut(page_num).unwrap();
+        if !node.has_initialize {
             let mut number_of_pages = self.file_len / PAGE_SIZE;
-            println!("number_of_pages: {number_of_pages}");
             if self.file_len % PAGE_SIZE != 0 {
                 // We wrote a partial page
                 number_of_pages += 1;
             }
-
-            self.tree
-                .mut_nodes()
-                .insert(page_num, Node::new(true, NodeType::Leaf));
 
             if page_num < number_of_pages {
                 let offset = page_num as u64 * PAGE_SIZE as u64;
@@ -121,7 +127,6 @@ impl Pager {
                 if let Ok(_) = self.read_file.seek(SeekFrom::Start(offset)) {
                     let mut buffer = [0; PAGE_SIZE];
                     if let Ok(_read_len) = self.read_file.read(&mut buffer) {
-                        let node = self.tree.mut_nodes().get_mut(page_num).unwrap();
                         node.from_bytes(&buffer);
                     };
                 }

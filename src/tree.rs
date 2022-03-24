@@ -111,6 +111,7 @@ impl Tree {
             let ic = InternalCell::new(last_unused_page_num, ic.key());
             node.right_child_offset = last_unused_page_num + 1;
             node.internal_insert(0, ic);
+            node.num_of_cells = 1;
 
             self.0.push(left_node);
             self.0.push(right_node);
