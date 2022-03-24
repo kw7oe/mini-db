@@ -14,6 +14,8 @@ quick breakdown on what I'm going to implement next:
 
 - [x] Add test case for splitting node and updating parent, where the new node is not the most right child.
 - [x] Implement split on internal node.
+- [ ] Implement find by id operation. This would be helpful when testing
+      deletion.
 - [ ] Implement delete operation for `sqlite`.
 - [ ] Implement deletion for B+ Tree. _(this main contain multiple sub parts as well)_
 - [ ] Implement update operation for `sqlite`.

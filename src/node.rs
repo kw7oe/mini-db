@@ -193,7 +193,7 @@ impl Node {
         }
     }
 
-    pub fn unintialize() -> Self {
+    pub fn uninitialize() -> Self {
         let mut node = Self::new(true, NodeType::Leaf);
         node.has_initialize = false;
         node

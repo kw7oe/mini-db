@@ -106,11 +106,11 @@ impl Pager {
         if self.tree.nodes().get(page_num).is_none() {
             if page_num > self.tree.nodes().len() {
                 for i in self.tree.nodes().len()..page_num {
-                    self.tree.mut_nodes().insert(i, Node::unintialize());
+                    self.tree.mut_nodes().insert(i, Node::uninitialize());
                 }
             }
 
-            self.tree.mut_nodes().insert(page_num, Node::unintialize());
+            self.tree.mut_nodes().insert(page_num, Node::uninitialize());
         }
 
         let node = self.tree.mut_nodes().get_mut(page_num).unwrap();
