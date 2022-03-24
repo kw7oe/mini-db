@@ -496,11 +496,11 @@ mod test {
     fn persist_leaf_and_internal_node_to_file() {
         let mut table = Table::new("test.db".to_string());
 
-        for i in 1..36 {
+        for i in 1..50 {
             handle_input(&mut table, &format!("insert {i} user{i} user{i}@email.com"));
         }
         let output = handle_input(&mut table, "select");
-        let expected_output: Vec<String> = (1..36)
+        let expected_output: Vec<String> = (1..50)
             .map(|i| format!("({i}, user{i}, user{i}@email.com)\n"))
             .collect();
 
