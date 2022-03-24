@@ -45,7 +45,6 @@ impl Tree {
     }
 
     pub fn split_and_insert_leaf_node(&mut self, cursor: &Cursor, row: &Row) {
-        println!("--- split_and_insert_leaf_node: {}", row.id);
         let last_unused_page_num = self.0.len() as u32;
         let mut right_node = self.0.get_mut(cursor.page_num).unwrap();
         let old_max = right_node.get_max_key();
@@ -72,6 +71,16 @@ impl Tree {
             let parent = &mut self.0[parent_page_num];
             parent.update_internal_key(old_max, new_max);
 
+            // TODO:
+            //
+            // When split leaf node, instead of pushing to the back,
+            // we always push to the back of the last leaf node.
+            //
+            // This is to ensure that internal node is always at the back
+            // and leaf nodes are all group together ascendingly.
+            //
+            // With this, it means, internal node offset will need to be updated
+            // on all of their childrens' parent offset by adding 1.
             self.0.push(left_node);
 
             self.insert_internal_node(parent_page_num, last_unused_page_num as usize);
