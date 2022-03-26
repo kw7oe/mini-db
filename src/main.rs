@@ -510,7 +510,6 @@ mod test {
 
         // To test it doesn't go stack overflow.
         table.to_string();
-
         table.flush();
 
         let mut reopen_table = Table::new("test.db".to_string());

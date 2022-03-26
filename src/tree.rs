@@ -22,7 +22,7 @@ impl Tree {
         right_node_page_num: usize,
         mut left_node: Node,
     ) {
-        println!("--- create_new_root: cursor.page_num: {}", cursor.page_num);
+        // println!("--- create_new_root: cursor.page_num: {}", cursor.page_num);
         let right_node = self.0.get_mut(right_node_page_num).unwrap();
         let mut root_node = Node::new(true, NodeType::Internal);
         right_node.is_root = false;
@@ -63,7 +63,7 @@ impl Tree {
         if right_node.is_root {
             self.create_new_root(cursor, cursor.page_num, left_node);
         } else {
-            println!("--- split leaf node and update parent");
+            // println!("--- split leaf node and update parent");
             if right_node_next_leaf_offset != 0 {
                 right_node.next_leaf_offset += 1;
             }
@@ -134,15 +134,15 @@ impl Tree {
 
         let index = parent.internal_search(new_child_max_key);
         if new_child_max_key > right_max_key {
-            println!("--- child max key: {new_child_max_key} > right_max_key: {right_max_key}");
-            println!("parent_right_child_offset: {parent_right_child_offset}");
+            // println!("--- child max key: {new_child_max_key} > right_max_key: {right_max_key}");
+            // println!("parent_right_child_offset: {parent_right_child_offset}");
             parent.right_child_offset = new_child_page_num as u32;
             parent.internal_insert(
                 index,
                 InternalCell::new(parent_right_child_offset as u32, right_max_key),
             );
         } else {
-            println!("--- child max key: {new_child_max_key} <= right_max_key: {right_max_key}");
+            // println!("--- child max key: {new_child_max_key} <= right_max_key: {right_max_key}");
             parent.internal_insert(
                 index,
                 InternalCell::new(new_child_page_num as u32, new_child_max_key),
@@ -156,7 +156,7 @@ impl Tree {
         let node = &mut self.0[parent_page_num];
 
         if node.num_of_cells > max_num_cells_for_internal_node {
-            println!("--- split internal node: {parent_page_num}");
+            // println!("--- split internal node: {parent_page_num}");
             let split_at_index = node.num_of_cells as usize / 2;
 
             let mut left_node = Node::new(false, node.node_type);
