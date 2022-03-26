@@ -14,6 +14,9 @@ quick breakdown on what I'm going to implement next:
 
 - [x] Add test case for splitting node and updating parent, where the new node is not the most right child.
 - [x] Implement split on internal node.
+- [ ] Extend test cases to make sure insertion is working as intended and fix
+      bugs along the way...
+  - [ ] Add fuzzing/property-based testing for insertion test.
 - [ ] Implement find by id operation. This would be helpful when testing
       deletion.
 - [ ] Implement delete operation for `sqlite`.
