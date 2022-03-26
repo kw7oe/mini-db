@@ -394,6 +394,15 @@ impl Node {
             self.internal_cells[index].write_key(new_key);
         }
     }
+
+    pub fn increment_internal_child_pointers(&mut self, page_num: usize) {
+        println!("self: {:?}, page_num: {page_num}", self);
+        for cell in &mut self.internal_cells {
+            if page_num < cell.child_pointer() as usize {
+                cell.write_child_pointer(cell.child_pointer() + 1);
+            }
+        }
+    }
 }
 
 #[cfg(test)]

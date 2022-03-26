@@ -28,25 +28,25 @@ impl Tree {
         right_node.is_root = false;
 
         root_node.num_of_cells += 1;
-        root_node.right_child_offset = (right_node_page_num + 1) as u32;
+        root_node.right_child_offset = 2;
 
         right_node.parent_offset = 0;
         right_node.next_leaf_offset = 0;
 
-        left_node.next_leaf_offset = (right_node_page_num + 1) as u32;
+        left_node.next_leaf_offset = 2;
         left_node.parent_offset = 0;
 
         let left_max_key = left_node.get_max_key();
-        let cell = InternalCell::new((right_node_page_num + 2) as u32, left_max_key);
+        let cell = InternalCell::new(1, left_max_key);
         root_node.internal_cells.insert(0, cell);
 
         self.0.insert(0, root_node);
-        self.0.push(left_node);
+        self.0.insert(1, left_node);
     }
 
     pub fn split_and_insert_leaf_node(&mut self, cursor: &Cursor, row: &Row) {
-        let last_unused_page_num = self.0.len() as u32;
         let mut right_node = self.0.get_mut(cursor.page_num).unwrap();
+        let right_node_next_leaf_offset = right_node.next_leaf_offset;
         let old_max = right_node.get_max_key();
         right_node.insert(row, cursor);
 
@@ -64,27 +64,80 @@ impl Tree {
             self.create_new_root(cursor, cursor.page_num, left_node);
         } else {
             println!("--- split leaf node and update parent");
-            left_node.next_leaf_offset = cursor.page_num as u32;
+            if right_node_next_leaf_offset != 0 {
+                right_node.next_leaf_offset += 1;
+            }
+            left_node.next_leaf_offset = (cursor.page_num + 1) as u32;
             let parent_page_num = right_node.parent_offset as usize;
-            let new_max = right_node.get_max_key();
+            let new_max = left_node.get_max_key();
 
             let parent = &mut self.0[parent_page_num];
             parent.update_internal_key(old_max, new_max);
+            if cursor.page_num < right_node_next_leaf_offset as usize {
+                parent.right_child_offset += 1;
+            }
 
-            // TODO:
-            //
-            // When split leaf node, instead of pushing to the back,
-            // we always push to the back of the last leaf node.
-            //
-            // This is to ensure that internal node is always at the back
-            // and leaf nodes are all group together ascendingly.
-            //
-            // With this, it means, internal node offset will need to be updated
-            // on all of their childrens' parent offset by adding 1.
-            self.0.push(left_node);
+            self.0.insert(cursor.page_num, left_node);
+            self.maybe_update_internal_node_child_parent_offset(cursor.page_num);
 
-            self.insert_internal_node(parent_page_num, last_unused_page_num as usize);
+            let parent_page_num = if cursor.page_num < parent_page_num {
+                parent_page_num + 1
+            } else {
+                parent_page_num
+            };
+
+            if cursor.page_num > 0 {
+                let root = &mut self.0[0];
+                if parent_page_num != 0 {
+                    root.right_child_offset += 1;
+                }
+                root.increment_internal_child_pointers(cursor.page_num);
+            }
+
+            self.insert_internal_node(parent_page_num, cursor.page_num + 1);
             self.maybe_split_internal_node(parent_page_num);
+        }
+    }
+
+    pub fn maybe_update_internal_node_child_parent_offset(&mut self, page_num: usize) {
+        // Plus two because two nodes was inserted
+        // after page_num.
+        let affected_page_num = page_num + 2;
+        for i in affected_page_num..self.0.len() {
+            let node = &mut self.0[i];
+            if page_num < node.right_child_offset as usize {
+                node.right_child_offset += 1;
+            }
+            self.update_children_parent_offset(i as u32);
+        }
+    }
+
+    pub fn insert_internal_node(&mut self, parent_page_num: usize, new_child_page_num: usize) {
+        let parent_right_child_offset = self.0[parent_page_num].right_child_offset as usize;
+        let new_node = &self.0[new_child_page_num];
+        let new_child_max_key = new_node.get_max_key();
+
+        let right_child = &self.0[parent_right_child_offset];
+        let right_max_key = right_child.get_max_key();
+
+        let parent = &mut self.0[parent_page_num];
+        parent.num_of_cells += 1;
+
+        let index = parent.internal_search(new_child_max_key);
+        if new_child_max_key > right_max_key {
+            println!("--- child max key: {new_child_max_key} > right_max_key: {right_max_key}");
+            println!("parent_right_child_offset: {parent_right_child_offset}");
+            parent.right_child_offset = new_child_page_num as u32;
+            parent.internal_insert(
+                index,
+                InternalCell::new(parent_right_child_offset as u32, right_max_key),
+            );
+        } else {
+            println!("--- child max key: {new_child_max_key} <= right_max_key: {right_max_key}");
+            parent.internal_insert(
+                index,
+                InternalCell::new(new_child_page_num as u32, new_child_max_key),
+            );
         }
     }
 
@@ -141,35 +194,6 @@ impl Tree {
         for i in child_pointers {
             let child = &mut self.0[i];
             child.parent_offset = page_num;
-        }
-    }
-
-    pub fn insert_internal_node(&mut self, parent_page_num: usize, new_child_page_num: usize) {
-        let parent_right_child_offset = self.0[parent_page_num].right_child_offset as usize;
-        let new_node = &self.0[new_child_page_num];
-        let new_child_max_key = new_node.get_max_key();
-
-        let right_child = &self.0[parent_right_child_offset];
-        let right_max_key = right_child.get_max_key();
-
-        let parent = &mut self.0[parent_page_num];
-        parent.num_of_cells += 1;
-
-        let index = parent.internal_search(new_child_max_key);
-        if new_child_max_key > right_max_key {
-            println!("--- child max key: {new_child_max_key} > right_max_key: {right_max_key}");
-            println!("parent_right_child_offset: {parent_right_child_offset}");
-            parent.right_child_offset = new_child_page_num as u32;
-            parent.internal_insert(
-                index,
-                InternalCell::new(parent_right_child_offset as u32, right_max_key),
-            );
-        } else {
-            println!("--- child max key: {new_child_max_key} <= right_max_key: {right_max_key}");
-            parent.internal_insert(
-                index,
-                InternalCell::new(new_child_page_num as u32, new_child_max_key),
-            );
         }
     }
 

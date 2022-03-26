@@ -234,7 +234,6 @@ impl Table {
         let mut cursor = Cursor::table_start(self);
         let mut output = String::new();
 
-        println!("Tree: {:?}", self.pager.tree);
         while !cursor.end_of_table {
             let row = self.pager.deserialize_row(&cursor);
             output.push_str(&format!("{:?}\n", row));
