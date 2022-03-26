@@ -495,16 +495,22 @@ mod test {
     #[test]
     fn persist_leaf_and_internal_node_to_file() {
         let mut table = Table::new("test.db".to_string());
+        let row_count = 1000;
 
-        for i in 1..90 {
+        for i in 1..row_count {
             handle_input(&mut table, &format!("insert {i} user{i} user{i}@email.com"));
         }
+
         let output = handle_input(&mut table, "select");
-        let expected_output: Vec<String> = (1..90)
+        let expected_output: Vec<String> = (1..row_count)
             .map(|i| format!("({i}, user{i}, user{i}@email.com)\n"))
             .collect();
 
         assert_eq!(output, expected_output.join(""));
+
+        // To test it doesn't go stack overflow.
+        table.to_string();
+
         table.flush();
 
         let mut reopen_table = Table::new("test.db".to_string());

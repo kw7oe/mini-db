@@ -203,13 +203,11 @@ impl Node {
         self.set_common_header(&bytes[0..COMMON_NODE_HEADER_SIZE]);
 
         if self.node_type == NodeType::Leaf {
-            println!("--- form leaf node from bytes");
             self.set_leaf_header(&bytes[COMMON_NODE_HEADER_SIZE..LEAF_NODE_HEADER_SIZE]);
             self.set_leaf_cells(&bytes[LEAF_NODE_HEADER_SIZE..]);
         }
 
         if self.node_type == NodeType::Internal {
-            println!("--- form internal node from bytes");
             self.set_internal_header(&bytes[COMMON_NODE_HEADER_SIZE..INTERNAL_NODE_HEADER_SIZE]);
             self.set_internal_cells(&bytes[INTERNAL_NODE_HEADER_SIZE..]);
         }

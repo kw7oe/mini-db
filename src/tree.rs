@@ -95,7 +95,12 @@ impl Tree {
                 if parent_page_num != 0 {
                     root.right_child_offset += 1;
                 }
-                root.increment_internal_child_pointers(cursor.page_num);
+            }
+
+            for cell in &mut self.0 {
+                if cell.node_type == NodeType::Internal {
+                    cell.increment_internal_child_pointers(cursor.page_num);
+                }
             }
 
             self.insert_internal_node(parent_page_num, cursor.page_num + 1);

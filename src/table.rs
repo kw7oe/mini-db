@@ -174,8 +174,6 @@ impl Pager {
             let remaining_space = PAGE_SIZE - size;
             let vec = vec![0; remaining_space];
             size += self.write_file.write(&vec).unwrap();
-
-            println!("--- write {size} to disk");
         }
     }
 
