@@ -69,10 +69,14 @@ impl Tree {
             }
             left_node.next_leaf_offset = (cursor.page_num + 1) as u32;
             let parent_page_num = right_node.parent_offset as usize;
+            if cursor.page_num < right_node.parent_offset as usize {
+                right_node.parent_offset += 1;
+            }
             let new_max = left_node.get_max_key();
 
             let parent = &mut self.0[parent_page_num];
             parent.update_internal_key(old_max, new_max);
+
             if cursor.page_num < right_node_next_leaf_offset as usize {
                 parent.right_child_offset += 1;
             }
@@ -96,7 +100,6 @@ impl Tree {
 
             self.insert_internal_node(parent_page_num, cursor.page_num + 1);
             self.maybe_split_internal_node(parent_page_num);
-            println!("{:?}", self);
         }
     }
 
@@ -148,6 +151,7 @@ impl Tree {
         let node = &mut self.0[parent_page_num];
 
         if node.num_of_cells > max_num_cells_for_internal_node {
+            println!("--- split internal node: {parent_page_num}");
             let split_at_index = node.num_of_cells as usize / 2;
 
             let mut left_node = Node::new(false, node.node_type);
