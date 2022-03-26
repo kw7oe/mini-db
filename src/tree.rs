@@ -96,6 +96,7 @@ impl Tree {
 
             self.insert_internal_node(parent_page_num, cursor.page_num + 1);
             self.maybe_split_internal_node(parent_page_num);
+            println!("{:?}", self);
         }
     }
 
