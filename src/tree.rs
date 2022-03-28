@@ -68,6 +68,7 @@ impl Tree {
                 right_node.next_leaf_offset += 1;
             }
             left_node.next_leaf_offset = (cursor.page_num + 1) as u32;
+
             let parent_page_num = right_node.parent_offset as usize;
             if cursor.page_num < right_node.parent_offset as usize {
                 right_node.parent_offset += 1;
@@ -82,7 +83,7 @@ impl Tree {
             }
 
             self.0.insert(cursor.page_num, left_node);
-            self.maybe_update_internal_node_child_parent_offset(cursor.page_num);
+            self.increment_pointers(cursor.page_num);
 
             let parent_page_num = if cursor.page_num < parent_page_num {
                 parent_page_num + 1
@@ -108,16 +109,20 @@ impl Tree {
         }
     }
 
-    pub fn maybe_update_internal_node_child_parent_offset(&mut self, page_num: usize) {
+    pub fn increment_pointers(&mut self, page_num: usize) {
         // Plus two because two nodes was inserted
         // after page_num.
         let affected_page_num = page_num + 2;
         for i in affected_page_num..self.0.len() {
             let node = &mut self.0[i];
-            if page_num < node.right_child_offset as usize {
-                node.right_child_offset += 1;
+            if node.node_type == NodeType::Leaf && node.next_leaf_offset != 0 {
+                node.next_leaf_offset += 1
+            } else {
+                if page_num < node.right_child_offset as usize {
+                    node.right_child_offset += 1;
+                }
+                self.update_children_parent_offset(i as u32);
             }
-            self.update_children_parent_offset(i as u32);
         }
     }
 
