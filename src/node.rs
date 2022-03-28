@@ -399,6 +399,10 @@ impl Node {
                 cell.write_child_pointer(cell.child_pointer() + 1);
             }
         }
+
+        if page_num < self.right_child_offset as usize {
+            self.right_child_offset += 1;
+        }
     }
 }
 

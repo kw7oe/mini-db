@@ -587,32 +587,174 @@ mod test {
         assert_eq!(output, expected_output.join(""));
     }
 
+    #[test]
+    // Another test case that result in incorrect right_child_offset and parent_offset
+    // being set by previous implementation.
+    fn edge_case_3() {
+        let mut table = Table::new("test.db".to_string());
+        let mut ids: Vec<u32> = vec![
+            4046930442, 3921144161, 4229192939, 3382240945, 4052938990, 2278855461, 2456473505,
+            4064735575, 4207541631, 517463772, 1061340269, 1240903379, 2507590819, 1, 1717768101,
+            2344446015, 813287232, 677509042, 3164314827, 2308630957, 712894876, 1386761012,
+            1544312357, 1454467287, 1174258694, 0, 4061690588, 1605248421, 1629685041, 2914057616,
+            3077557534, 2699076849, 1243126738, 455554470, 1406636693, 2156163181, 2576482160,
+            1416480141, 824139726, 854776393, 3074268305, 919774497, 1910391461, 879293641,
+            1059488243, 749046485, 3443907766, 717214207, 2102687613, 2122638882, 4294967295,
+            1183710198, 1759045457, 3174766190, 3452935454, 1369486322, 1577951559, 1567643592,
+            264882196, 303247237, 1858026677, 3717645950, 1595019133, 513208248, 740226363,
+            129056044, 3940851756, 1403147878, 4139530007, 2651050044, 546554853, 1746449797,
+            432385472,
+        ];
+
+        for i in &ids {
+            handle_input(&mut table, &format!("insert {i} user{i} user{i}@email.com"));
+        }
+
+        let output = handle_input(&mut table, "select");
+        ids.sort();
+
+        let expected_output: Vec<String> = ids
+            .iter()
+            .map(|i| format!("({i}, user{i}, user{i}@email.com)\n"))
+            .collect();
+
+        assert_eq!(output, expected_output.join(""));
+    }
+
+    #[test]
+    fn edge_case_4() {
+        let mut table = Table::new("test.db".to_string());
+        let mut ids: Vec<u32> = vec![
+            1039039364, 449383650, 3689054439, 3990025253, 3648966878, 3488825869, 2953546758,
+            777596548, 1317218180, 424356511, 1153045954, 4097353208, 2343327658, 588643681,
+            2951690248, 2095641704, 2368624412, 1081741582, 3723295035, 1562100960, 1454457755,
+            256657964, 361946241, 3149034577, 195728205, 2645088405, 2109029853, 821490685,
+            424522005, 1342773334, 3242338732, 2558938407, 3988887356, 1722530320, 2444468120,
+            1724941912, 3358270035, 2714393433, 2962742342, 2006877190, 1584660308, 2358898951,
+            387665654, 34554432, 3373674698, 3335778813, 1770600923, 1514180148, 1076182609,
+            3113332784, 3787710300, 1052039490, 1666523224, 2846179160, 4259816427, 538041855,
+            559317427, 1979199020, 4086025766, 4159196363, 4241311689, 2874506549, 914724270,
+            1927725625, 0, 1144246760, 3690958262, 714239470, 213414022, 4279487401, 655930002, 1,
+            2747594677, 398902805, 1725501301,
+        ];
+
+        for i in &ids {
+            handle_input(&mut table, &format!("insert {i} user{i} user{i}@email.com"));
+        }
+
+        let output = handle_input(&mut table, "select");
+        ids.sort();
+
+        let expected_output: Vec<String> = ids
+            .iter()
+            .map(|i| format!("({i}, user{i}, user{i}@email.com)\n"))
+            .collect();
+
+        assert_eq!(output, expected_output.join(""));
+    }
+
+    #[test]
+    fn edge_case_5() {
+        let mut table = Table::new("test.db".to_string());
+        let mut ids: Vec<u32> = vec![
+            4169718809, 4236538878, 3437930762, 100432263, 2984571246, 3966272303, 3275829974,
+            1107248550, 3426658859, 385962272, 2221608141, 1305039362, 3965866038, 2362264656,
+            2810931753, 1817926869, 3703243535, 472964308, 2003922755, 199729146, 2749263517,
+            1989870548, 315394481, 1487028336, 3799867956, 4277994399, 4077576244, 3887847100,
+            1767939938, 4090310902, 1275773529, 821731272, 2411065781, 429504110, 3080013801,
+            3221194933, 2540328294, 574732466, 2884596891, 217180741, 831183990, 3084460986,
+            3491586410, 1904693863, 250700765, 323175899, 3719578118, 1686939713, 1872170873,
+            3308124420, 2517496895, 3095667251, 2881347613, 124171404, 4192754000, 33118690,
+            1103893962, 746904435, 518068776, 3392166016, 0, 4210668953, 4225601389, 2695571929, 1,
+            3610328721, 3471635988, 2880546981, 2086421747, 3092492214, 90907694, 2353126299,
+            1964406623, 3642548797, 4294967295, 1822954304, 438006942, 3286180609, 2115727435,
+            309471222, 4023894537, 1600736681, 1077483121, 2258733, 2780486638, 1226361602,
+            458829584, 3713338081, 157754815, 1089651954, 952274728, 4029749492,
+        ];
+        for i in &ids {
+            handle_input(&mut table, &format!("insert {i} user{i} user{i}@email.com"));
+        }
+
+        let output = handle_input(&mut table, "select");
+        ids.sort();
+
+        let expected_output: Vec<String> = ids
+            .iter()
+            .map(|i| format!("({i}, user{i}, user{i}@email.com)\n"))
+            .collect();
+
+        assert_eq!(output, expected_output.join(""));
+    }
+
+    #[test]
+    fn edge_case_6() {
+        let mut table = Table::new("test.db".to_string());
+        let mut ids: Vec<u32> = vec![
+            3382435867, 2781620200, 83106383, 4147853131, 1295290551, 4142895049, 4294967295,
+            412794652, 2967371733, 0, 3986377166, 1240692179, 3487875282, 109365893, 1893622894,
+            1040843281, 2072933767, 2915881961, 3876609394, 4012658875, 3660231275, 947237648,
+            976717235, 1846912049, 108529937, 1708939796, 374168883, 233776229, 2294156580,
+            3219467422, 3638811430, 4057803256, 961600890, 2295025637, 1294063577, 660458214,
+            307368866, 377935319, 655048382, 3347222051, 2282802440, 772162491, 2715790627,
+            4238258251, 4025516826, 1537039460, 3527259625, 2696366718, 2386640490, 2042506169,
+            15160950, 2498648450, 879945756, 277308937, 1739326107, 1405635068, 3964009246,
+            1829670428, 947381889, 1, 3896555183, 2633704506, 609498228, 3349407468, 1991619512,
+            1160238434, 2593998749, 584287087, 237492343, 2921247223, 2097760467, 2996056874,
+            3300871123, 2011205031, 1464349335, 3317378212, 3078650142, 3578010797, 732156332,
+            207540948, 493991125,
+        ];
+
+        for i in &ids {
+            handle_input(&mut table, &format!("insert {i} user{i} user{i}@email.com"));
+        }
+
+        let output = handle_input(&mut table, "select");
+        ids.sort();
+
+        let expected_output: Vec<String> = ids
+            .iter()
+            .map(|i| format!("({i}, user{i}, user{i}@email.com)\n"))
+            .collect();
+
+        assert_eq!(output, expected_output.join(""));
+    }
+
+    use quickcheck::{Arbitrary, Gen};
     use rand::seq::SliceRandom;
     use rand::thread_rng;
 
-    quickcheck! {
-        fn insert_and_select_prop(ids: Vec<u32>) -> bool {
-            let mut generated_ids = ids.clone();
-            generated_ids.sort();
-            generated_ids.dedup();
-            generated_ids.shuffle(&mut thread_rng());
-            println!("quickcheck: {:?}", generated_ids);
+    #[derive(Clone, Debug)]
+    struct UniqueIDs(Vec<u32>);
 
+    impl Arbitrary for UniqueIDs {
+        fn arbitrary(g: &mut Gen) -> UniqueIDs {
+            let mut vec = Vec::<u32>::arbitrary(g);
+            vec.sort();
+            vec.dedup();
+            vec.shuffle(&mut thread_rng());
+            UniqueIDs(vec)
+        }
+    }
+
+    quickcheck! {
+        fn insert_and_select_prop(ids: UniqueIDs) -> bool {
             let mut table = Table::new("test.db".to_string());
 
-            for i in &generated_ids {
+            for i in &ids.0 {
                 handle_input(&mut table, &format!("insert {i} user{i} user{i}@email.com"));
             }
 
             let output = handle_input(&mut table, "select");
 
-            generated_ids.sort();
-            let expected_output: Vec<String> = generated_ids
+            let mut sorted_ids = ids.0.clone();
+            sorted_ids.sort();
+            let expected_output: Vec<String> = sorted_ids
                 .iter()
                 .map(|i| format!("({i}, user{i}, user{i}@email.com)\n"))
                 .collect();
 
-            output == expected_output.join("")
+            let result = output == expected_output.join("");
+            result
         }
     }
 
