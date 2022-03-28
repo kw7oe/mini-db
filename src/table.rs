@@ -14,6 +14,7 @@ const PAGE_SIZE: usize = 4096;
 pub struct Cursor {
     pub page_num: usize,
     pub cell_num: usize,
+    pub key_existed: bool,
     end_of_table: bool,
 }
 
@@ -26,13 +27,7 @@ impl Cursor {
             cursor.end_of_table = num_of_cells == 0;
             cursor
         } else {
-            let num_of_cells = table.pager.get_page(page_num).num_of_cells as usize;
-
-            Cursor {
-                page_num,
-                cell_num: 0,
-                end_of_table: num_of_cells == 0,
-            }
+            panic!("Oops, I'm a bug!");
         }
     }
 
@@ -42,10 +37,16 @@ impl Cursor {
 
         if node.node_type == NodeType::Leaf {
             match node.search(key) {
-                Ok(_index) => Err("duplicate key\n".to_string()),
+                Ok(index) => Ok(Cursor {
+                    page_num,
+                    cell_num: index,
+                    key_existed: true,
+                    end_of_table: index == num_of_cells,
+                }),
                 Err(index) => Ok(Cursor {
                     page_num,
                     cell_num: index,
+                    key_existed: false,
                     end_of_table: index == num_of_cells,
                 }),
             }
@@ -206,7 +207,8 @@ impl Pager {
 
     pub fn deserialize_row(&mut self, cursor: &Cursor) -> Row {
         self.get_page(cursor.page_num);
-        self.tree.mut_nodes()[cursor.page_num].get(cursor.cell_num)
+        let node = &mut self.tree.mut_nodes()[cursor.page_num];
+        node.get(cursor.cell_num)
     }
 }
 
@@ -245,6 +247,9 @@ impl Table {
         let page_num = self.root_page_num;
         match Cursor::table_find(self, page_num, row.id) {
             Ok(cursor) => {
+                if cursor.key_existed {
+                    return "duplicate key\n".to_string();
+                }
                 self.pager.serialize_row(row, &cursor);
 
                 format!(
