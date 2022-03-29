@@ -6,6 +6,7 @@ use std::{
 };
 
 use crate::node::{Node, NodeType, LEAF_NODE_MAX_CELLS};
+use crate::query::Statement;
 use crate::row::Row;
 use crate::tree::Tree;
 const PAGE_SIZE: usize = 4096;
@@ -232,14 +233,23 @@ impl Table {
         self.pager.flush_all();
     }
 
-    pub fn select(&mut self) -> String {
-        let mut cursor = Cursor::table_start(self);
+    pub fn select(&mut self, statement: &Statement) -> String {
+        let mut cursor: Cursor;
         let mut output = String::new();
 
-        while !cursor.end_of_table {
-            let row = self.pager.deserialize_row(&cursor);
-            output.push_str(&format!("{:?}\n", row));
-            cursor.advance(self);
+        if let Some(row) = &statement.row {
+            cursor = Cursor::table_find(self, self.root_page_num, row.id).unwrap();
+            if cursor.key_existed {
+                let row = self.pager.deserialize_row(&cursor);
+                output.push_str(&format!("{:?}\n", row));
+            }
+        } else {
+            cursor = Cursor::table_start(self);
+            while !cursor.end_of_table {
+                let row = self.pager.deserialize_row(&cursor);
+                output.push_str(&format!("{:?}\n", row));
+                cursor.advance(self);
+            }
         }
 
         output

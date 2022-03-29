@@ -18,7 +18,7 @@ pub enum StatementType {
 #[derive(Debug)]
 pub struct Statement {
     statement_type: StatementType,
-    row: Option<Row>,
+    pub row: Option<Row>,
 }
 
 pub fn handle_meta_command(command: &str) -> MetaCommand {
@@ -73,7 +73,7 @@ pub fn prepare_statement(input: &str) -> Result<Statement, String> {
 
 pub fn execute_statement(table: &mut Table, statement: &Statement) -> String {
     match statement.statement_type {
-        StatementType::Select => table.select(),
+        StatementType::Select => table.select(statement),
         StatementType::Insert => table.insert(statement.row.as_ref().unwrap()),
     }
 }

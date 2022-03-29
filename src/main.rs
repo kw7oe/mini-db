@@ -122,6 +122,25 @@ mod test {
     }
 
     #[test]
+    fn select_by_id_statement() {
+        let mut table = Table::new("test.db".to_string());
+
+        let output = handle_input(&mut table, "select 1");
+        assert_eq!(output, "");
+
+        handle_input(&mut table, "insert 1 john john@email.com");
+        handle_input(&mut table, "insert 2 wick wick@email.com");
+
+        let output = handle_input(&mut table, "select 1");
+        assert_eq!(output, "(1, john, john@email.com)\n");
+
+        let output = handle_input(&mut table, "select 2");
+        assert_eq!(output, "(2, wick, wick@email.com)\n");
+
+        clean_test();
+    }
+
+    #[test]
     fn insert_statement() {
         let mut table = Table::new("test.db".to_string());
 
