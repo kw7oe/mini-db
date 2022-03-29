@@ -39,8 +39,7 @@ const LEAF_NODE_VALUE_SIZE: usize = ROW_SIZE;
 pub const LEAF_NODE_CELL_SIZE: usize = LEAF_NODE_KEY_SIZE + LEAF_NODE_VALUE_SIZE;
 pub const LEAF_NODE_MAX_CELLS: usize = LEAF_NODE_SPACE_FOR_CELLS / LEAF_NODE_CELL_SIZE;
 pub const LEAF_NODE_RIGHT_SPLIT_COUNT: usize = (LEAF_NODE_MAX_CELLS + 1) / 2;
-pub const LEAF_NODE_LEFT_SPLIT_COUNT: usize =
-    (LEAF_NODE_MAX_CELLS + 1) - LEAF_NODE_RIGHT_SPLIT_COUNT;
+// pub const LEAF_NODE_LEFT_SPLIT_COUNT: usize = (LEAF_NODE_MAX_CELLS + 1) - LEAF_NODE_RIGHT_SPLIT_COUNT;
 
 pub const INTERNAL_NODE_RIGHT_CHILD_SIZE: usize = std::mem::size_of::<u32>();
 pub const INTERNAL_NODE_NUM_KEYS_SIZE: usize = std::mem::size_of::<u32>();
@@ -303,14 +302,6 @@ impl Node {
         }
 
         result
-    }
-
-    pub fn cells(&self, cell_num: usize) -> &[u8] {
-        if self.node_type == NodeType::Leaf {
-            &self.cells[cell_num].0
-        } else {
-            &self.internal_cells[cell_num].0
-        }
     }
 
     pub fn get_max_key(&self) -> u32 {

@@ -11,6 +11,9 @@ big_array! {
     32, 255, LEAF_NODE_CELL_SIZE
 }
 
+#[macro_use]
+extern crate log;
+
 mod node;
 mod query;
 mod row;
@@ -18,6 +21,8 @@ mod table;
 mod tree;
 
 fn main() -> std::io::Result<()> {
+    env_logger::init();
+
     let mut table = Table::new("data.db".to_string());
     let mut buffer = String::new();
 

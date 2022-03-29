@@ -16,17 +16,15 @@ impl Tree {
         &mut self.0
     }
 
-    pub fn create_new_root(
-        &mut self,
-        cursor: &Cursor,
-        right_node_page_num: usize,
-        mut left_node: Node,
-    ) {
-        // println!("--- create_new_root: cursor.page_num: {}", cursor.page_num);
+    pub fn create_new_root(&mut self, right_node_page_num: usize, mut left_node: Node) {
+        debug!("--- create_new_root");
         let right_node = self.0.get_mut(right_node_page_num).unwrap();
         let mut root_node = Node::new(true, NodeType::Internal);
         right_node.is_root = false;
 
+        // The only reason we could hardcode all of the offsets
+        // is becuase we always insert root node to 0 and it's children to index
+        // 1 and 2, when we create a new root node.
         root_node.num_of_cells += 1;
         root_node.right_child_offset = 2;
 
@@ -60,9 +58,9 @@ impl Tree {
         }
 
         if right_node.is_root {
-            self.create_new_root(cursor, cursor.page_num, left_node);
+            self.create_new_root(cursor.page_num, left_node);
         } else {
-            // println!("--- split leaf node and update parent");
+            debug!("--- split leaf node and update parent");
             left_node.next_leaf_offset = (cursor.page_num + 1) as u32;
             left_node.parent_offset = right_node.parent_offset;
 
@@ -127,15 +125,14 @@ impl Tree {
 
         let index = parent.internal_search(new_child_max_key);
         if new_child_max_key > right_max_key {
-            // println!("--- child max key: {new_child_max_key} > right_max_key: {right_max_key}");
-            // println!("parent_right_child_offset: {parent_right_child_offset}");
+            debug!("--- child max key: {new_child_max_key} > right_max_key: {right_max_key}");
             parent.right_child_offset = new_child_page_num as u32;
             parent.internal_insert(
                 index,
                 InternalCell::new(parent_right_child_offset as u32, right_max_key),
             );
         } else {
-            // println!("--- child max key: {new_child_max_key} <= right_max_key: {right_max_key}");
+            debug!("--- child max key: {new_child_max_key} <= right_max_key: {right_max_key}");
             parent.internal_insert(
                 index,
                 InternalCell::new(new_child_page_num as u32, new_child_max_key),
