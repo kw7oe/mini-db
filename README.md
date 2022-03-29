@@ -20,7 +20,7 @@ quick breakdown on what I'm going to implement next:
       bugs along the way...
   - [x] Add property-based testing for insertion test.
   - [x] Fix all the bugs found through property based test.
-- [ ] Implement find by id operation. This would be helpful when testing
+- [x] Implement find by id operation. This would be helpful when testing
       deletion.
 - [ ] Implement delete operation for `sqlite`.
 - [ ] Implement deletion for B+ Tree. _(this main contain multiple sub parts as well)_
