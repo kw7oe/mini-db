@@ -807,6 +807,87 @@ mod test {
         assert_eq!(output, expected_output);
     }
 
+    #[test]
+    fn delete_row_from_tree_with_2_level_internal_and_leaf_node() {
+        let mut table = Table::new("test.db".to_string());
+
+        for i in 1..20 {
+            handle_input(&mut table, &format!("insert {i} user{i} user{i}@email.com"));
+        }
+
+        let output = handle_input(&mut table, "delete 5");
+        assert_eq!(output, "deleted 5");
+
+        let output = handle_input(&mut table, "select 5");
+        assert_eq!(output, "");
+
+        let output = handle_input(&mut table, "select");
+        let expected_output = (1..20)
+            .filter(|&i| i != 5)
+            .collect::<Vec<u32>>()
+            .iter()
+            .map(|i| format!("({i}, user{i}, user{i}@email.com)\n"))
+            .collect::<Vec<String>>()
+            .join("");
+
+        assert_eq!(output, expected_output);
+    }
+
+    #[test]
+    fn delete_row_from_tree_with_3_level_internal_and_leaf_node() {
+        let mut table = Table::new("test.db".to_string());
+
+        for i in 1..100 {
+            handle_input(&mut table, &format!("insert {i} user{i} user{i}@email.com"));
+        }
+
+        let output = handle_input(&mut table, "delete 5");
+        assert_eq!(output, "deleted 5");
+
+        let output = handle_input(&mut table, "delete 90");
+        assert_eq!(output, "deleted 90");
+
+        let output = handle_input(&mut table, "delete 55");
+        assert_eq!(output, "deleted 55");
+
+        let output = handle_input(&mut table, "select");
+        let expected_output = (1..100)
+            .filter(|&i| i != 5 && i != 90 && i != 55)
+            .collect::<Vec<u32>>()
+            .iter()
+            .map(|i| format!("({i}, user{i}, user{i}@email.com)\n"))
+            .collect::<Vec<String>>()
+            .join("");
+
+        assert_eq!(output, expected_output);
+    }
+
+    #[test]
+    fn delete_row_with_id_in_internal_node() {
+        let mut table = Table::new("test.db".to_string());
+
+        for i in 1..100 {
+            handle_input(&mut table, &format!("insert {i} user{i} user{i}@email.com"));
+        }
+
+        let output = handle_input(&mut table, "delete 7");
+        assert_eq!(output, "deleted 7");
+
+        let output = handle_input(&mut table, "select");
+        let expected_output = (1..100)
+            .filter(|&i| i != 7)
+            .collect::<Vec<u32>>()
+            .iter()
+            .map(|i| format!("({i}, user{i}, user{i}@email.com)\n"))
+            .collect::<Vec<String>>()
+            .join("");
+
+        assert_eq!(output, expected_output);
+
+        let output = handle_input(&mut table, &format!("insert 7 user7 user7@email.com"));
+        assert_eq!(output, "inserting into page: 1, cell: 6...\n");
+    }
+
     fn clean_test() {
         let _ = std::fs::remove_file("test.db");
     }
