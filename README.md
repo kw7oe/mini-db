@@ -1,5 +1,7 @@
 ## Simple SQLite in Rust
 
+[![Rust](https://github.com/kw7oe/sqlite-rust/actions/workflows/rust.yml/badge.svg)](https://github.com/kw7oe/sqlite-rust/actions/workflows/rust.yml)
+
 An attempt to write SQLite in Rust to learn about database
 internals.
 
