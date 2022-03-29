@@ -237,8 +237,11 @@ impl Tree {
     }
 
     pub fn to_string(&self) -> String {
-        let node = &self.0[0];
-        self.node_to_string(node, 0)
+        if let Some(node) = &self.0.get(0) {
+            self.node_to_string(node, 0)
+        } else {
+            "Empty tree...".to_string()
+        }
     }
 }
 

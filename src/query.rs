@@ -6,6 +6,7 @@ pub enum MetaCommand {
     // Success,
     Unrecognized,
     Exit,
+    PrintTree,
 }
 
 #[derive(Debug)]
@@ -23,6 +24,8 @@ pub struct Statement {
 pub fn handle_meta_command(command: &str) -> MetaCommand {
     if command.eq(".exit") {
         MetaCommand::Exit
+    } else if command.eq(".tree") {
+        MetaCommand::PrintTree
     } else {
         MetaCommand::Unrecognized
     }
