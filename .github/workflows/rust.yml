@@ -2,7 +2,11 @@ name: Rust
 
 on:
   push:
+    paths-ignore:
+      - '.github/**'
+      - '*.md'
     branches: [ main ]
+
 
 env:
   CARGO_TERM_COLOR: always
