@@ -783,6 +783,30 @@ mod test {
         }
     }
 
+    #[test]
+    fn delete_row_from_tree_with_only_root_node() {
+        let mut table = Table::new("test.db".to_string());
+
+        for i in 1..10 {
+            handle_input(&mut table, &format!("insert {i} user{i} user{i}@email.com"));
+        }
+
+        let output = handle_input(&mut table, "delete 5");
+        assert_eq!(output, "deleted 5");
+
+        let output = handle_input(&mut table, "select 5");
+        assert_eq!(output, "");
+
+        let output = handle_input(&mut table, "select");
+        let expected_output = [1, 2, 3, 4, 6, 7, 8, 9]
+            .iter()
+            .map(|i| format!("({i}, user{i}, user{i}@email.com)\n"))
+            .collect::<Vec<String>>()
+            .join("");
+
+        assert_eq!(output, expected_output);
+    }
+
     fn clean_test() {
         let _ = std::fs::remove_file("test.db");
     }

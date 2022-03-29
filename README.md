@@ -22,7 +22,7 @@ quick breakdown on what I'm going to implement next:
   - [x] Fix all the bugs found through property based test.
 - [x] Implement find by id operation. This would be helpful when testing
       deletion.
-- [ ] Implement delete operation for `sqlite`.
+- [x] Implement delete operation for `sqlite`.
 - [ ] Implement deletion for B+ Tree. _(this main contain multiple sub parts as well)_
 - [ ] Implement update operation for `sqlite`.
 - [ ] Implement buffer pool for our database. _([Reference][1])_

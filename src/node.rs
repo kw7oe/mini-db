@@ -366,6 +366,15 @@ impl Node {
         self.cells[cursor.cell_num].write_value(row);
     }
 
+    pub fn delete(&mut self, cell_num: usize) {
+        if self.node_type == NodeType::Leaf {
+            self.cells.remove(cell_num);
+            self.num_of_cells -= 1;
+        } else {
+            unimplemented!("implement delete for internal node")
+        }
+    }
+
     pub fn internal_insert(&mut self, index: usize, cell: InternalCell) {
         self.internal_cells.insert(index, cell);
     }

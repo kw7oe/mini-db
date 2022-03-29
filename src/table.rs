@@ -213,6 +213,12 @@ impl Pager {
         let node = &mut self.tree.mut_nodes()[cursor.page_num];
         node.get(cursor.cell_num)
     }
+
+    pub fn delete_row(&mut self, cursor: &Cursor) {
+        self.get_page(cursor.page_num);
+        let node = &mut self.tree.mut_nodes()[cursor.page_num];
+        node.delete(cursor.cell_num);
+    }
 }
 
 pub struct Table {
@@ -274,7 +280,13 @@ impl Table {
     }
 
     pub fn delete(&mut self, row: &Row) -> String {
-        format!("delete failed for id {}: unimplemented", row.id)
+        let cursor = Cursor::table_find(self, self.root_page_num, row.id).unwrap();
+        if cursor.key_existed {
+            self.pager.delete_row(&cursor);
+            format!("deleted {}", row.id)
+        } else {
+            format!("item not found with id {}", row.id)
+        }
     }
 
     pub fn to_string(&mut self) -> String {
