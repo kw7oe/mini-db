@@ -273,6 +273,10 @@ impl Table {
         }
     }
 
+    pub fn delete(&mut self, row: &Row) -> String {
+        format!("delete failed for id {}: unimplemented", row.id)
+    }
+
     pub fn to_string(&mut self) -> String {
         self.pager.tree.to_string()
     }

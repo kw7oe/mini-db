@@ -13,6 +13,7 @@ pub enum MetaCommand {
 pub enum StatementType {
     Select,
     Insert,
+    Delete,
 }
 
 #[derive(Debug)]
@@ -31,29 +32,35 @@ pub fn handle_meta_command(command: &str) -> MetaCommand {
     }
 }
 
-pub fn parse_select(input: &str) -> Result<Statement, String> {
+pub fn parse_action_with_id(
+    input: &str,
+    statement_type: StatementType,
+) -> Result<Statement, String> {
     match input.split_once(' ') {
         None => Ok(Statement {
-            statement_type: StatementType::Select,
+            statement_type,
             row: None,
         }),
-        Some(("select", id)) => {
+        Some((_, id)) => {
             if let Ok(id) = id.parse::<u32>() {
                 Ok(Statement {
-                    statement_type: StatementType::Select,
+                    statement_type,
                     row: Some(Row::create(id, "", "")),
                 })
             } else {
-                Err("invalid id provided in select syntax".to_string())
+                Err("invalid id provided".to_string())
             }
         }
-        Some(_) => Err("invalid select syntax".to_string()),
     }
 }
 
 pub fn prepare_statement(input: &str) -> Result<Statement, String> {
     if input.starts_with("select") {
-        return parse_select(input);
+        return parse_action_with_id(input, StatementType::Select);
+    }
+
+    if input.starts_with("delete") {
+        return parse_action_with_id(input, StatementType::Delete);
     }
 
     if input.starts_with("insert") {
@@ -75,6 +82,7 @@ pub fn execute_statement(table: &mut Table, statement: &Statement) -> String {
     match statement.statement_type {
         StatementType::Select => table.select(statement),
         StatementType::Insert => table.insert(statement.row.as_ref().unwrap()),
+        StatementType::Delete => table.delete(statement.row.as_ref().unwrap()),
     }
 }
 
@@ -103,11 +111,27 @@ mod test {
     }
 
     #[test]
-    fn error_when_parse_select_with_non_u32_id() {
+    fn parse_delete_with_id() {
+        let result = prepare_statement("delete 1");
+        assert!(result.is_ok());
+
+        let statement = result.unwrap();
+        assert_eq!(statement.statement_type, StatementType::Delete);
+        assert_eq!(statement.row, Some(Row::create(1, "", "")));
+    }
+
+    #[test]
+    fn error_when_parse_action_with_non_u32_id() {
         let result = prepare_statement("select apple");
         assert!(result.is_err());
 
         let message = result.unwrap_err();
-        assert_eq!(message, "invalid id provided in select syntax");
+        assert_eq!(message, "invalid id provided");
+
+        let result = prepare_statement("delete apple");
+        assert!(result.is_err());
+
+        let message = result.unwrap_err();
+        assert_eq!(message, "invalid id provided");
     }
 }
