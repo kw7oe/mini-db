@@ -751,6 +751,12 @@ mod test {
     #[derive(Clone, Debug)]
     struct UniqueIDs(Vec<u32>);
 
+    #[derive(Clone, Debug)]
+    struct DeleteInputs {
+        pub insertion_ids: Vec<u8>,
+        pub deletion_ids: Vec<u8>,
+    }
+
     impl Arbitrary for UniqueIDs {
         fn arbitrary(g: &mut Gen) -> UniqueIDs {
             let mut vec = Vec::<u32>::arbitrary(g);
@@ -758,6 +764,23 @@ mod test {
             vec.dedup();
             vec.shuffle(&mut thread_rng());
             UniqueIDs(vec)
+        }
+    }
+
+    impl Arbitrary for DeleteInputs {
+        fn arbitrary(g: &mut Gen) -> DeleteInputs {
+            let mut insertion_ids = Vec::<u8>::arbitrary(g);
+            insertion_ids.sort();
+            insertion_ids.dedup();
+            insertion_ids.shuffle(&mut thread_rng());
+
+            let mut deletion_ids = insertion_ids.clone();
+            deletion_ids.shuffle(&mut thread_rng());
+
+            Self {
+                insertion_ids,
+                deletion_ids,
+            }
         }
     }
 
@@ -886,6 +909,42 @@ mod test {
 
         let output = handle_input(&mut table, &format!("insert 7 user7 user7@email.com"));
         assert_eq!(output, "inserting into page: 1, cell: 6...\n");
+    }
+
+    // DeleteIDs { insertion: [2133923877, 3342822986, 1732065770, 687834591, 2033062576, 968104640, 3375569874, 173803509, 32680265], deletion: [3342822986, 173803509, 1732065770, 968104640, 2033062576, 3375569874, 32680265, 2133923877, 687834591]
+    // (DeleteInputs { insertion_ids: [3336223870, 459044055, 2118132711, 0, 2559561152, 1678024721], deletion_ids: [3336223870, 0, 459044055, 2559561152, 1678024721, 2118132711] })
+    // (DeleteInputs { insertion_ids: [99, 209, 83, 115, 33, 1, 180, 91, 82, 255, 74, 78, 178, 190, 139, 0, 51, 164, 72, 93, 170, 100, 244, 198, 69], deletion_ids: [139, 82, 51, 1, 83, 93, 69, 170, 244, 72, 33, 99, 180, 190, 74, 78, 100, 115, 209, 164, 178, 91, 0, 255, 198] })
+
+    quickcheck! {
+        fn insert_delete_and_select_prop(delete_input: DeleteInputs) -> bool {
+            let mut table = Table::new("test.db".to_string());
+
+            for i in &delete_input.insertion_ids {
+                handle_input(&mut table, &format!("insert {i} user{i} user{i}@email.com"));
+            }
+
+            for i in &delete_input.deletion_ids {
+                let output = handle_input(&mut table, &format!("delete {i}"));
+                assert_eq!(output, format!("deleted {i}"));
+
+                let output = handle_input(&mut table, "select");
+                let expected_output = (1..100)
+                    .filter(|&i| i != 7)
+                    .collect::<Vec<u8>>()
+                    .iter()
+                    .map(|i| format!("({i}, user{i}, user{i}@email.com)\n"))
+                    .collect::<Vec<String>>()
+                    .join("");
+
+                if output == expected_output {
+                    continue;
+                } else {
+                    return false;
+                }
+            }
+
+            return true
+        }
     }
 
     fn clean_test() {
