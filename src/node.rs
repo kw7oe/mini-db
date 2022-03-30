@@ -416,6 +416,38 @@ impl Node {
             self.right_child_offset += 1;
         }
     }
+
+    pub fn siblings(&self, child_offset: u32) -> (Option<usize>, Option<usize>) {
+        let index = self.internal_search_child_pointer(child_offset);
+
+        if index == 0 {
+            // No left neighbour if we are the first one
+            let right_cp = if index + 1 < self.internal_cells.len() {
+                self.internal_cells[index + 1].child_pointer() as usize
+            } else {
+                self.right_child_offset as usize
+            };
+
+            (None, Some(right_cp))
+        } else if index == self.internal_cells.len() - 1 {
+            // Right neighbour would be at right_child_offset  if we are the last one
+            let left_cp = self.internal_cells[index - 1].child_pointer() as usize;
+            (Some(left_cp), Some(self.right_child_offset as usize))
+        } else {
+            // We might also be the most right child, where our index would be larger
+            // than internal_cells.len().
+            //
+            // In that case, we won't have a right neighbour as well.
+            if index >= self.internal_cells.len() {
+                let left_cp = self.internal_cells[index - 1].child_pointer() as usize;
+                (Some(left_cp), None)
+            } else {
+                let left_cp = self.internal_cells[index - 1].child_pointer() as usize;
+                let right_cp = self.internal_cells[index + 1].child_pointer() as usize;
+                (Some(left_cp), Some(right_cp))
+            }
+        }
+    }
 }
 
 #[cfg(test)]
