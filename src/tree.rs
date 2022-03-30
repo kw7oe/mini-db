@@ -1,4 +1,4 @@
-use crate::node::{InternalCell, Node, NodeType, LEAF_NODE_RIGHT_SPLIT_COUNT};
+use crate::node::{InternalCell, Node, NodeType, LEAF_NODE_MAX_CELLS, LEAF_NODE_RIGHT_SPLIT_COUNT};
 use crate::row::Row;
 use crate::Cursor;
 
@@ -193,6 +193,58 @@ impl Tree {
         for i in child_pointers {
             let child = &mut self.0[i];
             child.parent_offset = page_num;
+        }
+    }
+
+    pub fn delete(&mut self, cursor: &Cursor) {
+        let node = &mut self.0[cursor.page_num];
+        node.delete(cursor.cell_num);
+        self.maybe_merge_nodes(&cursor);
+    }
+
+    fn maybe_merge_nodes(&mut self, cursor: &Cursor) {
+        let node = &self.0[cursor.page_num];
+        let parent = &self.0[node.parent_offset as usize];
+
+        let index = parent.internal_search_child_pointer(cursor.page_num as u32);
+
+        let (left_child_pointer, right_child_pointer) = if index == 0 {
+            // No left neighbour if we are the first one
+            let right_cp = parent.internal_cells[index + 1].child_pointer() as usize;
+            (None, Some(right_cp))
+        } else if index == parent.internal_cells.len() - 1 {
+            // Right neighbour would be at right_child_offset  if we are the last one
+            let left_cp = parent.internal_cells[index - 1].child_pointer() as usize;
+            (Some(left_cp), Some(parent.right_child_offset as usize))
+        } else {
+            // We might also be the most right child, where our index would be larger
+            // than internal_cells.len().
+            //
+            // In that case, we won't have a right neighbour as well.
+            if index >= parent.internal_cells.len() {
+                let left_cp = parent.internal_cells[index - 1].child_pointer() as usize;
+                (Some(left_cp), None)
+            } else {
+                let left_cp = parent.internal_cells[index - 1].child_pointer() as usize;
+                let right_cp = parent.internal_cells[index + 1].child_pointer() as usize;
+                (Some(left_cp), Some(right_cp))
+            }
+        };
+
+        if let Some(cp) = left_child_pointer {
+            let left_nb = &self.0[cp];
+            if left_nb.cells.len() + node.cells.len() < LEAF_NODE_MAX_CELLS {
+                debug!("need to merge node with left_node");
+            }
+            return;
+        }
+
+        if let Some(cp) = right_child_pointer {
+            let right_nb = &self.0[cp];
+            if right_nb.cells.len() + node.cells.len() < LEAF_NODE_MAX_CELLS {
+                debug!("need to merge node with right_node");
+            }
+            return;
         }
     }
 

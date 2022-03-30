@@ -216,8 +216,7 @@ impl Pager {
 
     pub fn delete_row(&mut self, cursor: &Cursor) {
         self.get_page(cursor.page_num);
-        let node = &mut self.tree.mut_nodes()[cursor.page_num];
-        node.delete(cursor.cell_num);
+        self.tree.delete(cursor);
     }
 }
 

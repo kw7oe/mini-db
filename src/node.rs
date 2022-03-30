@@ -379,8 +379,20 @@ impl Node {
         self.internal_cells.insert(index, cell);
     }
 
+    /// Return the index of the given key.
     pub fn internal_search(&self, key: u32) -> usize {
         match self.internal_cells.binary_search_by(|c| c.key().cmp(&key)) {
+            Ok(index) => index,
+            Err(index) => index,
+        }
+    }
+
+    /// Return the index of the given child_pointer.
+    pub fn internal_search_child_pointer(&self, child_pointer: u32) -> usize {
+        match self
+            .internal_cells
+            .binary_search_by(|c| c.child_pointer().cmp(&child_pointer))
+        {
             Ok(index) => index,
             Err(index) => index,
         }

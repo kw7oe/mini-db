@@ -957,7 +957,7 @@ mod test {
             let output = handle_input(&mut table, &format!("delete {i}"));
             assert_eq!(output, format!("deleted {i}"));
 
-            println!("{}", table.to_string());
+            // println!("{}", table.to_string());
             let output = handle_input(&mut table, "select");
             let mut sorted_ids = delete_input.insertion_ids.clone();
             sorted_ids.sort();
