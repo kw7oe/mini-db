@@ -280,6 +280,7 @@ impl Table {
     }
 
     pub fn delete(&mut self, row: &Row) -> String {
+        debug!("deleting row with id {}", row.id);
         let cursor = Cursor::table_find(self, self.root_page_num, row.id).unwrap();
         if cursor.key_existed {
             self.pager.delete_row(&cursor);

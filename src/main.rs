@@ -911,9 +911,79 @@ mod test {
         assert_eq!(output, "inserting into page: 1, cell: 6...\n");
     }
 
-    // DeleteIDs { insertion: [2133923877, 3342822986, 1732065770, 687834591, 2033062576, 968104640, 3375569874, 173803509, 32680265], deletion: [3342822986, 173803509, 1732065770, 968104640, 2033062576, 3375569874, 32680265, 2133923877, 687834591]
-    // (DeleteInputs { insertion_ids: [3336223870, 459044055, 2118132711, 0, 2559561152, 1678024721], deletion_ids: [3336223870, 0, 459044055, 2559561152, 1678024721, 2118132711] })
-    // (DeleteInputs { insertion_ids: [99, 209, 83, 115, 33, 1, 180, 91, 82, 255, 74, 78, 178, 190, 139, 0, 51, 164, 72, 93, 170, 100, 244, 198, 69], deletion_ids: [139, 82, 51, 1, 83, 93, 69, 170, 244, 72, 33, 99, 180, 190, 74, 78, 100, 115, 209, 164, 178, 91, 0, 255, 198] })
+    #[test]
+    fn delete_everything() {
+        let mut table = Table::new("test.db".to_string());
+
+        for i in [1, 100] {
+            handle_input(&mut table, &format!("insert {i} user{i} user{i}@email.com"));
+        }
+
+        let output = handle_input(&mut table, "delete 1");
+        assert_eq!(output, "deleted 1");
+
+        let output = handle_input(&mut table, "delete 100");
+        assert_eq!(output, "deleted 100");
+
+        let output = handle_input(&mut table, "select");
+        assert_eq!(output, "");
+
+        handle_input(&mut table, "insert 7 user7 user7@email.com");
+        let output = handle_input(&mut table, "select");
+        assert_eq!(output, "(7, user7, user7@email.com)\n");
+    }
+
+    #[test]
+    fn delete_test_case_1() {
+        env_logger::init();
+        let delete_input = DeleteInputs {
+            insertion_ids: vec![
+                99, 209, 83, 115, 33, 1, 180, 91, 82, 255, 74, 78, 178, 190, 139, 0, 51, 164, 72,
+                93, 170, 100, 244, 198, 69,
+            ],
+            deletion_ids: vec![
+                139, 82, 51, 1, 83, 93, 69, 170, 244, 72, 33, 99, 180, 190, 74, 78, 100, 115, 209,
+                164, 178, 91, 0, 255, 198,
+            ],
+        };
+
+        let mut table = Table::new("test.db".to_string());
+
+        for i in &delete_input.insertion_ids {
+            handle_input(&mut table, &format!("insert {i} user{i} user{i}@email.com"));
+        }
+
+        for i in &delete_input.deletion_ids {
+            let output = handle_input(&mut table, &format!("delete {i}"));
+            assert_eq!(output, format!("deleted {i}"));
+
+            println!("{}", table.to_string());
+            let output = handle_input(&mut table, "select");
+            let mut sorted_ids = delete_input.insertion_ids.clone();
+            sorted_ids.sort();
+
+            let index = delete_input
+                .deletion_ids
+                .iter()
+                .position(|id| id == i)
+                .unwrap();
+
+            let expected_output = sorted_ids
+                .iter()
+                .filter(|&id| {
+                    if index > 0 {
+                        !delete_input.deletion_ids[0..index + 1].contains(id)
+                    } else {
+                        id != i
+                    }
+                })
+                .map(|i| format!("({i}, user{i}, user{i}@email.com)\n"))
+                .collect::<Vec<String>>()
+                .join("");
+
+            assert_eq!(output, expected_output)
+        }
+    }
 
     quickcheck! {
         fn insert_delete_and_select_prop(delete_input: DeleteInputs) -> bool {
@@ -928,10 +998,24 @@ mod test {
                 assert_eq!(output, format!("deleted {i}"));
 
                 let output = handle_input(&mut table, "select");
-                let expected_output = (1..100)
-                    .filter(|&i| i != 7)
-                    .collect::<Vec<u8>>()
+                let mut sorted_ids = delete_input.insertion_ids.clone();
+                sorted_ids.sort();
+
+                let index = delete_input
+                    .deletion_ids
                     .iter()
+                    .position(|id| id == i)
+                    .unwrap();
+
+                let expected_output = sorted_ids
+                    .iter()
+                    .filter(|&id| {
+                        if index > 0 {
+                            !delete_input.deletion_ids[0..index + 1].contains(id)
+                        } else {
+                            id != i
+                        }
+                    })
                     .map(|i| format!("({i}, user{i}, user{i}@email.com)\n"))
                     .collect::<Vec<String>>()
                     .join("");
