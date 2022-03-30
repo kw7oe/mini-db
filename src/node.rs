@@ -420,6 +420,10 @@ impl Node {
     pub fn siblings(&self, child_offset: u32) -> (Option<usize>, Option<usize>) {
         let index = self.internal_search_child_pointer(child_offset);
 
+        if self.node_type == NodeType::Leaf {
+            return (None, None);
+        }
+
         if index == 0 {
             // No left neighbour if we are the first one
             let right_cp = if index + 1 < self.internal_cells.len() {
