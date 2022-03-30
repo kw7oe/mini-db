@@ -24,6 +24,11 @@ quick breakdown on what I'm going to implement next:
       deletion.
 - [x] Implement delete operation for `sqlite`.
 - [ ] Implement deletion for B+ Tree. _(this main contain multiple sub parts as well)_
+  - [x] Implement deletion on leaf node.
+  - [x] Implement deletion on internal node.
+  - [ ] Implement merging after the neighbouring nodes pointers/key-values < N.
+    _(or N + 1  for internal nodes)_
+  - [ ] Implement rebalancing to reduce the number of merges need.
 - [ ] Implement update operation for `sqlite`.
 - [ ] Implement buffer pool for our database. _([Reference][1])_
 - [ ] Implement concurrency control for our database.
