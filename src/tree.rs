@@ -160,12 +160,7 @@ impl Tree {
 
         if left_node.num_of_cells > max_num_cells_for_internal_node {
             let mut left_node = self.0.remove(page_num);
-            debug!("split internal node at parent: {page_num}");
             let split_at_index = left_node.num_of_cells as usize / 2;
-            println!(
-                "split_at_index: {split_at_index}, left_node: {:?}",
-                left_node
-            );
 
             let mut right_node = Node::new(false, left_node.node_type);
             right_node.right_child_offset = left_node.right_child_offset;
@@ -200,14 +195,34 @@ impl Tree {
                 root_node.internal_cells.insert(0, cell);
 
                 self.0.insert(0, root_node);
-                self.0.push(left_node);
-                self.0.push(right_node);
-                self.update_children_parent_offset(last_unused_page_num);
-                self.update_children_parent_offset(last_unused_page_num + 1 as u32);
-                println!("root splitted: {:?}", self);
             } else {
-                debug!("update internal node parent...");
+                debug!("update internal node {page_num}, parent...");
+                let parent = &mut self.0[left_node.parent_offset as usize];
+                println!("--- before parent ---\n{:?}", parent);
+                let index = parent.internal_search_child_pointer(page_num as u32);
+
+                if page_num < parent.right_child_offset as usize {
+                    parent.right_child_offset -= 1;
+                }
+
+                parent
+                    .internal_insert(index, InternalCell::new(last_unused_page_num - 1, ic.key()));
+
+                let internel_cell = parent.internal_cells.remove(index + 1);
+                parent.internal_insert(
+                    index + 1,
+                    InternalCell::new(last_unused_page_num, internel_cell.key()),
+                );
+                parent.num_of_cells += 1;
+
+                println!("--- after parent ---\n{:?}", parent);
             }
+
+            self.0.push(left_node);
+            self.0.push(right_node);
+            self.update_children_parent_offset(last_unused_page_num - 1);
+            self.update_children_parent_offset(last_unused_page_num);
+            println!("internal splitted: {:?}", self);
         }
     }
 
