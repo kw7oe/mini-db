@@ -152,7 +152,6 @@ impl Tree {
     }
 
     pub fn maybe_split_internal_node(&mut self, page_num: usize) {
-        println!("{:?}", self);
         let max_num_cells_for_internal_node = 3;
         let last_unused_page_num = self.0.len() as u32;
         let left_node = &self.0[page_num];
@@ -259,8 +258,6 @@ impl Tree {
                 for i in page_num..=last_unused_page_num as usize {
                     self.update_children_parent_offset(i as u32);
                 }
-
-                println!("{:?}", self);
             }
         }
     }
@@ -280,7 +277,6 @@ impl Tree {
     }
 
     pub fn delete(&mut self, cursor: &Cursor) {
-        println!("--- tree ---\n{:?}\n--- ---\n", self);
         let node = &mut self.0[cursor.page_num];
         node.delete(cursor.cell_num);
         self.maybe_merge_nodes(&cursor);
