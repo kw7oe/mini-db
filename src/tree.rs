@@ -60,7 +60,9 @@ impl Tree {
         if right_node.is_root {
             self.create_new_root(cursor.page_num, left_node);
         } else {
-            debug!("--- split leaf node and update parent");
+            debug!("--- split leaf node and update parent ---");
+            println!("{:?}", self);
+            let right_node = &self.0[cursor.page_num];
             left_node.next_leaf_offset = (cursor.page_num + 1) as u32;
             left_node.parent_offset = right_node.parent_offset;
 
@@ -80,6 +82,7 @@ impl Tree {
 
             self.increment_pointers(cursor.page_num);
             self.insert_internal_node(parent_page_num, cursor.page_num + 1);
+            println!("--- after insert node ---\n{:?}", self);
             self.maybe_split_internal_node(parent_page_num);
         }
     }
@@ -150,45 +153,61 @@ impl Tree {
         }
     }
 
-    pub fn maybe_split_internal_node(&mut self, parent_page_num: usize) {
+    pub fn maybe_split_internal_node(&mut self, page_num: usize) {
         let max_num_cells_for_internal_node = 3;
         let last_unused_page_num = self.0.len() as u32;
-        let node = &mut self.0[parent_page_num];
+        let left_node = &self.0[page_num];
 
-        if node.num_of_cells > max_num_cells_for_internal_node {
-            let split_at_index = node.num_of_cells as usize / 2;
+        if left_node.num_of_cells > max_num_cells_for_internal_node {
+            let mut left_node = self.0.remove(page_num);
+            debug!("split internal node at parent: {page_num}");
+            let split_at_index = left_node.num_of_cells as usize / 2;
+            println!(
+                "split_at_index: {split_at_index}, left_node: {:?}",
+                left_node
+            );
 
-            let mut left_node = Node::new(false, node.node_type);
-            let mut right_node = Node::new(false, node.node_type);
+            let mut right_node = Node::new(false, left_node.node_type);
+            right_node.right_child_offset = left_node.right_child_offset;
+            right_node.parent_offset = left_node.parent_offset as u32;
 
-            for i in 0..split_at_index {
-                let ic = node.internal_cells.remove(0);
-                left_node.internal_insert(i, ic);
-                left_node.num_of_cells += 1;
-            }
-
-            let ic = node.internal_cells.remove(0);
+            let ic = left_node.internal_cells.remove(split_at_index);
+            left_node.num_of_cells -= 1;
             left_node.right_child_offset = ic.child_pointer();
-            left_node.parent_offset = parent_page_num as u32;
 
-            for i in 0..node.internal_cells.len() {
-                let ic = node.internal_cells.remove(0);
+            for i in 0..split_at_index - 1 {
+                let ic = left_node.internal_cells.remove(split_at_index);
+                left_node.num_of_cells -= 1;
                 right_node.internal_insert(i, ic);
                 right_node.num_of_cells += 1;
             }
-            right_node.right_child_offset = node.right_child_offset;
-            right_node.parent_offset = parent_page_num as u32;
 
-            let ic = InternalCell::new(last_unused_page_num, ic.key());
-            node.right_child_offset = last_unused_page_num + 1;
-            node.internal_insert(0, ic);
-            node.num_of_cells = 1;
+            println!("--- left node ---\n{:?}", left_node);
+            println!("--- right node ---\n{:?}", right_node);
 
-            self.0.push(left_node);
-            self.update_children_parent_offset(last_unused_page_num);
+            if left_node.is_root {
+                debug!("splitting root internal node...");
+                let mut root_node = Node::new(true, NodeType::Internal);
+                left_node.is_root = false;
 
-            self.0.push(right_node);
-            self.update_children_parent_offset(last_unused_page_num + 1);
+                root_node.num_of_cells += 1;
+                root_node.right_child_offset = last_unused_page_num + 1;
+
+                left_node.parent_offset = 0;
+                right_node.parent_offset = 0;
+
+                let cell = InternalCell::new(last_unused_page_num, ic.key());
+                root_node.internal_cells.insert(0, cell);
+
+                self.0.insert(0, root_node);
+                self.0.push(left_node);
+                self.0.push(right_node);
+                self.update_children_parent_offset(last_unused_page_num);
+                self.update_children_parent_offset(last_unused_page_num + 1 as u32);
+                println!("root splitted: {:?}", self);
+            } else {
+                debug!("update internal node parent...");
+            }
         }
     }
 

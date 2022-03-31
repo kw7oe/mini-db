@@ -1014,35 +1014,35 @@ mod test {
             handle_input(&mut table, &format!("insert {i} user{i} user{i}@email.com"));
         }
 
-        for i in &delete_input.deletion_ids {
-            let output = handle_input(&mut table, &format!("delete {i}"));
-            assert_eq!(output, format!("deleted {i}"));
+        // for i in &delete_input.deletion_ids {
+        //     let output = handle_input(&mut table, &format!("delete {i}"));
+        //     assert_eq!(output, format!("deleted {i}"));
 
-            let output = handle_input(&mut table, "select");
-            let mut sorted_ids = delete_input.insertion_ids.clone();
-            sorted_ids.sort();
+        //     let output = handle_input(&mut table, "select");
+        //     let mut sorted_ids = delete_input.insertion_ids.clone();
+        //     sorted_ids.sort();
 
-            let index = delete_input
-                .deletion_ids
-                .iter()
-                .position(|id| id == i)
-                .unwrap();
+        //     let index = delete_input
+        //         .deletion_ids
+        //         .iter()
+        //         .position(|id| id == i)
+        //         .unwrap();
 
-            let expected_output = sorted_ids
-                .iter()
-                .filter(|&id| {
-                    if index > 0 {
-                        !delete_input.deletion_ids[0..index + 1].contains(id)
-                    } else {
-                        id != i
-                    }
-                })
-                .map(|i| format!("({i}, user{i}, user{i}@email.com)\n"))
-                .collect::<Vec<String>>()
-                .join("");
+        //     let expected_output = sorted_ids
+        //         .iter()
+        //         .filter(|&id| {
+        //             if index > 0 {
+        //                 !delete_input.deletion_ids[0..index + 1].contains(id)
+        //             } else {
+        //                 id != i
+        //             }
+        //         })
+        //         .map(|i| format!("({i}, user{i}, user{i}@email.com)\n"))
+        //         .collect::<Vec<String>>()
+        //         .join("");
 
-            assert_eq!(output, expected_output)
-        }
+        //     assert_eq!(output, expected_output)
+        // }
     }
 
     quickcheck! {
