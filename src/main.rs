@@ -945,42 +945,7 @@ mod test {
                 164, 178, 91, 0, 255, 198,
             ],
         };
-
-        let mut table = Table::new("test.db".to_string());
-
-        for i in &delete_input.insertion_ids {
-            handle_input(&mut table, &format!("insert {i} user{i} user{i}@email.com"));
-        }
-
-        for i in &delete_input.deletion_ids {
-            let output = handle_input(&mut table, &format!("delete {i}"));
-            assert_eq!(output, format!("deleted {i}"));
-
-            let output = handle_input(&mut table, "select");
-            let mut sorted_ids = delete_input.insertion_ids.clone();
-            sorted_ids.sort();
-
-            let index = delete_input
-                .deletion_ids
-                .iter()
-                .position(|id| id == i)
-                .unwrap();
-
-            let expected_output = sorted_ids
-                .iter()
-                .filter(|&id| {
-                    if index > 0 {
-                        !delete_input.deletion_ids[0..index + 1].contains(id)
-                    } else {
-                        id != i
-                    }
-                })
-                .map(|i| format!("({i}, user{i}, user{i}@email.com)\n"))
-                .collect::<Vec<String>>()
-                .join("");
-
-            assert_eq!(output, expected_output)
-        }
+        test_deletion(delete_input);
     }
 
     #[test]
@@ -997,42 +962,7 @@ mod test {
                 147, 255, 188, 164, 82, 100,
             ],
         };
-
-        let mut table = Table::new("test.db".to_string());
-
-        for i in &delete_input.insertion_ids {
-            handle_input(&mut table, &format!("insert {i} user{i} user{i}@email.com"));
-        }
-
-        for i in &delete_input.deletion_ids {
-            let output = handle_input(&mut table, &format!("delete {i}"));
-            assert_eq!(output, format!("deleted {i}"));
-
-            let output = handle_input(&mut table, "select");
-            let mut sorted_ids = delete_input.insertion_ids.clone();
-            sorted_ids.sort();
-
-            let index = delete_input
-                .deletion_ids
-                .iter()
-                .position(|id| id == i)
-                .unwrap();
-
-            let expected_output = sorted_ids
-                .iter()
-                .filter(|&id| {
-                    if index > 0 {
-                        !delete_input.deletion_ids[0..index + 1].contains(id)
-                    } else {
-                        id != i
-                    }
-                })
-                .map(|i| format!("({i}, user{i}, user{i}@email.com)\n"))
-                .collect::<Vec<String>>()
-                .join("");
-
-            assert_eq!(output, expected_output)
-        }
+        test_deletion(delete_input);
     }
 
     #[test]
@@ -1051,6 +981,33 @@ mod test {
                 218, 252,
             ],
         };
+        test_deletion(delete_input);
+    }
+
+    #[test]
+    fn delete_test_case_1() {
+        env_logger::try_init().unwrap_or(());
+        let delete_input = DeleteInputs {
+            insertion_ids: vec![
+                247, 0, 195, 91, 239, 86, 18, 97, 161, 17, 111, 62, 152, 180, 116, 199, 96, 65,
+                254, 45, 242, 56, 8, 34, 127, 243, 105, 7, 238, 1, 225, 60, 249, 37, 228, 108, 49,
+                19, 104, 255, 138, 189, 126, 241, 136, 36, 202, 87, 121, 64, 184, 144, 176, 196,
+                220, 94, 4, 41, 58, 150, 237, 146, 77, 251, 236, 114, 99, 14, 90, 210, 101, 171,
+                160, 148,
+            ],
+            deletion_ids: vec![
+                251, 152, 199, 180, 91, 19, 161, 4, 41, 7, 148, 65, 99, 105, 1, 45, 138, 126, 8,
+                210, 171, 228, 127, 255, 243, 160, 90, 114, 195, 111, 136, 254, 242, 64, 247, 196,
+                56, 249, 236, 96, 220, 36, 87, 146, 101, 108, 18, 34, 237, 239, 144, 14, 238, 189,
+                241, 150, 0, 121, 104, 17, 176, 184, 202, 60, 94, 86, 62, 77, 97, 58, 49, 116, 225,
+                37,
+            ],
+        };
+
+        test_deletion(delete_input);
+    }
+
+    fn test_deletion(delete_input: DeleteInputs) {
         let mut table = Table::new("test.db".to_string());
 
         for i in &delete_input.insertion_ids {

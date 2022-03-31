@@ -213,6 +213,7 @@ impl Tree {
     }
 
     pub fn delete(&mut self, cursor: &Cursor) {
+        println!("--- tree ---\n{:?}\n--- ----\n", self);
         let node = &mut self.0[cursor.page_num];
         node.delete(cursor.cell_num);
         self.maybe_merge_nodes(&cursor);
@@ -259,7 +260,6 @@ impl Tree {
     }
 
     fn promote_to_last_node_to_root(&mut self, page_num: usize) {
-        debug!("promote merged leaf nodes to root node");
         // Remove old root node.
         let mut node = self.0.remove(page_num);
         node.is_root = true;
@@ -293,6 +293,7 @@ impl Tree {
         let parent = self.0.get_mut(parent_offset).unwrap();
 
         if parent.num_of_cells == 1 && parent.is_root {
+            debug!("promote last leaf node to root");
             self.promote_to_last_node_to_root(left_cp);
         } else {
             let index = parent.internal_search_child_pointer(right_cp as u32);
@@ -339,13 +340,16 @@ impl Tree {
     }
 
     fn merge_internal_nodes(&mut self, page_num: usize) {
-        // println!("--- tree ----:\n{:?}", self);
+        println!("--- tree ----:\n{:?}", self);
         let node = &self.0[page_num];
         let parent = &self.0[node.parent_offset as usize];
 
-        // println!("--- node: ---\n{:?}\n--- parent: ---\n{:?}", node, parent);
+        println!("--- node: ---\n{:?}\n--- parent: ---\n{:?}", node, parent);
         let (left_child_pointer, right_child_pointer) = parent.siblings(page_num as u32);
-        // println!("{:?}, {:?}", left_child_pointer, right_child_pointer);
+        println!(
+            "--- pointer: ---\n{:?}, {:?}",
+            left_child_pointer, right_child_pointer
+        );
 
         if let Some(cp) = left_child_pointer {
             let left_nb = &self.0[cp];
@@ -356,21 +360,22 @@ impl Tree {
             return;
         }
 
-        //         if let Some(cp) = right_child_pointer {
-        //             let right_nb = &self.0[cp];
-        //             if right_nb.internal_cells.len() + node.internal_cells.len() < 3 {
-        //                 debug!("Merging internal node {page_num} with right neighbour");
-        //                 self.do_merge_internal_nodes(page_num, cp);
-        //             }
-        //             return;
-        //         }
+        if let Some(cp) = right_child_pointer {
+            let right_nb = &self.0[cp];
+            if right_nb.internal_cells.len() + node.internal_cells.len() < 3 {
+                debug!("Merging internal node {page_num} with right neighbour");
+                self.do_merge_internal_nodes(page_num, cp);
+            }
+            return;
+        }
     }
 
     fn do_merge_internal_nodes(&mut self, left_cp: usize, right_cp: usize) {
         // let min_key_length = self.min_key(3) as u32;
-        let node = self.0.remove(right_cp);
+
         let left_node = self.0.get(left_cp).unwrap();
         let new_left_max_key = self.0[left_node.right_child_offset as usize].get_max_key();
+        let node = self.0.remove(right_cp);
 
         let left_node = self.0.get_mut(left_cp).unwrap();
         left_node.internal_cells.push(InternalCell::new(
@@ -396,9 +401,11 @@ impl Tree {
         // Update parent metadata
         let parent = self.0.get(parent_offset).unwrap();
 
-        if parent.num_of_cells == 1 && parent.is_root {
+        println!("len: {}, {:?}", self.0.len(), self);
+        if self.0.len() <= 4 + 1 + 1 && parent.num_of_cells == 1 && parent.is_root {
             debug!("promote internal nodes to root");
             self.promote_to_last_node_to_root(left_cp);
+            // self.decrement_pointers(right_cp);
             self.update_children_parent_offset(0);
         } else {
             debug!("update parent linked with childrens");
