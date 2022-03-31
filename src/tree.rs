@@ -70,7 +70,9 @@ impl Tree {
             let new_max = left_node.get_max_key();
 
             let parent = &mut self.0[parent_page_num];
+            println!("--- before parent ---\n{:?}", parent);
             parent.update_internal_key(old_max, new_max);
+            println!("--- after parent ---\n{:?}", parent);
 
             self.0.insert(cursor.page_num, left_node);
 
@@ -80,6 +82,7 @@ impl Tree {
                 parent_page_num
             };
 
+            println!("--- page_num {} ---\n", cursor.page_num);
             self.increment_pointers(cursor.page_num);
             self.insert_internal_node(parent_page_num, cursor.page_num + 1);
             println!("--- after insert node ---\n{:?}", self);
@@ -92,7 +95,12 @@ impl Tree {
             let node = &mut self.0[i];
 
             if node.node_type == NodeType::Internal {
+                println!("--- Node {i}: Before ----");
+                println!("{:?}", node);
                 node.increment_internal_child_pointers(page_num);
+                println!("--- Node {i}: After ----");
+                println!("{:?}", node);
+                println!("--- ---- ---- ---\n");
                 self.update_children_parent_offset(i as u32);
             } else if node.node_type == NodeType::Leaf && node.next_leaf_offset != 0 && page_num < i
             {
@@ -181,6 +189,14 @@ impl Tree {
             println!("--- right node ---\n{:?}", right_node);
 
             if left_node.is_root {
+                // Notice that we are using last_unused_page_num and last_unused_page_num + 1
+                // as the child pointers for our new nodes.
+                //
+                // Initially, last_unused_page_num = the Vec<Node> len, however since we
+                // remove our left_node from the Vec, the up to date value should be -1.
+                //
+                // Hence, in this section, the removal of the left node is filled by the
+                // new root node.
                 debug!("splitting root internal node...");
                 let mut root_node = Node::new(true, NodeType::Internal);
                 left_node.is_root = false;
@@ -195,6 +211,10 @@ impl Tree {
                 root_node.internal_cells.insert(0, cell);
 
                 self.0.insert(0, root_node);
+                self.0.push(left_node);
+                self.0.push(right_node);
+                self.update_children_parent_offset(last_unused_page_num);
+                self.update_children_parent_offset(last_unused_page_num + 1);
             } else {
                 debug!("update internal node {page_num}, parent...");
                 let parent = &mut self.0[left_node.parent_offset as usize];
@@ -203,6 +223,14 @@ impl Tree {
 
                 if page_num < parent.right_child_offset as usize {
                     parent.right_child_offset -= 1;
+                }
+
+                if page_num < left_node.right_child_offset as usize {
+                    left_node.right_child_offset -= 1;
+                }
+
+                if page_num < right_node.right_child_offset as usize {
+                    right_node.right_child_offset -= 1;
                 }
 
                 parent
@@ -216,12 +244,33 @@ impl Tree {
                 parent.num_of_cells += 1;
 
                 println!("--- after parent ---\n{:?}", parent);
+
+                self.0.push(left_node);
+                self.0.push(right_node);
+
+                println!(
+                    "--- --- len: {}, left: {}, right: {last_unused_page_num}",
+                    self.0.len(),
+                    last_unused_page_num - 1
+                );
+
+                // Notice that here, we also update the children offset of page_num.
+                //
+                // Let's say we have 3 internal node at position 8 and 9. We
+                // split at node 8, which will become 2 new internal nodes. After removal
+                // of our initial node 8, node 9 now become the node 8, and the two new
+                // nodes become node 9 and 10.
+                //
+                // This mean that the childrens of our new node 8 will need to have their
+                // parent offset updated as well.
+                //
+                // So any internal nodes between page_numm to last_unused_page_num - 1, will
+                // be affected by this changes, as we have a removal.
+                for i in page_num..=last_unused_page_num as usize {
+                    self.update_children_parent_offset(i as u32);
+                }
             }
 
-            self.0.push(left_node);
-            self.0.push(right_node);
-            self.update_children_parent_offset(last_unused_page_num - 1);
-            self.update_children_parent_offset(last_unused_page_num);
             println!("internal splitted: {:?}", self);
         }
     }
