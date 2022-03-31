@@ -61,7 +61,6 @@ impl Tree {
             self.create_new_root(cursor.page_num, left_node);
         } else {
             debug!("--- split leaf node and update parent ---");
-            println!("{:?}", self);
             let right_node = &self.0[cursor.page_num];
             left_node.next_leaf_offset = (cursor.page_num + 1) as u32;
             left_node.parent_offset = right_node.parent_offset;
@@ -70,9 +69,7 @@ impl Tree {
             let new_max = left_node.get_max_key();
 
             let parent = &mut self.0[parent_page_num];
-            println!("--- before parent ---\n{:?}", parent);
             parent.update_internal_key(old_max, new_max);
-            println!("--- after parent ---\n{:?}", parent);
 
             self.0.insert(cursor.page_num, left_node);
 
@@ -82,10 +79,8 @@ impl Tree {
                 parent_page_num
             };
 
-            println!("--- page_num {} ---\n", cursor.page_num);
             self.increment_pointers(cursor.page_num);
             self.insert_internal_node(parent_page_num, cursor.page_num + 1);
-            println!("--- after insert node ---\n{:?}", self);
             self.maybe_split_internal_node(parent_page_num);
         }
     }
@@ -95,12 +90,7 @@ impl Tree {
             let node = &mut self.0[i];
 
             if node.node_type == NodeType::Internal {
-                println!("--- Node {i}: Before ----");
-                println!("{:?}", node);
                 node.increment_internal_child_pointers(page_num);
-                println!("--- Node {i}: After ----");
-                println!("{:?}", node);
-                println!("--- ---- ---- ---\n");
                 self.update_children_parent_offset(i as u32);
             } else if node.node_type == NodeType::Leaf && node.next_leaf_offset != 0 && page_num < i
             {
@@ -162,6 +152,7 @@ impl Tree {
     }
 
     pub fn maybe_split_internal_node(&mut self, page_num: usize) {
+        println!("{:?}", self);
         let max_num_cells_for_internal_node = 3;
         let last_unused_page_num = self.0.len() as u32;
         let left_node = &self.0[page_num];
@@ -184,9 +175,6 @@ impl Tree {
                 right_node.internal_insert(i, ic);
                 right_node.num_of_cells += 1;
             }
-
-            println!("--- left node ---\n{:?}", left_node);
-            println!("--- right node ---\n{:?}", right_node);
 
             if left_node.is_root {
                 // Notice that we are using last_unused_page_num and last_unused_page_num + 1
@@ -218,7 +206,6 @@ impl Tree {
             } else {
                 debug!("update internal node {page_num}, parent...");
                 let parent = &mut self.0[left_node.parent_offset as usize];
-                println!("--- before parent ---\n{:?}", parent);
                 let index = parent.internal_search_child_pointer(page_num as u32);
 
                 if page_num < parent.right_child_offset as usize {
@@ -233,26 +220,29 @@ impl Tree {
                     right_node.right_child_offset -= 1;
                 }
 
-                parent
-                    .internal_insert(index, InternalCell::new(last_unused_page_num - 1, ic.key()));
+                if parent.num_of_cells == index as u32 {
+                    parent.right_child_offset = last_unused_page_num;
+                    parent.internal_insert(
+                        index,
+                        InternalCell::new(last_unused_page_num - 1, ic.key()),
+                    );
+                    parent.num_of_cells += 1;
+                } else {
+                    parent.internal_insert(
+                        index,
+                        InternalCell::new(last_unused_page_num - 1, ic.key()),
+                    );
 
-                let internel_cell = parent.internal_cells.remove(index + 1);
-                parent.internal_insert(
-                    index + 1,
-                    InternalCell::new(last_unused_page_num, internel_cell.key()),
-                );
-                parent.num_of_cells += 1;
-
-                println!("--- after parent ---\n{:?}", parent);
+                    let internel_cell = parent.internal_cells.remove(index + 1);
+                    parent.internal_insert(
+                        index + 1,
+                        InternalCell::new(last_unused_page_num, internel_cell.key()),
+                    );
+                    parent.num_of_cells += 1;
+                }
 
                 self.0.push(left_node);
                 self.0.push(right_node);
-
-                println!(
-                    "--- --- len: {}, left: {}, right: {last_unused_page_num}",
-                    self.0.len(),
-                    last_unused_page_num - 1
-                );
 
                 // Notice that here, we also update the children offset of page_num.
                 //
@@ -269,9 +259,9 @@ impl Tree {
                 for i in page_num..=last_unused_page_num as usize {
                     self.update_children_parent_offset(i as u32);
                 }
-            }
 
-            println!("internal splitted: {:?}", self);
+                println!("{:?}", self);
+            }
         }
     }
 
@@ -290,7 +280,7 @@ impl Tree {
     }
 
     pub fn delete(&mut self, cursor: &Cursor) {
-        println!("--- tree ---\n{:?}\n--- ----\n", self);
+        println!("--- tree ---\n{:?}\n--- ---\n", self);
         let node = &mut self.0[cursor.page_num];
         node.delete(cursor.cell_num);
         self.maybe_merge_nodes(&cursor);
@@ -417,16 +407,10 @@ impl Tree {
     }
 
     fn merge_internal_nodes(&mut self, page_num: usize) {
-        println!("--- tree ----:\n{:?}", self);
         let node = &self.0[page_num];
         let parent = &self.0[node.parent_offset as usize];
 
-        println!("--- node: ---\n{:?}\n--- parent: ---\n{:?}", node, parent);
         let (left_child_pointer, right_child_pointer) = parent.siblings(page_num as u32);
-        println!(
-            "--- pointer: ---\n{:?}, {:?}",
-            left_child_pointer, right_child_pointer
-        );
 
         if let Some(cp) = left_child_pointer {
             let left_nb = &self.0[cp];
@@ -478,7 +462,6 @@ impl Tree {
         // Update parent metadata
         let parent = self.0.get(parent_offset).unwrap();
 
-        println!("len: {}, {:?}", self.0.len(), self);
         if self.0.len() <= 4 + 1 + 1 && parent.num_of_cells == 1 && parent.is_root {
             debug!("promote internal nodes to root");
             self.promote_to_last_node_to_root(left_cp);
@@ -487,8 +470,6 @@ impl Tree {
         } else {
             debug!("update parent linked with childrens");
         }
-
-        // println!("{:?}", self);
     }
 
     pub fn node_to_string(&self, node: &Node, indent_level: usize) -> String {

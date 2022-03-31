@@ -986,7 +986,6 @@ mod test {
 
     #[test]
     fn delete_test_case_1() {
-        env_logger::try_init().unwrap_or(());
         let delete_input = DeleteInputs {
             insertion_ids: vec![
                 247, 0, 195, 91, 239, 86, 18, 97, 161, 17, 111, 62, 152, 180, 116, 199, 96, 65,
