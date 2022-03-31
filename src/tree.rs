@@ -258,13 +258,13 @@ impl Tree {
         }
     }
 
-    fn promote_to_last_node_to_root(&mut self) {
+    fn promote_to_last_node_to_root(&mut self, page_num: usize) {
         debug!("promote merged leaf nodes to root node");
         // Remove old root node.
-        self.0.remove(0);
-        let node = self.0.get_mut(0).unwrap();
+        let mut node = self.0.remove(page_num);
         node.is_root = true;
         node.next_leaf_offset = 0;
+        self.0[0] = node;
     }
 
     fn do_merge_leaf_nodes(&mut self, left_cp: usize, right_cp: usize) {
@@ -289,14 +289,12 @@ impl Tree {
 
         let max_key = left_node.get_max_key();
         let min_key_length = self.min_key(3) as u32;
-        println!("{:?}", self);
         // Update parent metadata
         let parent = self.0.get_mut(parent_offset).unwrap();
 
         if parent.num_of_cells == 1 && parent.is_root {
-            self.promote_to_last_node_to_root();
+            self.promote_to_last_node_to_root(left_cp);
         } else {
-            println!("parent: {:?}", parent);
             let index = parent.internal_search_child_pointer(right_cp as u32);
             if index == parent.num_of_cells as usize {
                 // The right_cp is our right child offset
@@ -324,9 +322,8 @@ impl Tree {
             self.decrement_pointers(right_cp);
 
             let parent = self.0.get(parent_offset).unwrap();
-            if parent.num_of_cells <= min_key_length {
-                debug!("implement merge internal_nodes");
-                // self.merge_internal_nodes(node.parent_offset as usize);
+            if parent.num_of_cells <= min_key_length && !parent.is_root {
+                self.merge_internal_nodes(parent_offset);
             }
         }
     }
@@ -342,25 +339,72 @@ impl Tree {
     }
 
     fn merge_internal_nodes(&mut self, page_num: usize) {
+        // println!("--- tree ----:\n{:?}", self);
         let node = &self.0[page_num];
         let parent = &self.0[node.parent_offset as usize];
 
+        // println!("--- node: ---\n{:?}\n--- parent: ---\n{:?}", node, parent);
         let (left_child_pointer, right_child_pointer) = parent.siblings(page_num as u32);
+        // println!("{:?}, {:?}", left_child_pointer, right_child_pointer);
+
         if let Some(cp) = left_child_pointer {
             let left_nb = &self.0[cp];
-            if left_nb.cells.len() + node.cells.len() < LEAF_NODE_MAX_CELLS {
-                debug!("need to merge internal node with left_node");
+            if left_nb.internal_cells.len() + node.internal_cells.len() < 3 {
+                debug!("Merging internal node {page_num} with left neighbour");
+                self.do_merge_internal_nodes(cp, page_num);
             }
             return;
         }
 
-        if let Some(cp) = right_child_pointer {
-            let right_nb = &self.0[cp];
-            if right_nb.cells.len() + node.cells.len() < LEAF_NODE_MAX_CELLS {
-                debug!("need to merge internal node with right_node");
-            }
-            return;
+        //         if let Some(cp) = right_child_pointer {
+        //             let right_nb = &self.0[cp];
+        //             if right_nb.internal_cells.len() + node.internal_cells.len() < 3 {
+        //                 debug!("Merging internal node {page_num} with right neighbour");
+        //                 self.do_merge_internal_nodes(page_num, cp);
+        //             }
+        //             return;
+        //         }
+    }
+
+    fn do_merge_internal_nodes(&mut self, left_cp: usize, right_cp: usize) {
+        // let min_key_length = self.min_key(3) as u32;
+        let node = self.0.remove(right_cp);
+        let left_node = self.0.get(left_cp).unwrap();
+        let new_left_max_key = self.0[left_node.right_child_offset as usize].get_max_key();
+
+        let left_node = self.0.get_mut(left_cp).unwrap();
+        left_node.internal_cells.push(InternalCell::new(
+            left_node.right_child_offset,
+            new_left_max_key,
+        ));
+        left_node.num_of_cells += 1;
+
+        // Merge the leaf nodes cells
+        for c in node.internal_cells {
+            left_node.internal_cells.push(c);
+            left_node.num_of_cells += 1;
         }
+
+        left_node.right_child_offset = node.right_child_offset;
+
+        // if right_cp < left_node.parent_offset as usize {
+        //     left_node.parent_offset -= 1;
+        // }
+
+        let parent_offset = left_node.parent_offset as usize;
+
+        // Update parent metadata
+        let parent = self.0.get(parent_offset).unwrap();
+
+        if parent.num_of_cells == 1 && parent.is_root {
+            debug!("promote internal nodes to root");
+            self.promote_to_last_node_to_root(left_cp);
+            self.update_children_parent_offset(0);
+        } else {
+            debug!("update parent linked with childrens");
+        }
+
+        // println!("{:?}", self);
     }
 
     pub fn node_to_string(&self, node: &Node, indent_level: usize) -> String {

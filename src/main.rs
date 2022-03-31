@@ -1036,9 +1036,7 @@ mod test {
     }
 
     #[test]
-    #[ignore]
-    fn delete_test_case_1() {
-        // env_logger::init();
+    fn delete_and_merge_internal_node_with_left_neighbour() {
         let delete_input = DeleteInputs {
             insertion_ids: vec![
                 22, 242, 82, 113, 216, 62, 147, 43, 135, 105, 230, 183, 65, 111, 121, 174, 109,
