@@ -78,13 +78,7 @@ impl Tree {
                 parent_page_num
             };
 
-            for cell in &mut self.0 {
-                if cell.node_type == NodeType::Internal {
-                    cell.increment_internal_child_pointers(cursor.page_num);
-                }
-            }
             self.increment_pointers(cursor.page_num);
-
             self.insert_internal_node(parent_page_num, cursor.page_num + 1);
             self.maybe_split_internal_node(parent_page_num);
         }
@@ -94,12 +88,12 @@ impl Tree {
         for i in 0..self.0.len() {
             let node = &mut self.0[i];
 
-            if node.node_type == NodeType::Leaf && node.next_leaf_offset != 0 {
-                if page_num < i {
-                    node.next_leaf_offset += 1
-                }
-            } else if node.node_type == NodeType::Internal {
+            if node.node_type == NodeType::Internal {
+                node.increment_internal_child_pointers(page_num);
                 self.update_children_parent_offset(i as u32);
+            } else if node.node_type == NodeType::Leaf && node.next_leaf_offset != 0 && page_num < i
+            {
+                node.next_leaf_offset += 1
             }
         }
     }
