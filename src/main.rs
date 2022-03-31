@@ -934,8 +934,7 @@ mod test {
     }
 
     #[test]
-    fn delete_test_case_1() {
-        env_logger::init();
+    fn delete_and_merge_leaf_nodes_with_left_neighbour_and_promote_to_root_node() {
         let delete_input = DeleteInputs {
             insertion_ids: vec![
                 99, 209, 83, 115, 33, 1, 180, 91, 82, 255, 74, 78, 178, 190, 139, 0, 51, 164, 72,
@@ -957,7 +956,113 @@ mod test {
             let output = handle_input(&mut table, &format!("delete {i}"));
             assert_eq!(output, format!("deleted {i}"));
 
-            // println!("{}", table.to_string());
+            let output = handle_input(&mut table, "select");
+            let mut sorted_ids = delete_input.insertion_ids.clone();
+            sorted_ids.sort();
+
+            let index = delete_input
+                .deletion_ids
+                .iter()
+                .position(|id| id == i)
+                .unwrap();
+
+            let expected_output = sorted_ids
+                .iter()
+                .filter(|&id| {
+                    if index > 0 {
+                        !delete_input.deletion_ids[0..index + 1].contains(id)
+                    } else {
+                        id != i
+                    }
+                })
+                .map(|i| format!("({i}, user{i}, user{i}@email.com)\n"))
+                .collect::<Vec<String>>()
+                .join("");
+
+            assert_eq!(output, expected_output)
+        }
+    }
+
+    #[test]
+    fn delete_and_merge_leaf_node_with_right_neighbour() {
+        let delete_input = DeleteInputs {
+            insertion_ids: vec![
+                255, 17, 43, 99, 182, 183, 88, 90, 247, 184, 104, 240, 39, 96, 205, 164, 2, 51,
+                224, 78, 82, 219, 35, 28, 190, 188, 100, 26, 42, 192, 147, 159, 199, 77, 237, 185,
+                61, 108, 69, 54, 112, 186,
+            ],
+            deletion_ids: vec![
+                112, 35, 190, 104, 219, 90, 42, 237, 69, 185, 240, 199, 182, 247, 108, 205, 54,
+                159, 39, 224, 184, 28, 43, 99, 192, 26, 2, 77, 17, 183, 186, 88, 96, 78, 61, 51,
+                147, 255, 188, 164, 82, 100,
+            ],
+        };
+
+        let mut table = Table::new("test.db".to_string());
+
+        for i in &delete_input.insertion_ids {
+            handle_input(&mut table, &format!("insert {i} user{i} user{i}@email.com"));
+        }
+
+        for i in &delete_input.deletion_ids {
+            let output = handle_input(&mut table, &format!("delete {i}"));
+            assert_eq!(output, format!("deleted {i}"));
+
+            let output = handle_input(&mut table, "select");
+            let mut sorted_ids = delete_input.insertion_ids.clone();
+            sorted_ids.sort();
+
+            let index = delete_input
+                .deletion_ids
+                .iter()
+                .position(|id| id == i)
+                .unwrap();
+
+            let expected_output = sorted_ids
+                .iter()
+                .filter(|&id| {
+                    if index > 0 {
+                        !delete_input.deletion_ids[0..index + 1].contains(id)
+                    } else {
+                        id != i
+                    }
+                })
+                .map(|i| format!("({i}, user{i}, user{i}@email.com)\n"))
+                .collect::<Vec<String>>()
+                .join("");
+
+            assert_eq!(output, expected_output)
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn delete_test_case_1() {
+        // env_logger::init();
+        let delete_input = DeleteInputs {
+            insertion_ids: vec![
+                22, 242, 82, 113, 216, 62, 147, 43, 135, 105, 230, 183, 65, 111, 121, 174, 109,
+                116, 114, 205, 64, 71, 73, 201, 1, 238, 252, 228, 154, 192, 246, 107, 218, 56, 232,
+                206, 176, 142, 118, 255, 8, 136, 249, 10, 175, 191, 165, 4, 16, 25, 17, 31, 9, 0,
+                130,
+            ],
+            deletion_ids: vec![
+                191, 8, 116, 16, 0, 154, 121, 130, 135, 113, 238, 71, 192, 31, 242, 9, 10, 165,
+                206, 201, 118, 109, 136, 174, 255, 205, 64, 176, 22, 1, 56, 73, 175, 4, 230, 65,
+                43, 232, 142, 228, 17, 25, 147, 246, 62, 114, 82, 107, 111, 249, 216, 105, 183,
+                218, 252,
+            ],
+        };
+        let mut table = Table::new("test.db".to_string());
+
+        for i in &delete_input.insertion_ids {
+            handle_input(&mut table, &format!("insert {i} user{i} user{i}@email.com"));
+        }
+
+        for i in &delete_input.deletion_ids {
+            let output = handle_input(&mut table, &format!("delete {i}"));
+            assert_eq!(output, format!("deleted {i}"));
+
             let output = handle_input(&mut table, "select");
             let mut sorted_ids = delete_input.insertion_ids.clone();
             sorted_ids.sort();
@@ -986,6 +1091,7 @@ mod test {
     }
 
     quickcheck! {
+        #[ignore]
         fn insert_delete_and_select_prop(delete_input: DeleteInputs) -> bool {
             let mut table = Table::new("test.db".to_string());
 

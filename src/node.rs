@@ -417,6 +417,18 @@ impl Node {
         }
     }
 
+    pub fn decrement_internal_child_pointers(&mut self, page_num: usize) {
+        for cell in &mut self.internal_cells {
+            if page_num < cell.child_pointer() as usize {
+                cell.write_child_pointer(cell.child_pointer() - 1);
+            }
+        }
+
+        if page_num < self.right_child_offset as usize {
+            self.right_child_offset -= 1;
+        }
+    }
+
     pub fn siblings(&self, child_offset: u32) -> (Option<usize>, Option<usize>) {
         let index = self.internal_search_child_pointer(child_offset);
 

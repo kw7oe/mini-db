@@ -104,6 +104,22 @@ impl Tree {
         }
     }
 
+    pub fn decrement_pointers(&mut self, page_num: usize) {
+        for i in 0..self.0.len() {
+            let node = &mut self.0[i];
+
+            if node.node_type == NodeType::Internal {
+                node.decrement_internal_child_pointers(page_num);
+                self.update_children_parent_offset(i as u32);
+            } else if node.node_type == NodeType::Leaf
+                && node.next_leaf_offset != 0
+                && page_num < node.next_leaf_offset as usize
+            {
+                node.next_leaf_offset -= 1
+            }
+        }
+    }
+
     pub fn insert_internal_node(&mut self, parent_page_num: usize, new_child_page_num: usize) {
         let parent_right_child_offset = self.0[parent_page_num].right_child_offset as usize;
 
@@ -205,14 +221,11 @@ impl Tree {
     fn maybe_merge_nodes(&mut self, cursor: &Cursor) {
         let node = &self.0[cursor.page_num];
 
-        if node.node_type == NodeType::Internal {
-            if node.num_of_cells < 3 as u32 / 2 {
-                self.merge_internal_nodes(cursor.page_num);
-            }
-        } else {
-            if node.num_of_cells < LEAF_NODE_MAX_CELLS as u32 / 2 && !node.is_root {
-                self.merge_leaf_nodes(cursor.page_num);
-            }
+        if node.node_type == NodeType::Leaf
+            && node.num_of_cells < LEAF_NODE_MAX_CELLS as u32 / 2
+            && !node.is_root
+        {
+            self.merge_leaf_nodes(cursor.page_num);
         }
     }
 
@@ -263,28 +276,69 @@ impl Tree {
             left_node.cells.push(c);
             left_node.num_of_cells += 1;
         }
+
+        if node.next_leaf_offset == 0 {
+            left_node.next_leaf_offset = 0;
+        }
+
+        if right_cp < left_node.parent_offset as usize {
+            left_node.parent_offset -= 1;
+        }
+
+        let parent_offset = left_node.parent_offset as usize;
+
         let max_key = left_node.get_max_key();
-
+        let min_key_length = self.min_key(3) as u32;
+        println!("{:?}", self);
         // Update parent metadata
-        let parent = self.0.get_mut(node.parent_offset as usize).unwrap();
+        let parent = self.0.get_mut(parent_offset).unwrap();
 
-        if parent.num_of_cells == 1 {
+        if parent.num_of_cells == 1 && parent.is_root {
             self.promote_to_last_node_to_root();
         } else {
-            parent.num_of_cells -= 1;
-            if left_cp < parent.right_child_offset as usize {
-                parent.right_child_offset -= 1;
+            println!("parent: {:?}", parent);
+            let index = parent.internal_search_child_pointer(right_cp as u32);
+            if index == parent.num_of_cells as usize {
+                // The right_cp is our right child offset
+
+                // Move last internal cell to become the right child offset
+                let internal_cell = parent.internal_cells.remove(index - 1);
+                parent.num_of_cells -= 1;
+                parent.right_child_offset = internal_cell.child_pointer();
+            } else {
+                // Remove extra key, pointers cell as we now have one less child
+                // after merge
+                parent.num_of_cells -= 1;
+                // if left_cp < parent.right_child_offset as usize {
+                //     parent.right_child_offset -= 1;
+                // }
+                parent.internal_cells.remove(index);
+
+                // Update the key for our existing child pointer pointing to our merged node
+                // to use the new max key.
+                if index != 0 {
+                    parent.internal_cells[index - 1] = InternalCell::new(left_cp as u32, max_key);
+                }
             }
 
-            // Remove extra key, pointers cell as we now have one less child
-            // after merge
-            let index = parent.internal_search_child_pointer(right_cp as u32);
-            parent.internal_cells.remove(index);
+            self.decrement_pointers(right_cp);
 
-            // Update the key for our existing child pointer pointing to our merged node
-            // to use the new max key.
-            parent.internal_cells[index - 1] = InternalCell::new(left_cp as u32, max_key);
+            let parent = self.0.get(parent_offset).unwrap();
+            if parent.num_of_cells <= min_key_length {
+                debug!("implement merge internal_nodes");
+                // self.merge_internal_nodes(node.parent_offset as usize);
+            }
         }
+    }
+
+    fn min_key(&self, max_degree: usize) -> usize {
+        let mut min_key = (max_degree / 2) - 1;
+
+        if min_key == 0 {
+            min_key = 1;
+        }
+
+        min_key
     }
 
     fn merge_internal_nodes(&mut self, page_num: usize) {
