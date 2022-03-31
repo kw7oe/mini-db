@@ -105,7 +105,7 @@ impl InternalCell {
         bincode::deserialize(&bytes).unwrap()
     }
 
-    fn write_child_pointer(&mut self, pointer: u32) {
+    pub fn write_child_pointer(&mut self, pointer: u32) {
         let mut j = 0;
         for i in pointer.to_le_bytes() {
             self.0[j] = i;
@@ -389,13 +389,14 @@ impl Node {
 
     /// Return the index of the given child_pointer.
     pub fn internal_search_child_pointer(&self, child_pointer: u32) -> usize {
-        match self
-            .internal_cells
-            .binary_search_by(|c| c.child_pointer().cmp(&child_pointer))
-        {
-            Ok(index) => index,
-            Err(index) => index,
+        for i in 0..self.internal_cells.len() {
+            let cell = &self.internal_cells[i];
+            if cell.child_pointer() == child_pointer {
+                return i;
+            }
         }
+
+        self.internal_cells.len()
     }
 
     pub fn update_internal_key(&mut self, old_key: u32, new_key: u32) {

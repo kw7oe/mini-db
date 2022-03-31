@@ -205,8 +205,8 @@ impl Tree {
             } else {
                 debug!("update internal node {page_num}, parent...");
                 let parent = &mut self.0[left_node.parent_offset as usize];
-                let index = parent.internal_search_child_pointer(page_num as u32);
 
+                let index = parent.internal_search_child_pointer(page_num as u32);
                 if page_num < parent.right_child_offset as usize {
                     parent.right_child_offset -= 1;
                 }
@@ -220,6 +220,15 @@ impl Tree {
                 }
 
                 if parent.num_of_cells == index as u32 {
+                    debug!("update parent after split most right internal node");
+
+                    for cell in parent.internal_cells.iter_mut() {
+                        let cp = cell.child_pointer();
+                        if cp > page_num as u32 && cp < last_unused_page_num {
+                            cell.write_child_pointer(cp - 1)
+                        }
+                    }
+
                     parent.right_child_offset = last_unused_page_num;
                     parent.internal_insert(
                         index,
@@ -227,6 +236,15 @@ impl Tree {
                     );
                     parent.num_of_cells += 1;
                 } else {
+                    debug!("update parent after split internal node");
+
+                    for cell in parent.internal_cells.iter_mut() {
+                        let cp = cell.child_pointer();
+                        if cp > page_num as u32 && cp < last_unused_page_num {
+                            cell.write_child_pointer(cp - 1)
+                        }
+                    }
+
                     parent.internal_insert(
                         index,
                         InternalCell::new(last_unused_page_num - 1, ic.key()),
