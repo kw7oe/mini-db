@@ -422,7 +422,6 @@ impl Tree {
 
     fn merge_internal_nodes(&mut self, page_num: usize) {
         let node = &self.0[page_num];
-        println!("page_num: {:?}", page_num);
         let parent = &self.0[node.parent_offset as usize];
 
         let (left_child_pointer, right_child_pointer) = parent.siblings(page_num as u32);
@@ -495,12 +494,15 @@ impl Tree {
             if right_cp == parent.right_child_offset as usize {
                 debug!("  update parent after merging most right child");
                 parent.right_child_offset = left_cp as u32;
+
+                // TODO: explain why this is needed
                 self.update_children_parent_offset(right_cp as u32);
-                self.update_children_parent_offset(left_cp as u32);
             } else {
                 debug!("  update parent after merging child");
                 parent.internal_cells[index].write_child_pointer(left_cp as u32);
             }
+
+            self.update_children_parent_offset(left_cp as u32);
         }
 
         println!("self: {:?}", self);

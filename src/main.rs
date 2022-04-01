@@ -951,7 +951,6 @@ mod test {
 
     #[test]
     fn delete_and_merge_right_most_internal_nodes_with_parent_updated() {
-        env_logger::init();
         let delete_input = DeleteInputs {
             insertion_ids: vec![
                 247, 0, 195, 91, 239, 86, 18, 97, 161, 17, 111, 62, 152, 180, 116, 199, 96, 65,
@@ -973,7 +972,7 @@ mod test {
     }
 
     #[test]
-    fn delete_and_merge_internal_nodes_with_parent_updated() {
+    fn delete_and_merge_internal_nodes() {
         let delete_input = DeleteInputs {
             insertion_ids: vec![
                 107, 202, 123, 47, 49, 89, 174, 240, 10, 24, 162, 0, 201, 228, 114, 189, 38, 16,
@@ -990,6 +989,31 @@ mod test {
                 235,
             ],
         };
+        test_deletion(delete_input);
+    }
+
+    #[test]
+    // This test case are able to catch bug due to incorrect parent offset of
+    // our B+ Tree node, as it will trigger merging on leaf node that have incorrect
+    // parent offset.
+    fn delete_and_merge_internal_nodes_with_parent_updated() {
+        let delete_input = DeleteInputs {
+            insertion_ids: vec![
+                113, 175, 203, 91, 229, 214, 149, 46, 8, 195, 112, 156, 205, 171, 223, 226, 138,
+                59, 134, 97, 248, 179, 161, 22, 90, 197, 1, 17, 9, 132, 129, 11, 109, 44, 63, 150,
+                42, 141, 29, 162, 184, 89, 120, 173, 100, 2, 183, 133, 199, 62, 194, 255, 14, 80,
+                110, 231, 121, 13, 98, 10, 108, 225, 174, 93, 177, 64, 84, 21, 86, 126, 27, 76, 25,
+                0, 77, 85,
+            ],
+            deletion_ids: vec![
+                11, 134, 93, 141, 161, 126, 85, 205, 174, 46, 199, 9, 179, 8, 171, 248, 109, 97, 2,
+                225, 10, 64, 183, 42, 0, 156, 149, 100, 120, 17, 184, 21, 231, 138, 108, 203, 150,
+                121, 255, 1, 14, 98, 44, 84, 110, 77, 214, 129, 229, 194, 13, 90, 162, 27, 86, 89,
+                195, 112, 76, 22, 177, 133, 62, 175, 113, 197, 25, 226, 59, 63, 132, 173, 80, 223,
+                29, 91,
+            ],
+        };
+
         test_deletion(delete_input);
     }
 
@@ -1032,7 +1056,6 @@ mod test {
     }
 
     quickcheck! {
-        #[ignore]
         fn insert_delete_and_select_prop(delete_input: DeleteInputs) -> bool {
             let mut table = Table::new("test.db".to_string());
 
