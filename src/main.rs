@@ -950,7 +950,8 @@ mod test {
     }
 
     #[test]
-    fn delete_test_case_1() {
+    fn delete_and_merge_right_most_internal_nodes_with_parent_updated() {
+        env_logger::init();
         let delete_input = DeleteInputs {
             insertion_ids: vec![
                 247, 0, 195, 91, 239, 86, 18, 97, 161, 17, 111, 62, 152, 180, 116, 199, 96, 65,
@@ -971,6 +972,27 @@ mod test {
         test_deletion(delete_input);
     }
 
+    #[test]
+    fn delete_and_merge_internal_nodes_with_parent_updated() {
+        let delete_input = DeleteInputs {
+            insertion_ids: vec![
+                107, 202, 123, 47, 49, 89, 174, 240, 10, 24, 162, 0, 201, 228, 114, 189, 38, 16,
+                219, 32, 211, 229, 176, 143, 118, 91, 214, 142, 191, 172, 99, 7, 253, 52, 188, 177,
+                121, 33, 194, 236, 244, 132, 120, 252, 231, 134, 1, 39, 117, 217, 196, 87, 96, 23,
+                230, 11, 12, 154, 48, 131, 70, 61, 111, 255, 184, 71, 21, 26, 155, 235, 67, 139,
+                90, 57,
+            ],
+            deletion_ids: vec![
+                24, 217, 121, 111, 67, 48, 16, 21, 57, 132, 177, 114, 10, 11, 202, 0, 139, 155, 12,
+                120, 39, 236, 219, 32, 71, 211, 229, 154, 176, 174, 201, 38, 143, 191, 244, 253,
+                52, 189, 162, 118, 172, 240, 91, 131, 107, 142, 231, 89, 7, 188, 196, 255, 26, 23,
+                252, 87, 61, 70, 123, 90, 117, 214, 33, 230, 134, 184, 96, 194, 49, 99, 1, 228, 47,
+                235,
+            ],
+        };
+        test_deletion(delete_input);
+    }
+
     fn test_deletion(delete_input: DeleteInputs) {
         let mut table = Table::new("test.db".to_string());
 
@@ -978,35 +1000,35 @@ mod test {
             handle_input(&mut table, &format!("insert {i} user{i} user{i}@email.com"));
         }
 
-        // for i in &delete_input.deletion_ids {
-        //     let output = handle_input(&mut table, &format!("delete {i}"));
-        //     assert_eq!(output, format!("deleted {i}"));
+        for i in &delete_input.deletion_ids {
+            let output = handle_input(&mut table, &format!("delete {i}"));
+            assert_eq!(output, format!("deleted {i}"));
 
-        //     let output = handle_input(&mut table, "select");
-        //     let mut sorted_ids = delete_input.insertion_ids.clone();
-        //     sorted_ids.sort();
+            let output = handle_input(&mut table, "select");
+            let mut sorted_ids = delete_input.insertion_ids.clone();
+            sorted_ids.sort();
 
-        //     let index = delete_input
-        //         .deletion_ids
-        //         .iter()
-        //         .position(|id| id == i)
-        //         .unwrap();
+            let index = delete_input
+                .deletion_ids
+                .iter()
+                .position(|id| id == i)
+                .unwrap();
 
-        //     let expected_output = sorted_ids
-        //         .iter()
-        //         .filter(|&id| {
-        //             if index > 0 {
-        //                 !delete_input.deletion_ids[0..index + 1].contains(id)
-        //             } else {
-        //                 id != i
-        //             }
-        //         })
-        //         .map(|i| format!("({i}, user{i}, user{i}@email.com)\n"))
-        //         .collect::<Vec<String>>()
-        //         .join("");
+            let expected_output = sorted_ids
+                .iter()
+                .filter(|&id| {
+                    if index > 0 {
+                        !delete_input.deletion_ids[0..index + 1].contains(id)
+                    } else {
+                        id != i
+                    }
+                })
+                .map(|i| format!("({i}, user{i}, user{i}@email.com)\n"))
+                .collect::<Vec<String>>()
+                .join("");
 
-        //     assert_eq!(output, expected_output)
-        // }
+            assert_eq!(output, expected_output)
+        }
     }
 
     quickcheck! {

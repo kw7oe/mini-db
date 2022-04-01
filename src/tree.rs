@@ -422,6 +422,7 @@ impl Tree {
 
     fn merge_internal_nodes(&mut self, page_num: usize) {
         let node = &self.0[page_num];
+        println!("page_num: {:?}", page_num);
         let parent = &self.0[node.parent_offset as usize];
 
         let (left_child_pointer, right_child_pointer) = parent.siblings(page_num as u32);
@@ -452,6 +453,12 @@ impl Tree {
         let new_left_max_key = self.0[left_node.right_child_offset as usize].get_max_key();
         let node = self.0.remove(right_cp);
 
+        let left_cp = if right_cp < left_cp {
+            left_cp - 1
+        } else {
+            left_cp
+        };
+
         let left_node = self.0.get_mut(left_cp).unwrap();
         left_node.internal_cells.push(InternalCell::new(
             left_node.right_child_offset,
@@ -467,23 +474,36 @@ impl Tree {
 
         left_node.right_child_offset = node.right_child_offset;
 
-        // if right_cp < left_node.parent_offset as usize {
-        //     left_node.parent_offset -= 1;
-        // }
-
-        let parent_offset = left_node.parent_offset as usize;
-
         // Update parent metadata
+        let parent_offset = left_node.parent_offset as usize;
         let parent = self.0.get(parent_offset).unwrap();
 
+        println!("self: {:?}", self);
         if self.0.len() <= 4 + 1 + 1 && parent.num_of_cells == 1 && parent.is_root {
             debug!("promote internal nodes to root");
             self.promote_to_last_node_to_root(left_cp);
-            // self.decrement_pointers(right_cp);
             self.update_children_parent_offset(0);
         } else {
             debug!("update parent linked with childrens");
+            let parent = self.0.get_mut(parent_offset).unwrap();
+            parent.decrement_internal_child_pointers(right_cp);
+
+            let index = parent.internal_search_child_pointer(left_cp as u32);
+            parent.internal_cells.remove(index);
+            parent.num_of_cells -= 1;
+
+            if right_cp == parent.right_child_offset as usize {
+                debug!("  update parent after merging most right child");
+                parent.right_child_offset = left_cp as u32;
+                self.update_children_parent_offset(right_cp as u32);
+                self.update_children_parent_offset(left_cp as u32);
+            } else {
+                debug!("  update parent after merging child");
+                parent.internal_cells[index].write_child_pointer(left_cp as u32);
+            }
         }
+
+        println!("self: {:?}", self);
     }
 
     pub fn node_to_string(&self, node: &Node, indent_level: usize) -> String {
