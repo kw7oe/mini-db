@@ -427,7 +427,7 @@ impl Tree {
 
         if let Some(cp) = left_child_pointer {
             let left_nb = &self.0[cp];
-            if cp != page_num && left_nb.internal_cells.len() + node.internal_cells.len() < 3 {
+            if cp != page_num && left_nb.internal_cells.len() + node.internal_cells.len() <= 3 {
                 debug!("Merging internal node {page_num} with left neighbour");
                 self.do_merge_internal_nodes(cp, page_num);
             }
@@ -436,7 +436,7 @@ impl Tree {
 
         if let Some(cp) = right_child_pointer {
             let right_nb = &self.0[cp];
-            if cp != page_num && right_nb.internal_cells.len() + node.internal_cells.len() < 3 {
+            if cp != page_num && right_nb.internal_cells.len() + node.internal_cells.len() <= 3 {
                 debug!("Merging internal node {page_num} with right neighbour");
                 self.do_merge_internal_nodes(page_num, cp);
             }

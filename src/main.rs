@@ -708,7 +708,7 @@ mod test {
         assert_eq!(output, expected_output.join(""));
     }
 
-    use quickcheck::{Arbitrary, Gen};
+    use quickcheck::{Arbitrary, Gen, QuickCheck};
     use rand::seq::SliceRandom;
     use rand::thread_rng;
 
@@ -1086,6 +1086,47 @@ mod test {
         test_deletion(delete_input);
     }
 
+    #[test]
+    // This test case catch the issue wheere when left node is empty and right node has the max
+    // count, it doesn't get merge when it's supposed to.
+    fn delete_and_merge_internal_nodes_when_right_and_left_equal_to_max_internal_count() {
+        let delete_input = DeleteInputs {
+            insertion_ids: vec![
+                86, 155, 221, 150, 138, 178, 141, 61, 251, 204, 212, 127, 12, 22, 157, 182, 225,
+                164, 66, 208, 25, 103, 65, 70, 21, 207, 55, 253, 29, 72, 240, 133, 135, 144, 222,
+                23, 186, 248, 75, 115, 167, 180, 31, 226, 174, 205, 47, 89, 110, 53, 220, 121, 51,
+                129, 159, 254, 99, 42, 11, 5, 187, 239, 10, 184, 154, 160, 219, 94, 91, 96, 136,
+                40, 28, 117, 97, 193, 100, 30, 95, 223, 13, 98, 241, 146, 105, 134, 83, 189, 143,
+                177, 250, 58, 37, 60, 34, 27, 20, 137, 191, 198, 197, 249, 79, 76, 14, 238, 201,
+                63, 202, 4, 16, 181, 175, 218, 38, 199, 19, 3, 168, 228, 122, 57, 161, 54, 142, 69,
+                74, 17, 48, 230, 170, 242, 128, 118, 39, 125, 41, 123, 206, 84, 62, 194, 149, 33,
+                139, 188, 116, 176, 183, 56, 43, 44, 85, 243, 148, 165, 203, 102, 185, 233, 169,
+                156, 87, 163, 236, 192, 46, 227, 112, 252, 166, 255, 0, 244, 247, 24, 7, 158, 26,
+                80, 18, 211, 15, 217, 124, 32, 71, 215, 77, 82, 49, 140, 209, 214, 114, 107, 90,
+                45, 104, 145, 93, 132, 216, 36, 130, 196, 1, 52, 108, 50, 88, 111, 109, 235, 195,
+                67, 153, 8, 151, 78, 162, 92, 131, 68, 229, 172, 106, 81, 237, 59, 245, 113, 231,
+                210,
+            ],
+            deletion_ids: vec![
+                122, 143, 188, 17, 81, 210, 60, 174, 159, 247, 79, 91, 205, 87, 28, 124, 156, 76,
+                19, 167, 254, 141, 218, 112, 242, 41, 110, 57, 90, 10, 169, 236, 175, 93, 49, 201,
+                51, 151, 66, 187, 54, 115, 85, 127, 0, 99, 33, 132, 5, 178, 214, 42, 192, 161, 220,
+                43, 191, 249, 177, 96, 176, 189, 184, 193, 136, 228, 239, 206, 63, 252, 165, 251,
+                70, 207, 170, 31, 39, 131, 77, 130, 117, 211, 50, 14, 241, 55, 13, 182, 202, 237,
+                253, 56, 248, 100, 89, 95, 172, 80, 148, 186, 106, 123, 223, 121, 27, 153, 44, 240,
+                37, 53, 212, 45, 88, 23, 75, 103, 180, 164, 62, 160, 222, 215, 84, 3, 225, 135,
+                181, 139, 111, 105, 16, 18, 61, 229, 155, 145, 11, 38, 30, 250, 20, 8, 113, 243,
+                48, 199, 24, 204, 34, 71, 83, 46, 104, 233, 221, 226, 146, 40, 162, 94, 197, 97,
+                194, 255, 125, 7, 216, 134, 86, 238, 133, 245, 68, 72, 203, 109, 26, 65, 235, 47,
+                108, 25, 183, 118, 74, 185, 107, 168, 12, 158, 163, 116, 114, 29, 92, 198, 59, 98,
+                15, 227, 36, 67, 32, 231, 140, 166, 195, 102, 58, 52, 244, 208, 1, 230, 138, 150,
+                22, 154, 137, 142, 219, 129, 78, 128, 157, 4, 69, 21, 82, 209, 144, 196, 217, 149,
+            ],
+        };
+
+        test_deletion(delete_input);
+    }
+
     fn test_deletion(delete_input: DeleteInputs) {
         let mut table = Table::new("test.db".to_string());
 
@@ -1124,50 +1165,59 @@ mod test {
         }
     }
 
-    quickcheck! {
-        fn insert_delete_and_select_prop(delete_input: DeleteInputs) -> bool {
-            let mut table = Table::new("test.db".to_string());
+    #[test]
+    fn quickcheck_insert_delete_and_select() {
+        // Change the Gen::new(size) to have quickcheck
+        // generate larger size vector.
+        let gen = Gen::new(100);
 
-            for i in &delete_input.insertion_ids {
-                handle_input(&mut table, &format!("insert {i} user{i} user{i}@email.com"));
-            }
+        QuickCheck::new()
+            .gen(gen)
+            .quickcheck(insert_delete_and_select_prop as fn(DeleteInputs) -> bool);
+    }
 
-            for i in &delete_input.deletion_ids {
-                let output = handle_input(&mut table, &format!("delete {i}"));
-                assert_eq!(output, format!("deleted {i}"));
+    fn insert_delete_and_select_prop(delete_input: DeleteInputs) -> bool {
+        let mut table = Table::new("test.db".to_string());
 
-                let output = handle_input(&mut table, "select");
-                let mut sorted_ids = delete_input.insertion_ids.clone();
-                sorted_ids.sort();
-
-                let index = delete_input
-                    .deletion_ids
-                    .iter()
-                    .position(|id| id == i)
-                    .unwrap();
-
-                let expected_output = sorted_ids
-                    .iter()
-                    .filter(|&id| {
-                        if index > 0 {
-                            !delete_input.deletion_ids[0..index + 1].contains(id)
-                        } else {
-                            id != i
-                        }
-                    })
-                    .map(|i| format!("({i}, user{i}, user{i}@email.com)\n"))
-                    .collect::<Vec<String>>()
-                    .join("");
-
-                if output == expected_output {
-                    continue;
-                } else {
-                    return false;
-                }
-            }
-
-            return true
+        for i in &delete_input.insertion_ids {
+            handle_input(&mut table, &format!("insert {i} user{i} user{i}@email.com"));
         }
+
+        for i in &delete_input.deletion_ids {
+            let output = handle_input(&mut table, &format!("delete {i}"));
+            assert_eq!(output, format!("deleted {i}"));
+
+            let output = handle_input(&mut table, "select");
+            let mut sorted_ids = delete_input.insertion_ids.clone();
+            sorted_ids.sort();
+
+            let index = delete_input
+                .deletion_ids
+                .iter()
+                .position(|id| id == i)
+                .unwrap();
+
+            let expected_output = sorted_ids
+                .iter()
+                .filter(|&id| {
+                    if index > 0 {
+                        !delete_input.deletion_ids[0..index + 1].contains(id)
+                    } else {
+                        id != i
+                    }
+                })
+                .map(|i| format!("({i}, user{i}, user{i}@email.com)\n"))
+                .collect::<Vec<String>>()
+                .join("");
+
+            if output == expected_output {
+                continue;
+            } else {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     fn clean_test() {
