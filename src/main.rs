@@ -1017,6 +1017,75 @@ mod test {
         test_deletion(delete_input);
     }
 
+    #[test]
+    // This test catch updating children parent offset on an non existing index.
+    fn delete_and_merge_internal_nodes_while_updating_children_parent_offset() {
+        let delete_input = DeleteInputs {
+            insertion_ids: vec![
+                190, 63, 111, 89, 20, 8, 71, 160, 13, 199, 224, 103, 255, 9, 179, 214, 38, 218, 52,
+                128, 11, 157, 39, 215, 191, 231, 50, 205, 53, 1, 7, 124, 74, 48, 69, 57, 84, 237,
+                123, 136, 130, 46, 120, 37, 234, 80, 0, 72, 183, 206, 5, 78, 175, 165, 106, 3, 242,
+                2, 56, 153, 243, 177, 144, 246, 171, 140, 70, 184, 126, 163, 98, 145, 239, 188,
+            ],
+            deletion_ids: vec![
+                255, 177, 72, 124, 175, 183, 1, 243, 231, 8, 144, 50, 163, 11, 218, 78, 46, 106,
+                171, 13, 20, 74, 214, 140, 80, 0, 5, 234, 98, 53, 224, 205, 120, 165, 52, 123, 48,
+                63, 70, 239, 37, 184, 145, 199, 38, 39, 84, 3, 126, 188, 136, 128, 56, 69, 153, 71,
+                206, 57, 9, 130, 160, 190, 103, 157, 7, 111, 191, 246, 242, 2, 237, 89, 215, 179,
+            ],
+        };
+
+        test_deletion(delete_input);
+    }
+
+    #[test]
+    // This test case catch not updating children parent offset on existing nodes
+    // that is affected by the merging process. It happen when we remove a node in
+    // the middle of our internal nodes, and caused the children of the nodes after
+    // the removed node not having their parent offset updated.
+    fn delete_and_merge_internal_nodes_while_updating_old_right_cp_parent_offset() {
+        env_logger::init();
+        let delete_input = DeleteInputs {
+            insertion_ids: vec![
+                137, 71, 81, 209, 0, 90, 235, 141, 208, 110, 178, 241, 160, 111, 63, 245, 246, 255,
+                91, 147, 70, 74, 139, 229, 26, 161, 57, 51, 146, 34, 94, 7, 8, 114, 221, 25, 164,
+                227, 252, 186, 15, 118, 173, 250, 203, 59, 187, 41, 183, 14, 33, 99, 215, 1, 191,
+                177, 213, 130, 222, 176, 202, 192, 93, 103, 199, 6, 67, 184,
+            ],
+            deletion_ids: vec![
+                34, 160, 26, 67, 118, 41, 6, 209, 7, 91, 14, 199, 103, 139, 141, 99, 93, 1, 81, 33,
+                137, 177, 90, 70, 164, 0, 203, 184, 57, 250, 252, 74, 110, 221, 186, 255, 147, 191,
+                111, 245, 71, 114, 94, 146, 202, 161, 241, 192, 183, 176, 63, 235, 229, 246, 15,
+                227, 222, 8, 173, 51, 25, 59, 208, 187, 213, 215, 178, 130,
+            ],
+        };
+
+        test_deletion(delete_input)
+    }
+
+    #[test]
+    // This test case catch not updating children parent offset on existing nodes
+    // because we doesn't update those nodes that is affected by the removal of a most right child
+    // that happen to have a smaller index than the other child
+    fn delete_and_merge_internal_nodes_while_updating_affected_node() {
+        let delete_input = DeleteInputs {
+            insertion_ids: vec![
+                84, 145, 87, 203, 146, 95, 132, 17, 253, 133, 77, 125, 105, 56, 1, 101, 180, 218,
+                110, 48, 49, 239, 112, 52, 0, 138, 191, 126, 252, 217, 171, 172, 64, 104, 147, 71,
+                219, 16, 150, 255, 75, 210, 166, 66, 25, 96, 53, 178, 168, 243, 41, 67, 176, 188,
+                137, 209, 5, 40, 246, 197, 92, 165, 63, 190, 32, 151, 70, 205, 195,
+            ],
+            deletion_ids: vec![
+                132, 205, 52, 168, 218, 180, 243, 188, 190, 151, 146, 195, 105, 219, 17, 171, 101,
+                217, 112, 84, 40, 203, 70, 210, 147, 239, 48, 25, 92, 0, 5, 191, 197, 53, 125, 16,
+                255, 178, 126, 252, 150, 95, 56, 63, 166, 246, 66, 176, 253, 133, 64, 172, 104, 87,
+                71, 77, 96, 110, 49, 75, 145, 1, 41, 32, 137, 209, 67, 165, 138,
+            ],
+        };
+
+        test_deletion(delete_input);
+    }
+
     fn test_deletion(delete_input: DeleteInputs) {
         let mut table = Table::new("test.db".to_string());
 

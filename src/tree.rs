@@ -319,7 +319,7 @@ impl Tree {
         if let Some(cp) = left_child_pointer {
             let left_nb = &self.0[cp];
 
-            if left_nb.cells.len() + node.cells.len() < LEAF_NODE_MAX_CELLS {
+            if cp != page_num && left_nb.cells.len() + node.cells.len() < LEAF_NODE_MAX_CELLS {
                 debug!("Merging node {} with its left neighbour...", page_num);
 
                 // Another reason to move it into a function
@@ -332,11 +332,10 @@ impl Tree {
 
         if let Some(cp) = right_child_pointer {
             let right_nb = &self.0[cp];
-            if right_nb.cells.len() + node.cells.len() < LEAF_NODE_MAX_CELLS {
+            if cp != page_num && right_nb.cells.len() + node.cells.len() < LEAF_NODE_MAX_CELLS {
                 debug!("Merging node {} with its right neighbour...", page_num);
                 self.do_merge_leaf_nodes(page_num, cp);
             }
-            return;
         }
     }
 
@@ -428,7 +427,7 @@ impl Tree {
 
         if let Some(cp) = left_child_pointer {
             let left_nb = &self.0[cp];
-            if left_nb.internal_cells.len() + node.internal_cells.len() < 3 {
+            if cp != page_num && left_nb.internal_cells.len() + node.internal_cells.len() < 3 {
                 debug!("Merging internal node {page_num} with left neighbour");
                 self.do_merge_internal_nodes(cp, page_num);
             }
@@ -437,7 +436,7 @@ impl Tree {
 
         if let Some(cp) = right_child_pointer {
             let right_nb = &self.0[cp];
-            if right_nb.internal_cells.len() + node.internal_cells.len() < 3 {
+            if cp != page_num && right_nb.internal_cells.len() + node.internal_cells.len() < 3 {
                 debug!("Merging internal node {page_num} with right neighbour");
                 self.do_merge_internal_nodes(page_num, cp);
             }
@@ -477,7 +476,6 @@ impl Tree {
         let parent_offset = left_node.parent_offset as usize;
         let parent = self.0.get(parent_offset).unwrap();
 
-        println!("self: {:?}", self);
         if self.0.len() <= 4 + 1 + 1 && parent.num_of_cells == 1 && parent.is_root {
             debug!("promote internal nodes to root");
             self.promote_to_last_node_to_root(left_cp);
@@ -485,27 +483,34 @@ impl Tree {
         } else {
             debug!("update parent linked with childrens");
             let parent = self.0.get_mut(parent_offset).unwrap();
+            let parent_right_child_offset = parent.right_child_offset as usize;
             parent.decrement_internal_child_pointers(right_cp);
 
             let index = parent.internal_search_child_pointer(left_cp as u32);
             parent.internal_cells.remove(index);
             parent.num_of_cells -= 1;
 
-            if right_cp == parent.right_child_offset as usize {
+            if right_cp == parent_right_child_offset {
                 debug!("  update parent after merging most right child");
-                parent.right_child_offset = left_cp as u32;
 
-                // TODO: explain why this is needed
-                self.update_children_parent_offset(right_cp as u32);
+                parent.right_child_offset = left_cp as u32;
             } else {
                 debug!("  update parent after merging child");
                 parent.internal_cells[index].write_child_pointer(left_cp as u32);
             }
 
             self.update_children_parent_offset(left_cp as u32);
+            for i in right_cp..self.0.len() {
+                self.update_children_parent_offset(i as u32);
+            }
         }
 
-        println!("self: {:?}", self);
+        // We might want to recursively merge our internal nodes.
+        //
+        // Comment out for the time being.
+        // if parent_offset != 0 {
+        //     self.merge_internal_nodes(parent_offset);
+        // }
     }
 
     pub fn node_to_string(&self, node: &Node, indent_level: usize) -> String {
