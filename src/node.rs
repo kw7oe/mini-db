@@ -74,10 +74,8 @@ impl Cell {
     }
 
     fn write_key(&mut self, key: u32) {
-        let mut j = 0;
-        for i in key.to_le_bytes() {
-            self.0[j] = i;
-            j += 1;
+        for (i, byte) in key.to_le_bytes().into_iter().enumerate() {
+            self.0[i] = byte;
         }
     }
 
@@ -85,9 +83,10 @@ impl Cell {
         let offset = LEAF_NODE_KEY_SIZE;
         let row_in_bytes = bincode::serialize(row).unwrap();
 
-        for i in 0..ROW_SIZE {
-            self.0[offset + i] = row_in_bytes[i];
-        }
+        // for i in 0..ROW_SIZE {
+        //     self.0[offset + i] = row_in_bytes[i];
+        // }
+        self.0[offset..(ROW_SIZE + offset)].clone_from_slice(&row_in_bytes[..ROW_SIZE]);
     }
 }
 
@@ -111,10 +110,8 @@ impl InternalCell {
     }
 
     pub fn write_child_pointer(&mut self, pointer: u32) {
-        let mut j = 0;
-        for i in pointer.to_le_bytes() {
-            self.0[j] = i;
-            j += 1;
+        for (i, byte) in pointer.to_le_bytes().into_iter().enumerate() {
+            self.0[i] = byte;
         }
     }
 
@@ -286,8 +283,8 @@ impl Node {
         if self.node_type == NodeType::Leaf {
             let bytes = bincode::serialize(self).unwrap();
 
-            for i in 0..COMMON_NODE_HEADER_SIZE {
-                result.insert(i, bytes[i]);
+            for (i, bytes_slice) in bytes.iter().enumerate().take(COMMON_NODE_HEADER_SIZE) {
+                result.insert(i, *bytes_slice);
             }
 
             let num_of_cells_bytes = bincode::serialize(&self.num_of_cells).unwrap();
@@ -302,8 +299,8 @@ impl Node {
         } else {
             let bytes = bincode::serialize(self).unwrap();
 
-            for i in 0..INTERNAL_NODE_HEADER_SIZE {
-                result.insert(i, bytes[i]);
+            for (i, bytes_slice) in bytes.iter().enumerate().take(INTERNAL_NODE_HEADER_SIZE) {
+                result.insert(i, *bytes_slice);
             }
         }
 

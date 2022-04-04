@@ -8,6 +8,9 @@ internals.
 It is implemented following the [Let's Build a Simple Database][0] tutorial.
 The codebase now contain all the implementation in the tutorial.
 
+This is by no mean an idiomatic Rust implementation as I'm learning Rust
+along the way.
+
 ## What's Next?
 
 Since we have completed through the tutorial of Let's Build a Simple Database,
