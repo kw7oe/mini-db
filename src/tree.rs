@@ -299,7 +299,7 @@ impl Tree {
     pub fn delete(&mut self, cursor: &Cursor) {
         let node = &mut self.0[cursor.page_num];
         node.delete(cursor.cell_num);
-        self.maybe_merge_nodes(&cursor);
+        self.maybe_merge_nodes(cursor);
     }
 
     fn maybe_merge_nodes(&mut self, cursor: &Cursor) {
@@ -448,7 +448,6 @@ impl Tree {
                 debug!("Merging internal node {page_num} with right neighbour");
                 self.do_merge_internal_nodes(page_num, cp);
             }
-            return;
         }
     }
 
@@ -533,7 +532,7 @@ impl Tree {
             for c in &node.internal_cells {
                 let child_index = c.child_pointer() as usize;
                 let node = &self.0[child_index];
-                result += &self.node_to_string(&node, indent_level + 1);
+                result += &self.node_to_string(node, indent_level + 1);
 
                 for _ in 0..indent_level + 1 {
                     result += "  ";
@@ -543,7 +542,7 @@ impl Tree {
 
             let child_index = node.right_child_offset as usize;
             let node = &self.0[child_index];
-            result += &self.node_to_string(&node, indent_level + 1);
+            result += &self.node_to_string(node, indent_level + 1);
         } else if node.node_type == NodeType::Leaf {
             for _ in 0..indent_level {
                 result += "  ";
@@ -574,9 +573,9 @@ impl std::string::ToString for Tree {
 
 impl std::fmt::Debug for Tree {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Tree {{\n").unwrap();
+        writeln!(f, "Tree {{").unwrap();
         for (i, c) in self.0.iter().enumerate() {
-            write!(f, "  {i}: {:?}\n", c).unwrap();
+            writeln!(f, "  {i}: {:?}", c).unwrap();
         }
         write!(f, "}}")
     }

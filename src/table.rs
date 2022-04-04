@@ -44,12 +44,10 @@ impl Cursor {
                     end_of_table: index == num_of_cells,
                 }),
             }
+        } else if let Ok(page_num) = node.search(key) {
+            Self::table_find(table, page_num, key)
         } else {
-            if let Ok(page_num) = node.search(key) {
-                Self::table_find(table, page_num, key)
-            } else {
-                Err("something went wrong".to_string())
-            }
+            Err("something went wrong".to_string())
         }
     }
 

@@ -65,7 +65,7 @@ pub struct InternalCell([u8; INTERNAL_NODE_CELL_SIZE]);
 impl Cell {
     pub fn key(&self) -> u32 {
         let key_bytes = &self.0[0..4];
-        bincode::deserialize(&key_bytes).unwrap()
+        bincode::deserialize(key_bytes).unwrap()
     }
 
     pub fn value(&self) -> &[u8] {
@@ -107,7 +107,7 @@ impl InternalCell {
 
     pub fn child_pointer(&self) -> u32 {
         let bytes = &self.0[0..4];
-        bincode::deserialize(&bytes).unwrap()
+        bincode::deserialize(bytes).unwrap()
     }
 
     pub fn write_child_pointer(&mut self, pointer: u32) {
@@ -120,7 +120,7 @@ impl InternalCell {
 
     pub fn key(&self) -> u32 {
         let bytes = &self.0[4..8];
-        bincode::deserialize(&bytes).unwrap()
+        bincode::deserialize(bytes).unwrap()
     }
 
     fn write_key(&mut self, key: u32) {
@@ -165,6 +165,7 @@ pub struct Node {
     pub has_initialize: bool,
 }
 
+#[allow(dead_code)]
 pub fn print_constant() {
     println!(
         "

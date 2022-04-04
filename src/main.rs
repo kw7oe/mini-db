@@ -32,7 +32,7 @@ fn main() -> std::io::Result<()> {
         std::io::stdin().read_line(&mut buffer)?;
 
         let input = buffer.trim();
-        let output = handle_input(&mut table, &input);
+        let output = handle_input(&mut table, input);
         if output == "Exit" {
             table.flush();
             exit(0);
@@ -51,15 +51,15 @@ fn print_prompt() {
 }
 
 fn handle_input(table: &mut Table, input: &str) -> String {
-    if input.starts_with(".") {
-        match handle_meta_command(&input) {
+    if input.starts_with('.') {
+        match handle_meta_command(input) {
             MetaCommand::Exit => return "Exit".to_string(),
             MetaCommand::PrintTree => return table.to_string(),
             MetaCommand::Unrecognized => return format!("Unrecognized command '{input}'."),
         }
     }
 
-    match prepare_statement(&input) {
+    match prepare_statement(input) {
         Ok(statement) => execute_statement(table, &statement),
         Err(reason) => reason,
     }
@@ -751,7 +751,6 @@ mod test {
 
     quickcheck! {
         fn insert_and_select_prop(ids: UniqueIDs) -> bool {
-            println!("{:?}", ids.0.len());
             let mut table = Table::new("test.db".to_string());
 
             for i in &ids.0 {

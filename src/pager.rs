@@ -62,7 +62,7 @@ impl Pager {
             if page_num < number_of_pages {
                 let offset = page_num as u64 * PAGE_SIZE as u64;
 
-                if let Ok(_) = self.read_file.seek(SeekFrom::Start(offset)) {
+                if self.read_file.seek(SeekFrom::Start(offset)).is_ok() {
                     let mut buffer = [0; PAGE_SIZE];
                     if let Ok(_read_len) = self.read_file.read(&mut buffer) {
                         node.from_bytes(&buffer);

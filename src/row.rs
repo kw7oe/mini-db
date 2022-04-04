@@ -17,7 +17,7 @@ pub struct Row {
 impl Row {
     // Alternatively can move to prepare_insert instead.
     pub fn from_statement(statement: &str) -> Result<Row, String> {
-        let insert_statement: Vec<&str> = statement.split(" ").collect();
+        let insert_statement: Vec<&str> = statement.split(' ').collect();
         match insert_statement[..] {
             ["insert", id, name, email] => {
                 if let Ok(id) = id.parse::<u32>() {

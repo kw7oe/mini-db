@@ -64,7 +64,7 @@ pub fn prepare_statement(input: &str) -> Result<Statement, String> {
     }
 
     if input.starts_with("insert") {
-        match Row::from_statement(&input) {
+        match Row::from_statement(input) {
             Ok(row) => {
                 return Ok(Statement {
                     statement_type: StatementType::Insert,
@@ -75,7 +75,7 @@ pub fn prepare_statement(input: &str) -> Result<Statement, String> {
         }
     }
 
-    return Err("unrecognized statement".to_string());
+    Err("unrecognized statement".to_string())
 }
 
 pub fn execute_statement(table: &mut Table, statement: &Statement) -> String {
