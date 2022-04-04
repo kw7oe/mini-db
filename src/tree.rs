@@ -560,8 +560,10 @@ impl Tree {
 
         result
     }
+}
 
-    pub fn to_string(&self) -> String {
+impl std::string::ToString for Tree {
+    fn to_string(&self) -> String {
         if let Some(node) = &self.0.get(0) {
             self.node_to_string(node, 0)
         } else {

@@ -137,8 +137,10 @@ impl Table {
             format!("item not found with id {}", row.id)
         }
     }
+}
 
-    pub fn to_string(&mut self) -> String {
+impl std::string::ToString for Table {
+    fn to_string(&self) -> String {
         self.pager.to_string()
     }
 }

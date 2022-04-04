@@ -154,8 +154,10 @@ impl Pager {
         self.get_page(cursor.page_num);
         self.tree.delete(cursor);
     }
+}
 
-    pub fn to_string(&mut self) -> String {
+impl std::string::ToString for Pager {
+    fn to_string(&self) -> String {
         self.tree.to_string()
     }
 }
