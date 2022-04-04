@@ -15,6 +15,7 @@ big_array! {
 extern crate log;
 
 mod node;
+mod pager;
 mod query;
 mod row;
 mod table;
