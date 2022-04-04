@@ -46,6 +46,11 @@ pub const INTERNAL_NODE_NUM_KEYS_SIZE: usize = std::mem::size_of::<u32>();
 pub const INTERNAL_NODE_HEADER_SIZE: usize =
     COMMON_NODE_HEADER_SIZE + INTERNAL_NODE_RIGHT_CHILD_SIZE + INTERNAL_NODE_NUM_KEYS_SIZE;
 pub const INTERNAL_NODE_CELL_SIZE: usize = std::mem::size_of::<u32>() + std::mem::size_of::<u32>();
+// const INTERNAL_NODE_SPACE_FOR_CELLS: usize = MAX_NODE_SIZE - INTERNAL_NODE_HEADER_SIZE;
+// pub const INTERNAL_NODE_MAX_CELLS: usize = INTERNAL_NODE_SPACE_FOR_CELLS / INTERNAL_NODE_CELL_SIZE;
+
+// Hardcoded to 3 for testing
+pub const INTERNAL_NODE_MAX_CELLS: usize = 3;
 
 // We have to define a custom type in order to have a  define
 // serde attributes in Vec<T>.

@@ -33,8 +33,9 @@ quick breakdown on what I'm going to implement next:
     node count supported by our data format.
       - This require us to generate a larger datasets to tests the
         behaviour.
-- [ ] Implement update operation for `sqlite`.
 - [ ] Implement buffer pool for our database. _([Reference][1])_
+  - [ ] Implement replacement policies (LRU or Clock).
+  - [ ] Implement Buffer Pool Manager.
 - [ ] Implement concurrency control for our database.
 - [ ] Implement recovery mechanism for our database.
 - [ ] Make it a distributed database????

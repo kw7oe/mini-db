@@ -1,4 +1,7 @@
-use crate::node::{InternalCell, Node, NodeType, LEAF_NODE_MAX_CELLS, LEAF_NODE_RIGHT_SPLIT_COUNT};
+use crate::node::{
+    InternalCell, Node, NodeType, INTERNAL_NODE_MAX_CELLS, LEAF_NODE_MAX_CELLS,
+    LEAF_NODE_RIGHT_SPLIT_COUNT,
+};
 use crate::row::Row;
 use crate::Cursor;
 
@@ -152,11 +155,10 @@ impl Tree {
     }
 
     pub fn maybe_split_internal_node(&mut self, page_num: usize) {
-        let max_num_cells_for_internal_node = 3;
         let last_unused_page_num = self.0.len() as u32;
         let left_node = &self.0[page_num];
 
-        if left_node.num_of_cells > max_num_cells_for_internal_node {
+        if left_node.num_of_cells > INTERNAL_NODE_MAX_CELLS as u32 {
             let mut left_node = self.0.remove(page_num);
             let split_at_index = left_node.num_of_cells as usize / 2;
 
@@ -427,7 +429,10 @@ impl Tree {
 
         if let Some(cp) = left_child_pointer {
             let left_nb = &self.0[cp];
-            if cp != page_num && left_nb.internal_cells.len() + node.internal_cells.len() <= 3 {
+            if cp != page_num
+                && left_nb.internal_cells.len() + node.internal_cells.len()
+                    <= INTERNAL_NODE_MAX_CELLS
+            {
                 debug!("Merging internal node {page_num} with left neighbour");
                 self.do_merge_internal_nodes(cp, page_num);
             }
@@ -436,7 +441,10 @@ impl Tree {
 
         if let Some(cp) = right_child_pointer {
             let right_nb = &self.0[cp];
-            if cp != page_num && right_nb.internal_cells.len() + node.internal_cells.len() <= 3 {
+            if cp != page_num
+                && right_nb.internal_cells.len() + node.internal_cells.len()
+                    <= INTERNAL_NODE_MAX_CELLS
+            {
                 debug!("Merging internal node {page_num} with right neighbour");
                 self.do_merge_internal_nodes(page_num, cp);
             }
