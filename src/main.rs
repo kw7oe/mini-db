@@ -18,6 +18,7 @@ mod node;
 mod pager;
 mod query;
 mod row;
+mod storage;
 mod table;
 mod tree;
 

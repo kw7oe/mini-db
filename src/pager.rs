@@ -1,41 +1,22 @@
-use std::{
-    fs::{File, OpenOptions},
-    io::SeekFrom,
-    io::{Read, Seek, Write},
-    path::PathBuf,
-};
+use std::path::PathBuf;
 
 use crate::node::{Node, NodeType, LEAF_NODE_MAX_CELLS};
 use crate::row::Row;
+use crate::storage::DiskManager;
 use crate::table::Cursor;
 use crate::tree::Tree;
 
-const PAGE_SIZE: usize = 4096;
+pub const PAGE_SIZE: usize = 4096;
 
 pub struct Pager {
-    write_file: File,
-    read_file: File,
-    file_len: usize,
+    disk_manager: DiskManager,
     tree: Tree,
 }
 
 impl Pager {
     pub fn new(path: impl Into<PathBuf>) -> Pager {
-        let path = path.into();
-
-        let write_file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .open(&path)
-            .unwrap();
-
-        let read_file = File::open(&path).unwrap();
-        let file_len = read_file.metadata().unwrap().len() as usize;
-
         Pager {
-            write_file,
-            read_file,
-            file_len,
+            disk_manager: DiskManager::new(path),
             tree: Tree::new(),
         }
     }
@@ -53,21 +34,8 @@ impl Pager {
 
         let node = self.tree.mut_nodes().get_mut(page_num).unwrap();
         if !node.has_initialize {
-            let mut number_of_pages = self.file_len / PAGE_SIZE;
-            if self.file_len % PAGE_SIZE != 0 {
-                // We wrote a partial page
-                number_of_pages += 1;
-            }
-
-            if page_num < number_of_pages {
-                let offset = page_num as u64 * PAGE_SIZE as u64;
-
-                if self.read_file.seek(SeekFrom::Start(offset)).is_ok() {
-                    let mut buffer = [0; PAGE_SIZE];
-                    if let Ok(_read_len) = self.read_file.read(&mut buffer) {
-                        node.from_bytes(&buffer);
-                    };
-                }
+            if let Ok(bytes) = self.disk_manager.read_page(page_num) {
+                node.from_bytes(&bytes);
             }
         }
 
@@ -82,19 +50,18 @@ impl Pager {
         // the node.cells len by Vec<Cell>.
         //
         // Ideally, we should have just need to call bincode deserialize.
-        for node in self.tree.nodes() {
-            let header_bytes = node.header();
-            let mut size = self.write_file.write(&header_bytes).unwrap();
+        for (i, node) in self.tree.nodes().iter().enumerate() {
+            let mut bytes = node.header();
 
             if node.node_type == NodeType::Leaf {
                 for c in &node.cells {
-                    let cell_bytes = bincode::serialize(c).unwrap();
-                    size += self.write_file.write(&cell_bytes).unwrap();
+                    let mut cell_bytes = bincode::serialize(c).unwrap();
+                    bytes.append(&mut cell_bytes);
                 }
             } else {
                 for c in &node.internal_cells {
-                    let cell_bytes = bincode::serialize(c).unwrap();
-                    size += self.write_file.write(&cell_bytes).unwrap();
+                    let mut cell_bytes = bincode::serialize(c).unwrap();
+                    bytes.append(&mut cell_bytes);
                 }
             }
 
@@ -109,29 +76,12 @@ impl Pager {
             // page to find out the next page offset.
             //
             // So long story short, let's just backfill the space...
-            let remaining_space = PAGE_SIZE - size;
-            let vec = vec![0; remaining_space];
-            size += self.write_file.write(&vec).unwrap();
-
-            debug!("flusing {size} bytes to file...");
+            let remaining_space = PAGE_SIZE - bytes.len();
+            let mut vec = vec![0; remaining_space];
+            bytes.append(&mut vec);
+            self.disk_manager.write_page(i, &bytes).unwrap();
         }
     }
-
-    // pub fn flush(&mut self, cursor: &Cursor) {
-    //     let node = self.get_page(cursor.page_num);
-    //     let num_of_cells_bytes = &node.num_of_cells.to_le_bytes();
-
-    //     self.write_file
-    //         .write(&self.nodes[cursor.page_num].cells(cursor.cell_num))
-    //         .unwrap();
-
-    //     self.write_file
-    //         .seek(SeekFrom::Start(COMMON_NODE_HEADER_SIZE as u64))
-    //         .unwrap();
-
-    //     self.write_file.write(num_of_cells_bytes).unwrap();
-    //     self.write_file.seek(SeekFrom::End(0)).unwrap();
-    // }
 
     pub fn serialize_row(&mut self, row: &Row, cursor: &Cursor) {
         let node = &mut self.tree.mut_nodes()[cursor.page_num];
@@ -141,7 +91,6 @@ impl Pager {
         } else {
             node.insert(row, cursor);
         }
-        // self.flush(&cursor);
     }
 
     pub fn deserialize_row(&mut self, cursor: &Cursor) -> Row {
