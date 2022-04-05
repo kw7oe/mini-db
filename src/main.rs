@@ -1,5 +1,5 @@
-use crate::node::LEAF_NODE_CELL_SIZE;
 use crate::query::*;
+use crate::storage::LEAF_NODE_CELL_SIZE;
 use crate::table::*;
 use std::io::Write;
 use std::process::exit;
@@ -14,12 +14,10 @@ big_array! {
 #[macro_use]
 extern crate log;
 
-mod node;
 mod query;
 mod row;
 mod storage;
 mod table;
-mod tree;
 
 fn main() -> std::io::Result<()> {
     env_logger::init();

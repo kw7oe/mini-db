@@ -1,10 +1,10 @@
 use std::path::PathBuf;
 
-use crate::node::{Node, NodeType, LEAF_NODE_MAX_CELLS};
+use super::node::{Node, NodeType, LEAF_NODE_MAX_CELLS};
+use super::tree::Tree;
 use crate::row::Row;
 use crate::storage::DiskManager;
 use crate::table::Cursor;
-use crate::tree::Tree;
 
 pub const PAGE_SIZE: usize = 4096;
 

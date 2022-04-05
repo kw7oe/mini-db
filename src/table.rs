@@ -1,6 +1,8 @@
-use crate::node::NodeType;
 use crate::query::Statement;
 use crate::row::Row;
+// Ideally this mod shouldn't need to know about NodeType.
+// TODO: remove this couping by restructuring the code.
+use crate::storage::NodeType;
 use crate::storage::Pager;
 use std::path::PathBuf;
 
