@@ -1,7 +1,7 @@
 use crate::node::NodeType;
-use crate::pager::Pager;
 use crate::query::Statement;
 use crate::row::Row;
+use crate::storage::Pager;
 use std::path::PathBuf;
 
 #[derive(Debug)]

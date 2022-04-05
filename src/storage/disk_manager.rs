@@ -1,4 +1,4 @@
-use crate::pager::PAGE_SIZE;
+use super::pager::PAGE_SIZE;
 use std::{
     fs::{File, OpenOptions},
     io::SeekFrom,
