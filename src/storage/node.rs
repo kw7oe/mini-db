@@ -202,6 +202,23 @@ impl Node {
         node
     }
 
+    pub fn new_from_bytes(bytes: &[u8]) -> Self {
+        let mut node = Node::uninitialize();
+        node.set_common_header(&bytes[0..COMMON_NODE_HEADER_SIZE]);
+
+        if node.node_type == NodeType::Leaf {
+            node.set_leaf_header(&bytes[COMMON_NODE_HEADER_SIZE..LEAF_NODE_HEADER_SIZE]);
+            node.set_leaf_cells(&bytes[LEAF_NODE_HEADER_SIZE..]);
+        }
+
+        if node.node_type == NodeType::Internal {
+            node.set_internal_header(&bytes[COMMON_NODE_HEADER_SIZE..INTERNAL_NODE_HEADER_SIZE]);
+            node.set_internal_cells(&bytes[INTERNAL_NODE_HEADER_SIZE..]);
+        }
+
+        node
+    }
+
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = self.header();
 

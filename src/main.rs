@@ -1215,7 +1215,7 @@ mod test {
             }
         }
 
-        return true;
+        true
     }
 
     fn clean_test() {

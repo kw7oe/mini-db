@@ -1,35 +1,31 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use super::node::{Node, NodeType, LEAF_NODE_MAX_CELLS};
+use super::node::{Node, LEAF_NODE_MAX_CELLS};
 use super::tree::Tree;
 use crate::row::Row;
 use crate::storage::DiskManager;
 use crate::table::Cursor;
+use std::time::Instant;
 
 pub const PAGE_SIZE: usize = 4096;
 
+#[derive(Debug)]
 struct PageMetadata {
     frame_id: usize,
-    is_dirty: bool,
-    pin_count: u32,
+    last_accessed_at: Instant,
 }
 
 impl PageMetadata {
     pub fn new(frame_id: usize) -> Self {
-        PageMetadata {
+        Self {
             frame_id,
-            is_dirty: false,
-            pin_count: 0,
+            last_accessed_at: Instant::now(),
         }
     }
 }
 
-// We are not implementing the Least Recently Used algorithm
-// yet.
-//
-// Currently we just track pin count and replace
-// the page where pin_count is 0.
+#[derive(Debug)]
 struct LRUReplacer {
     // We are using Vec instead of HashMap as the size
     // of the Vec is limited. Hence, a linear search
@@ -47,58 +43,73 @@ impl LRUReplacer {
         }
     }
 
-    pub fn find(&self, frame_id: usize) -> Option<&PageMetadata> {
-        self.page_table.iter().find(|md| md.frame_id == frame_id)
+    /// Number of frames that are currently in the replacer.
+    pub fn size(&self) -> usize {
+        self.page_table.len()
     }
 
-    pub fn remove(&mut self, frame_id: usize) {
-        let index = self
+    /// Return frame metadata that are accessed least recently
+    /// as compared to the other frame.
+    pub fn victim(&mut self) -> Option<PageMetadata> {
+        self.page_table
+            .sort_by(|a, b| b.last_accessed_at.cmp(&a.last_accessed_at));
+
+        let metadata = self.page_table.pop();
+        println!("metadata: {:?}", metadata);
+        metadata
+    }
+
+    /// This should be called after our Pager place the page into
+    /// our memory. Here, pin a frame means removing it from our
+    /// replacer. I guess this prevent it from the page being
+    /// evicted
+    pub fn pin(&mut self, frame_id: usize) {
+        if let Some(index) = self
             .page_table
             .iter()
             .position(|md| md.frame_id == frame_id)
-            .unwrap();
-        self.page_table.remove(index);
-    }
-
-    pub fn victim(&mut self) -> Option<PageMetadata> {
-        for (i, md) in self.page_table.iter().enumerate() {
-            if md.pin_count == 0 {
-                return Some(self.page_table.remove(i));
-            }
-        }
-
-        None
-    }
-
-    pub fn pin(&mut self, frame_id: usize) {
-        if let Some(md) = self
-            .page_table
-            .iter_mut()
-            .find(|md| md.frame_id == frame_id)
         {
-            md.pin_count += 1;
-        } else {
-            let mut md = PageMetadata::new(frame_id);
-            md.pin_count += 1;
-            self.page_table.push(md);
+            self.page_table.remove(index);
         }
     }
 
+    /// This should be called by our Pager when the page pin_count
+    /// becomes 0. Here, unpin a frame means adding it to our
+    /// replacer. This allow the page to be evicted.
     pub fn unpin(&mut self, frame_id: usize) {
-        if let Some(md) = self
-            .page_table
-            .iter_mut()
-            .find(|md| md.frame_id == frame_id)
-        {
-            md.pin_count -= 1;
+        self.page_table.push(PageMetadata::new(frame_id));
+    }
+}
+
+struct Page {
+    page_id: Option<usize>,
+    is_dirty: bool,
+    pin_count: usize,
+    node: Option<Node>,
+}
+
+impl Page {
+    pub fn new() -> Self {
+        Self {
+            page_id: None,
+            is_dirty: false,
+            pin_count: 0,
+            node: None,
         }
+    }
+
+    pub fn deallocate(&mut self) {
+        self.page_id = None;
+        self.node = None;
+        self.is_dirty = false;
+        self.pin_count = 0;
     }
 }
 
 pub struct Pager {
     disk_manager: DiskManager,
     replacer: LRUReplacer,
-    pages: Vec<Node>,
+    pages: Vec<Page>,
     // Indexes in our `pages` that are "free", which mean
     // it is uninitialize.
     free_list: Vec<usize>,
@@ -115,7 +126,7 @@ impl Pager {
         let mut pages = Vec::with_capacity(pool_size);
         let mut free_list = Vec::with_capacity(pool_size);
         for i in 0..pool_size {
-            pages.push(Node::uninitialize());
+            pages.push(Page::new());
             free_list.push(i);
         }
 
@@ -132,17 +143,19 @@ impl Pager {
     // Temporarily create a new function for our buffer pool work.
     //
     // Once, it's completed it should replace the get_page function.
-    pub fn get_page_from_buffer_pool(&mut self, page_num: usize) -> &Node {
+    pub fn get_page_from_buffer_pool(&mut self, page_num: usize) -> &Option<Node> {
         if let Some(&frame_id) = self.page_table.get(&page_num) {
-            return &self.pages[frame_id];
+            return &self.pages[frame_id].node;
         }
 
         if let Ok(bytes) = self.disk_manager.read_page(page_num) {
             if let Some(frame_id) = self.free_list.pop() {
-                let node = &mut self.pages[frame_id];
-                node.from_bytes(&bytes);
+                let page = &mut self.pages[frame_id];
+                page.page_id = Some(page_num);
+                page.node = Some(Node::new_from_bytes(&bytes));
+
                 self.page_table.insert(page_num, frame_id);
-                return &self.pages[frame_id];
+                return &self.pages[frame_id].node;
             } else {
                 unimplemented!("implement replacing page...")
             }
@@ -153,20 +166,19 @@ impl Pager {
 
     pub fn flush_page(&mut self, page_num: usize) {
         if let Some(&frame_id) = self.page_table.get(&page_num) {
-            let bytes = &self.pages[frame_id].to_bytes();
-            self.disk_manager.write_page(page_num, bytes).unwrap();
+            if let Some(node) = &self.pages[frame_id].node {
+                let bytes = node.to_bytes();
+                self.disk_manager.write_page(page_num, &bytes).unwrap();
+            }
         }
     }
 
     pub fn delete_page(&mut self, page_num: usize) -> bool {
         if let Some(&frame_id) = self.page_table.get(&page_num) {
-            let metadata = self.replacer.find(frame_id).unwrap();
-            if metadata.pin_count == 0 {
+            let page = &self.pages[frame_id];
+            if page.pin_count == 0 {
                 // Deallocate page
-                self.pages[frame_id] = Node::uninitialize();
-
-                // Remove metadata from replacer
-                self.replacer.remove(frame_id);
+                self.pages[frame_id].deallocate();
 
                 // Add removed page index to free list
                 self.free_list.push(frame_id);
@@ -240,5 +252,39 @@ impl Pager {
 impl std::string::ToString for Pager {
     fn to_string(&self) -> String {
         self.tree.to_string()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn lru_replacer_evict_least_recently_accessed_page() {
+        let mut replacer = LRUReplacer::new(4);
+
+        // We have 3 candidates that can be choose to
+        // be evicted by our buffer pool.
+        replacer.unpin(2);
+        replacer.unpin(0);
+        replacer.unpin(1);
+
+        let evicted_page = replacer.victim().unwrap();
+        assert_eq!(evicted_page.frame_id, 2);
+    }
+
+    #[test]
+    fn lru_replacer_do_not_evict_pin_page() {
+        let mut replacer = LRUReplacer::new(4);
+
+        // We have 3 candidates that can be choose to
+        // be evicted by our buffer pool.
+        replacer.unpin(2);
+        replacer.unpin(0);
+        replacer.unpin(1);
+        replacer.pin(2);
+
+        let evicted_page = replacer.victim().unwrap();
+        assert_eq!(evicted_page.frame_id, 0);
     }
 }
