@@ -12,30 +12,73 @@ pub const PAGE_SIZE: usize = 4096;
 struct PageMetadata {
     frame_id: usize,
     is_dirty: bool,
-    is_pin: bool,
+    pin_count: u32,
 }
 
+impl PageMetadata {
+    pub fn new(frame_id: usize) -> Self {
+        PageMetadata {
+            frame_id,
+            is_dirty: false,
+            pin_count: 0,
+        }
+    }
+}
+
+// We are not implementing the Least Recently Used algorithm
+// yet.
+//
+// Currently we just track pin count and replace
+// the page where pin_count is 0.
 struct LRUReplacer {
-    page_table: HashMap<usize, PageMetadata>,
+    // We are using Vec instead of HashMap as the size
+    // of the Vec is limited. Hence, a linear search
+    // would not caused much performance problem as well?
+    //
+    // And it's a bit easier to deal with Vec than
+    // HashMap for the time being.
+    page_table: Vec<PageMetadata>,
 }
 
 impl LRUReplacer {
     pub fn new(pool_size: usize) -> Self {
         Self {
-            page_table: HashMap::with_capacity(pool_size),
+            page_table: Vec::with_capacity(pool_size),
         }
     }
 
-    pub fn victim(&self, frame_id: usize) -> bool {
-        return false;
+    pub fn victim(&mut self) -> Option<PageMetadata> {
+        for (i, md) in self.page_table.iter().enumerate() {
+            if md.pin_count == 0 {
+                return Some(self.page_table.remove(i));
+            }
+        }
+
+        None
     }
 
     pub fn pin(&mut self, frame_id: usize) {
-        unimplemented!();
+        if let Some(md) = self
+            .page_table
+            .iter_mut()
+            .find(|md| md.frame_id == frame_id)
+        {
+            md.pin_count += 1;
+        } else {
+            let mut md = PageMetadata::new(frame_id);
+            md.pin_count += 1;
+            self.page_table.push(md);
+        }
     }
 
     pub fn unpin(&mut self, frame_id: usize) {
-        unimplemented!()
+        if let Some(md) = self
+            .page_table
+            .iter_mut()
+            .find(|md| md.frame_id == frame_id)
+        {
+            md.pin_count -= 1;
+        }
     }
 }
 
