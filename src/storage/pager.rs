@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use super::node::{Node, NodeType, LEAF_NODE_MAX_CELLS};
@@ -8,8 +9,41 @@ use crate::table::Cursor;
 
 pub const PAGE_SIZE: usize = 4096;
 
+struct PageMetadata {
+    frame_id: usize,
+    is_dirty: bool,
+    is_pin: bool,
+}
+
+struct LRUReplacer {
+    page_table: HashMap<usize, PageMetadata>,
+}
+
+impl LRUReplacer {
+    pub fn new(pool_size: usize) -> Self {
+        Self {
+            page_table: HashMap::with_capacity(pool_size),
+        }
+    }
+
+    pub fn victim(&self, frame_id: usize) -> bool {
+        return false;
+    }
+
+    pub fn pin(&mut self, frame_id: usize) {
+        unimplemented!();
+    }
+
+    pub fn unpin(&mut self, frame_id: usize) {
+        unimplemented!()
+    }
+}
+
 pub struct Pager {
     disk_manager: DiskManager,
+    pages: Vec<Node>,
+    // Mapping page id to frame id
+    page_table: HashMap<usize, usize>,
     tree: Tree,
 }
 
@@ -17,6 +51,8 @@ impl Pager {
     pub fn new(path: impl Into<PathBuf>) -> Pager {
         Pager {
             disk_manager: DiskManager::new(path),
+            pages: Vec::new(),
+            page_table: HashMap::new(),
             tree: Tree::new(),
         }
     }
