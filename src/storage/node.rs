@@ -1,3 +1,4 @@
+use super::PAGE_SIZE;
 use crate::row::{Row, ROW_SIZE};
 use crate::table::Cursor;
 use crate::BigArray;
@@ -199,6 +200,39 @@ impl Node {
         let mut node = Self::new(true, NodeType::Leaf);
         node.has_initialize = false;
         node
+    }
+
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = self.header();
+
+        if self.node_type == NodeType::Leaf {
+            for c in &self.cells {
+                let mut cell_bytes = bincode::serialize(c).unwrap();
+                bytes.append(&mut cell_bytes);
+            }
+        } else {
+            for c in &self.internal_cells {
+                let mut cell_bytes = bincode::serialize(c).unwrap();
+                bytes.append(&mut cell_bytes);
+            }
+        }
+
+        // Okay, we need to backfill the space because we are assuming
+        // per page is always with PAGE_SIZE.
+        //
+        // If we didn't fill up the space, what would happen is when we read
+        // from file, we will not have an accurate number of pages because file with
+        // PAGE_SIZE might contain multiple pages. In theory, you can still keep
+        // track of the number of pages in the file, tricky part would then be,
+        // how do we identify the page offset of each page? We will have to read each
+        // page to find out the next page offset.
+        //
+        // So long story short, let's just backfill the space...
+        let remaining_space = PAGE_SIZE - bytes.len();
+        let mut vec = vec![0; remaining_space];
+        bytes.append(&mut vec);
+
+        bytes
     }
 
     pub fn from_bytes(&mut self, bytes: &[u8]) {

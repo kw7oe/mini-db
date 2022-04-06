@@ -47,6 +47,19 @@ impl LRUReplacer {
         }
     }
 
+    pub fn find(&self, frame_id: usize) -> Option<&PageMetadata> {
+        self.page_table.iter().find(|md| md.frame_id == frame_id)
+    }
+
+    pub fn remove(&mut self, frame_id: usize) {
+        let index = self
+            .page_table
+            .iter()
+            .position(|md| md.frame_id == frame_id)
+            .unwrap();
+        self.page_table.remove(index);
+    }
+
     pub fn victim(&mut self) -> Option<PageMetadata> {
         for (i, md) in self.page_table.iter().enumerate() {
             if md.pin_count == 0 {
@@ -84,7 +97,11 @@ impl LRUReplacer {
 
 pub struct Pager {
     disk_manager: DiskManager,
+    replacer: LRUReplacer,
     pages: Vec<Node>,
+    // Indexes in our `pages` that are "free", which mean
+    // it is uninitialize.
+    free_list: Vec<usize>,
     // Mapping page id to frame id
     page_table: HashMap<usize, usize>,
     tree: Tree,
@@ -92,11 +109,75 @@ pub struct Pager {
 
 impl Pager {
     pub fn new(path: impl Into<PathBuf>) -> Pager {
+        let pool_size = 4;
+
+        // Initialize empty pages and our free list.
+        let mut pages = Vec::with_capacity(pool_size);
+        let mut free_list = Vec::with_capacity(pool_size);
+        for i in 0..pool_size {
+            pages.push(Node::uninitialize());
+            free_list.push(i);
+        }
+
         Pager {
             disk_manager: DiskManager::new(path),
-            pages: Vec::new(),
+            replacer: LRUReplacer::new(pool_size),
+            pages,
+            free_list,
             page_table: HashMap::new(),
             tree: Tree::new(),
+        }
+    }
+
+    // Temporarily create a new function for our buffer pool work.
+    //
+    // Once, it's completed it should replace the get_page function.
+    pub fn get_page_from_buffer_pool(&mut self, page_num: usize) -> &Node {
+        if let Some(&frame_id) = self.page_table.get(&page_num) {
+            return &self.pages[frame_id];
+        }
+
+        if let Ok(bytes) = self.disk_manager.read_page(page_num) {
+            if let Some(frame_id) = self.free_list.pop() {
+                let node = &mut self.pages[frame_id];
+                node.from_bytes(&bytes);
+                self.page_table.insert(page_num, frame_id);
+                return &self.pages[frame_id];
+            } else {
+                unimplemented!("implement replacing page...")
+            }
+        }
+
+        panic!("error getting page {page_num}...")
+    }
+
+    pub fn flush_page(&mut self, page_num: usize) {
+        if let Some(&frame_id) = self.page_table.get(&page_num) {
+            let bytes = &self.pages[frame_id].to_bytes();
+            self.disk_manager.write_page(page_num, bytes).unwrap();
+        }
+    }
+
+    pub fn delete_page(&mut self, page_num: usize) -> bool {
+        if let Some(&frame_id) = self.page_table.get(&page_num) {
+            let metadata = self.replacer.find(frame_id).unwrap();
+            if metadata.pin_count == 0 {
+                // Deallocate page
+                self.pages[frame_id] = Node::uninitialize();
+
+                // Remove metadata from replacer
+                self.replacer.remove(frame_id);
+
+                // Add removed page index to free list
+                self.free_list.push(frame_id);
+
+                true
+            } else {
+                // Don't do anyting since someone is using the page
+                false
+            }
+        } else {
+            true
         }
     }
 
@@ -130,35 +211,7 @@ impl Pager {
         //
         // Ideally, we should have just need to call bincode deserialize.
         for (i, node) in self.tree.nodes().iter().enumerate() {
-            let mut bytes = node.header();
-
-            if node.node_type == NodeType::Leaf {
-                for c in &node.cells {
-                    let mut cell_bytes = bincode::serialize(c).unwrap();
-                    bytes.append(&mut cell_bytes);
-                }
-            } else {
-                for c in &node.internal_cells {
-                    let mut cell_bytes = bincode::serialize(c).unwrap();
-                    bytes.append(&mut cell_bytes);
-                }
-            }
-
-            // Okay, we need to backfill the space because we are assuming
-            // per page is always with PAGE_SIZE.
-            //
-            // If we didn't fill up the space, what would happen is when we read
-            // from file, we will not have an accurate number of pages because file with
-            // PAGE_SIZE might contain multiple pages. In theory, you can still keep
-            // track of the number of pages in the file, tricky part would then be,
-            // how do we identify the page offset of each page? We will have to read each
-            // page to find out the next page offset.
-            //
-            // So long story short, let's just backfill the space...
-            let remaining_space = PAGE_SIZE - bytes.len();
-            let mut vec = vec![0; remaining_space];
-            bytes.append(&mut vec);
-            self.disk_manager.write_page(i, &bytes).unwrap();
+            self.disk_manager.write_page(i, &node.to_bytes()).unwrap();
         }
     }
 
