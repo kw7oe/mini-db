@@ -6,6 +6,7 @@ use std::{
     path::PathBuf,
 };
 
+#[derive(Debug)]
 pub struct DiskManager {
     write_file: File,
     read_file: File,

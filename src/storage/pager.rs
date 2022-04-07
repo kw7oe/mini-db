@@ -81,6 +81,7 @@ impl LRUReplacer {
     }
 }
 
+#[derive(Debug)]
 struct Page {
     page_id: Option<usize>,
     is_dirty: bool,
@@ -106,6 +107,7 @@ impl Page {
     }
 }
 
+#[derive(Debug)]
 pub struct Pager {
     disk_manager: DiskManager,
     replacer: LRUReplacer,
@@ -124,10 +126,11 @@ impl Pager {
 
         // Initialize free list.
         let mut free_list = Vec::with_capacity(pool_size);
-        for i in pool_size..0 {
+        for i in (0..pool_size).rev() {
             free_list.push(i);
         }
 
+        println!("free_list: {:?}", free_list);
         Pager {
             disk_manager: DiskManager::new(path),
             replacer: LRUReplacer::new(pool_size),
@@ -151,9 +154,11 @@ impl Pager {
                 page.pin_count = 0;
                 page.page_id = Some(page_id);
                 page.node = None;
+                self.page_table.insert(page_id, frame_id);
             } else {
                 let page = Page::new(page_id);
                 self.pages.insert(frame_id, page);
+                self.page_table.insert(page_id, frame_id);
             }
 
             Some(frame_id)
@@ -163,9 +168,11 @@ impl Pager {
     }
 
     pub fn fetch_page(&mut self, page_id: usize) -> Option<&Node> {
+        debug!("--- fetch page {page_id}");
         // Check if the page is already in memory. If yes,
         // just pin the page and return the node.
         if let Some(&frame_id) = self.page_table.get(&page_id) {
+            debug!("--- found page {page_id} in memory");
             let mut page = &mut self.pages[frame_id];
             page.pin_count += 1;
             self.replacer.pin(frame_id);
@@ -173,17 +180,25 @@ impl Pager {
         }
 
         if let Some(frame_id) = self.new_page(page_id) {
+            debug!("--- allocate new page {page_id}");
             let page = &self.pages[frame_id];
             if page.is_dirty {
                 self.flush_page(page_id);
             }
 
             let page = &mut self.pages[frame_id];
-            if let Ok(bytes) = self.disk_manager.read_page(page_id) {
-                page.node = Some(Node::new_from_bytes(&bytes));
-                self.replacer.pin(frame_id);
+            match self.disk_manager.read_page(page_id) {
+                Ok(bytes) => {
+                    debug!("--- read from disk successfully");
+                    page.node = Some(Node::new_from_bytes(&bytes));
+                    page.pin_count += 1;
+                    self.replacer.pin(frame_id);
 
-                return self.pages[frame_id].node.as_ref();
+                    return self.pages[frame_id].node.as_ref();
+                }
+                Err(err) => {
+                    debug!("--- fail reading from disk: {:?}", err);
+                }
             }
         };
 
@@ -199,31 +214,38 @@ impl Pager {
         }
     }
 
-    pub fn flush_all_page(&mut self, page_id: usize) {
+    pub fn flush_all_pages(&mut self) {
         for page in &self.pages {
+            if page.page_id.is_none() {
+                break;
+            }
+
             if let Some(node) = &page.node {
                 let bytes = node.to_bytes();
-                self.disk_manager.write_page(page_id, &bytes).unwrap();
+                self.disk_manager
+                    .write_page(page.page_id.unwrap(), &bytes)
+                    .unwrap();
             }
         }
     }
 
     pub fn delete_page(&mut self, page_id: usize) -> bool {
+        debug!("--- delete page {page_id}");
         if let Some(&frame_id) = self.page_table.get(&page_id) {
             let page = &self.pages[frame_id];
             if page.pin_count == 0 {
-                // Deallocate page
+                debug!("--- page {page_id} found, deleting it...");
                 self.pages[frame_id].deallocate();
-
-                // Add removed page index to free list
+                self.page_table.remove(&page_id);
                 self.free_list.push(frame_id);
 
                 true
             } else {
-                // Don't do anyting since someone is using the page
+                debug!("--- page is being used, can't be deleted");
                 false
             }
         } else {
+            debug!("--- page {page_id} not found");
             true
         }
     }
@@ -305,6 +327,7 @@ impl std::string::ToString for Pager {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::table::Table;
 
     #[test]
     fn lru_replacer_evict_least_recently_accessed_page() {
@@ -333,5 +356,30 @@ mod test {
 
         let evicted_page = replacer.victim().unwrap();
         assert_eq!(evicted_page.frame_id, 0);
+    }
+
+    #[test]
+    fn pager_flow() {
+        env_logger::init();
+        let mut table = Table::new("test.db");
+
+        for i in 1..50 {
+            let row =
+                Row::from_statement(&format!("insert {i} user{i} user{i}@email.com")).unwrap();
+            table.insert(&row);
+        }
+        table.flush();
+
+        let mut pager = Pager::new("test.db");
+        pager.fetch_page(0);
+        pager.unpin_page(0, false);
+        pager.flush_page(0);
+        pager.flush_all_pages();
+        pager.delete_page(0);
+        pager.fetch_page(1);
+
+        println!("pager: {:?}", pager);
+
+        let _ = std::fs::remove_file("test.db");
     }
 }
