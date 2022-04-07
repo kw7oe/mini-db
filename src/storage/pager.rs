@@ -89,9 +89,9 @@ struct Page {
 }
 
 impl Page {
-    pub fn new() -> Self {
+    pub fn new(page_id: usize) -> Self {
         Self {
-            page_id: None,
+            page_id: Some(page_id),
             is_dirty: false,
             pin_count: 0,
             node: None,
@@ -122,59 +122,94 @@ impl Pager {
     pub fn new(path: impl Into<PathBuf>) -> Pager {
         let pool_size = 4;
 
-        // Initialize empty pages and our free list.
-        let mut pages = Vec::with_capacity(pool_size);
+        // Initialize free list.
         let mut free_list = Vec::with_capacity(pool_size);
-        for i in 0..pool_size {
-            pages.push(Page::new());
+        for i in pool_size..0 {
             free_list.push(i);
         }
 
         Pager {
             disk_manager: DiskManager::new(path),
             replacer: LRUReplacer::new(pool_size),
-            pages,
+            pages: Vec::with_capacity(pool_size),
             free_list,
             page_table: HashMap::new(),
             tree: Tree::new(),
         }
     }
 
-    // Temporarily create a new function for our buffer pool work.
-    //
-    // Once, it's completed it should replace the get_page function.
-    pub fn get_page_from_buffer_pool(&mut self, page_num: usize) -> &Option<Node> {
-        if let Some(&frame_id) = self.page_table.get(&page_num) {
-            return &self.pages[frame_id].node;
-        }
+    fn new_page(&mut self, page_id: usize) -> Option<usize> {
+        let frame_id = if let Some(frame_id) = self.free_list.pop() {
+            Some(frame_id)
+        } else {
+            self.replacer.victim().map(|md| md.frame_id)
+        };
 
-        if let Ok(bytes) = self.disk_manager.read_page(page_num) {
-            if let Some(frame_id) = self.free_list.pop() {
-                let page = &mut self.pages[frame_id];
-                page.page_id = Some(page_num);
-                page.node = Some(Node::new_from_bytes(&bytes));
-
-                self.page_table.insert(page_num, frame_id);
-                return &self.pages[frame_id].node;
+        if let Some(frame_id) = frame_id {
+            if let Some(page) = self.pages.get_mut(frame_id) {
+                page.is_dirty = false;
+                page.pin_count = 0;
+                page.page_id = Some(page_id);
+                page.node = None;
             } else {
-                unimplemented!("implement replacing page...")
+                let page = Page::new(page_id);
+                self.pages.insert(frame_id, page);
             }
-        }
 
-        panic!("error getting page {page_num}...")
+            Some(frame_id)
+        } else {
+            None
+        }
     }
 
-    pub fn flush_page(&mut self, page_num: usize) {
-        if let Some(&frame_id) = self.page_table.get(&page_num) {
+    pub fn fetch_page(&mut self, page_id: usize) -> Option<&Node> {
+        // Check if the page is already in memory. If yes,
+        // just pin the page and return the node.
+        if let Some(&frame_id) = self.page_table.get(&page_id) {
+            let mut page = &mut self.pages[frame_id];
+            page.pin_count += 1;
+            self.replacer.pin(frame_id);
+            return self.pages[frame_id].node.as_ref();
+        }
+
+        if let Some(frame_id) = self.new_page(page_id) {
+            let page = &self.pages[frame_id];
+            if page.is_dirty {
+                self.flush_page(page_id);
+            }
+
+            let page = &mut self.pages[frame_id];
+            if let Ok(bytes) = self.disk_manager.read_page(page_id) {
+                page.node = Some(Node::new_from_bytes(&bytes));
+                self.replacer.pin(frame_id);
+
+                return self.pages[frame_id].node.as_ref();
+            }
+        };
+
+        None
+    }
+
+    pub fn flush_page(&mut self, page_id: usize) {
+        if let Some(&frame_id) = self.page_table.get(&page_id) {
             if let Some(node) = &self.pages[frame_id].node {
                 let bytes = node.to_bytes();
-                self.disk_manager.write_page(page_num, &bytes).unwrap();
+                self.disk_manager.write_page(page_id, &bytes).unwrap();
             }
         }
     }
 
-    pub fn delete_page(&mut self, page_num: usize) -> bool {
-        if let Some(&frame_id) = self.page_table.get(&page_num) {
+    pub fn flush_all_page(&mut self, page_id: usize) {
+        for page in &self.pages {
+            if let Some(node) = &page.node {
+                let bytes = node.to_bytes();
+                self.disk_manager.write_page(page_id, &bytes).unwrap();
+            }
+        }
+    }
+
+    pub fn delete_page(&mut self, page_id: usize) -> bool {
+        if let Some(&frame_id) = self.page_table.get(&page_id) {
             let page = &self.pages[frame_id];
             if page.pin_count == 0 {
                 // Deallocate page
@@ -190,6 +225,18 @@ impl Pager {
             }
         } else {
             true
+        }
+    }
+
+    pub fn unpin_page(&mut self, page_id: usize, is_dirty: bool) {
+        if let Some(&frame_id) = self.page_table.get(&page_id) {
+            let page = &mut self.pages[frame_id];
+            page.is_dirty = is_dirty;
+            page.pin_count -= 1;
+
+            if page.pin_count == 0 {
+                self.replacer.unpin(frame_id);
+            }
         }
     }
 
