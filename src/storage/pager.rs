@@ -165,7 +165,7 @@ impl Pager {
         }
     }
 
-    pub fn fetch_page(&mut self, page_id: usize) -> Option<&mut Node> {
+    pub fn fetch_page(&mut self, page_id: usize) -> Option<&mut Page> {
         debug!("--- fetch page {page_id}");
         // Check if the page is already in memory. If yes,
         // just pin the page and return the node.
@@ -174,7 +174,7 @@ impl Pager {
             let mut page = &mut self.pages[frame_id];
             page.pin_count += 1;
             self.replacer.pin(frame_id);
-            return self.pages[frame_id].node.as_mut();
+            return self.pages.get_mut(frame_id);
         }
 
         if let Some(frame_id) = self.new_page(page_id) {
@@ -192,7 +192,7 @@ impl Pager {
                     page.pin_count += 1;
                     self.replacer.pin(frame_id);
 
-                    return self.pages[frame_id].node.as_mut();
+                    return self.pages.get_mut(frame_id);
                 }
                 Err(err) => {
                     debug!("--- fail reading from disk: {:?}", err);
@@ -304,6 +304,14 @@ impl Pager {
         } else {
             node.insert(row, cursor);
         }
+        // if let Some(node) = self.fetch_page(cursor.page_num) {
+        //     let num_of_cells = node.num_of_cells as usize;
+        //     if num_of_cells >= LEAF_NODE_MAX_CELLS {
+        //         self.tree.split_and_insert_leaf_node(cursor, row);
+        //     } else {
+        //         node.insert(row, cursor);
+        //     }
+        // }
     }
 
     pub fn deserialize_row(&mut self, cursor: &Cursor) -> Row {
@@ -312,9 +320,11 @@ impl Pager {
         // node.get(cursor.cell_num)
 
         debug!("--- deserialize_row: {:?}", cursor);
-        if let Some(node) = self.fetch_page(cursor.page_num) {
-            debug!("node: {:?}", node);
-            return node.get(cursor.cell_num);
+        if let Some(page) = self.fetch_page(cursor.page_num) {
+            let node = page.node.as_mut().unwrap();
+            let row = node.get(cursor.cell_num);
+            self.unpin_page(cursor.page_num, false);
+            return row;
         }
 
         panic!("row not found...");
@@ -492,6 +502,8 @@ mod test {
         assert_eq!(row.id, 1);
         assert_eq!(row.username(), "user1");
         assert_eq!(row.email(), "user1@email.com");
+        let page = pager.fetch_page(cursor.page_num).unwrap();
+        assert_eq!(page.pin_count, 1);
 
         let cursor = Cursor {
             page_num: 2,
@@ -504,6 +516,8 @@ mod test {
         assert_eq!(row.id, 9);
         assert_eq!(row.username(), "user9");
         assert_eq!(row.email(), "user9@email.com");
+        let page = pager.fetch_page(cursor.page_num).unwrap();
+        assert_eq!(page.pin_count, 1);
 
         cleanup_test_db_file();
     }
