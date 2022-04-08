@@ -55,7 +55,6 @@ impl LRUReplacer {
             .sort_by(|a, b| b.last_accessed_at.cmp(&a.last_accessed_at));
 
         let metadata = self.page_table.pop();
-        println!("metadata: {:?}", metadata);
         metadata
     }
 
@@ -314,7 +313,7 @@ impl Pager {
 
         debug!("--- deserialize_row: {:?}", cursor);
         if let Some(node) = self.fetch_page(cursor.page_num) {
-            println!("node: {:?}", node);
+            debug!("node: {:?}", node);
             return node.get(cursor.cell_num);
         }
 
@@ -368,7 +367,66 @@ mod test {
     }
 
     #[test]
-    fn pager_new_page() {}
+    fn pager_new_page_when_page_cache_is_not_full() {
+        setup_test_db_file();
+        let mut pager = Pager::new("test.db");
+
+        let frame_id = pager.new_page(0);
+        assert!(frame_id.is_some());
+        let frame_id = frame_id.unwrap();
+
+        let page = &pager.pages[frame_id];
+        assert_eq!(page.page_id, Some(0));
+        assert!(!page.is_dirty);
+        assert_eq!(page.pin_count, 0);
+        assert!(page.node.is_none());
+    }
+
+    #[test]
+    fn pager_new_page_when_page_cache_is_full_with_victims_in_replacer() {
+        setup_test_db_file();
+        let mut pager = Pager::new("test.db");
+
+        // Since our pool size is hardcoded to 4,
+        // we just need to fetch 4 pages to fill
+        // up the page cache.
+        pager.fetch_page(0);
+        pager.fetch_page(4);
+        pager.fetch_page(2);
+        pager.fetch_page(5);
+
+        // Unpin some of the pages so there's
+        // victim from our replacer.
+        pager.unpin_page(2, false);
+        pager.unpin_page(5, false);
+
+        let frame_id = pager.new_page(7);
+        assert!(frame_id.is_some());
+
+        let frame_id = frame_id.unwrap();
+        let page = &pager.pages[frame_id];
+        assert_eq!(page.page_id, Some(7));
+        assert!(!page.is_dirty);
+        assert_eq!(page.pin_count, 0);
+        assert!(page.node.is_none());
+    }
+
+    #[test]
+    fn pager_new_page_when_no_pages_can_be_freed() {
+        setup_test_db_file();
+        let mut pager = Pager::new("test.db");
+
+        // Since our pool size is hardcoded to 4,
+        // we just need to fetch 4 pages to fill
+        // up the page cache.
+        pager.fetch_page(0);
+        pager.fetch_page(4);
+        pager.fetch_page(2);
+        pager.fetch_page(5);
+
+        let frame_id = pager.new_page(7);
+        assert!(frame_id.is_none());
+    }
 
     #[test]
     fn pager_fetch_page() {}
