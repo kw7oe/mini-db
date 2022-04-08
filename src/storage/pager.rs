@@ -54,8 +54,7 @@ impl LRUReplacer {
         self.page_table
             .sort_by(|a, b| b.last_accessed_at.cmp(&a.last_accessed_at));
 
-        let metadata = self.page_table.pop();
-        metadata
+        self.page_table.pop()
     }
 
     /// This should be called after our Pager place the page into
@@ -81,7 +80,7 @@ impl LRUReplacer {
 }
 
 #[derive(Debug)]
-struct Page {
+pub struct Page {
     page_id: Option<usize>,
     is_dirty: bool,
     pin_count: usize,
@@ -163,6 +162,10 @@ impl Pager {
         } else {
             None
         }
+    }
+
+    pub fn fetch_node(&mut self, page_id: usize) -> Option<&mut Node> {
+        self.fetch_page(page_id).and_then(|page| page.node.as_mut())
     }
 
     pub fn fetch_page(&mut self, page_id: usize) -> Option<&mut Page> {
@@ -304,22 +307,29 @@ impl Pager {
         } else {
             node.insert(row, cursor);
         }
-        // if let Some(node) = self.fetch_page(cursor.page_num) {
-        //     let num_of_cells = node.num_of_cells as usize;
-        //     if num_of_cells >= LEAF_NODE_MAX_CELLS {
-        //         self.tree.split_and_insert_leaf_node(cursor, row);
-        //     } else {
-        //         node.insert(row, cursor);
-        //     }
-        // }
     }
 
     pub fn deserialize_row(&mut self, cursor: &Cursor) -> Row {
-        // self.get_page(cursor.page_num);
-        // let node = &mut self.tree.mut_nodes()[cursor.page_num];
-        // node.get(cursor.cell_num)
+        self.get_page(cursor.page_num);
+        let node = &mut self.tree.mut_nodes()[cursor.page_num];
+        node.get(cursor.cell_num)
+    }
 
-        debug!("--- deserialize_row: {:?}", cursor);
+    pub fn insert_record(&mut self, row: &Row, cursor: &Cursor) {
+        if let Some(page) = self.fetch_page(cursor.page_num) {
+            let node = page.node.as_mut().unwrap();
+            let num_of_cells = node.num_of_cells as usize;
+            if num_of_cells >= LEAF_NODE_MAX_CELLS {
+                // self.tree.split_and_insert_leaf_node(cursor, row);
+                unimplemented!("implement new split and insert leaf node");
+            } else {
+                node.insert(row, cursor);
+            }
+        }
+    }
+
+    pub fn get_record(&mut self, cursor: &Cursor) -> Row {
+        debug!("--- get_record: {:?}", cursor);
         if let Some(page) = self.fetch_page(cursor.page_num) {
             let node = page.node.as_mut().unwrap();
             let row = node.get(cursor.cell_num);
@@ -390,6 +400,7 @@ mod test {
         assert!(!page.is_dirty);
         assert_eq!(page.pin_count, 0);
         assert!(page.node.is_none());
+        cleanup_test_db_file();
     }
 
     #[test]
@@ -419,6 +430,7 @@ mod test {
         assert!(!page.is_dirty);
         assert_eq!(page.pin_count, 0);
         assert!(page.node.is_none());
+        cleanup_test_db_file();
     }
 
     #[test]
@@ -436,6 +448,7 @@ mod test {
 
         let frame_id = pager.new_page(7);
         assert!(frame_id.is_none());
+        cleanup_test_db_file();
     }
 
     #[test]
@@ -477,6 +490,8 @@ mod test {
         // If a page is previously dirty, it should stay
         // dirty.
         assert!(page.is_dirty);
+
+        cleanup_test_db_file();
     }
 
     #[test]
@@ -486,8 +501,7 @@ mod test {
     fn pager_flush_all_pages() {}
 
     #[test]
-    fn pager_deserialize_row() {
-        env_logger::init();
+    fn pager_get_record() {
         setup_test_db_file();
 
         let mut pager = Pager::new("test.db");
@@ -498,7 +512,7 @@ mod test {
             end_of_table: false,
         };
 
-        let row = pager.deserialize_row(&cursor);
+        let row = pager.get_record(&cursor);
         assert_eq!(row.id, 1);
         assert_eq!(row.username(), "user1");
         assert_eq!(row.email(), "user1@email.com");
@@ -512,7 +526,7 @@ mod test {
             end_of_table: false,
         };
 
-        let row = pager.deserialize_row(&cursor);
+        let row = pager.get_record(&cursor);
         assert_eq!(row.id, 9);
         assert_eq!(row.username(), "user9");
         assert_eq!(row.email(), "user9@email.com");
