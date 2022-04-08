@@ -164,6 +164,10 @@ impl Pager {
         }
     }
 
+    pub fn get_node(&mut self, page_id: usize) -> Option<&Node> {
+        self.fetch_page(page_id).and_then(|page| page.node.as_ref())
+    }
+
     pub fn fetch_node(&mut self, page_id: usize) -> Option<&mut Node> {
         self.fetch_page(page_id).and_then(|page| page.node.as_mut())
     }
@@ -343,6 +347,10 @@ impl Pager {
     pub fn delete_row(&mut self, cursor: &Cursor) {
         self.get_page(cursor.page_num);
         self.tree.delete(cursor);
+    }
+
+    pub fn tree_len(&self) -> usize {
+        self.tree.len()
     }
 }
 

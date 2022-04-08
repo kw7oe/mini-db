@@ -19,6 +19,10 @@ impl Tree {
         &mut self.0
     }
 
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
     pub fn create_new_root(&mut self, right_node_page_num: usize, mut left_node: Node) {
         debug!("--- create_new_root");
         let right_node = self.0.get_mut(right_node_page_num).unwrap();
