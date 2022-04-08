@@ -130,7 +130,6 @@ impl Pager {
             free_list.push(i);
         }
 
-        println!("free_list: {:?}", free_list);
         Pager {
             disk_manager: DiskManager::new(path),
             replacer: LRUReplacer::new(pool_size),
@@ -167,7 +166,7 @@ impl Pager {
         }
     }
 
-    pub fn fetch_page(&mut self, page_id: usize) -> Option<&Node> {
+    pub fn fetch_page(&mut self, page_id: usize) -> Option<&mut Node> {
         debug!("--- fetch page {page_id}");
         // Check if the page is already in memory. If yes,
         // just pin the page and return the node.
@@ -176,7 +175,7 @@ impl Pager {
             let mut page = &mut self.pages[frame_id];
             page.pin_count += 1;
             self.replacer.pin(frame_id);
-            return self.pages[frame_id].node.as_ref();
+            return self.pages[frame_id].node.as_mut();
         }
 
         if let Some(frame_id) = self.new_page(page_id) {
@@ -194,7 +193,7 @@ impl Pager {
                     page.pin_count += 1;
                     self.replacer.pin(frame_id);
 
-                    return self.pages[frame_id].node.as_ref();
+                    return self.pages[frame_id].node.as_mut();
                 }
                 Err(err) => {
                     debug!("--- fail reading from disk: {:?}", err);
@@ -253,7 +252,9 @@ impl Pager {
     pub fn unpin_page(&mut self, page_id: usize, is_dirty: bool) {
         if let Some(&frame_id) = self.page_table.get(&page_id) {
             let page = &mut self.pages[frame_id];
-            page.is_dirty = is_dirty;
+            if !page.is_dirty {
+                page.is_dirty = is_dirty;
+            }
             page.pin_count -= 1;
 
             if page.pin_count == 0 {
@@ -307,9 +308,17 @@ impl Pager {
     }
 
     pub fn deserialize_row(&mut self, cursor: &Cursor) -> Row {
-        self.get_page(cursor.page_num);
-        let node = &mut self.tree.mut_nodes()[cursor.page_num];
-        node.get(cursor.cell_num)
+        // self.get_page(cursor.page_num);
+        // let node = &mut self.tree.mut_nodes()[cursor.page_num];
+        // node.get(cursor.cell_num)
+
+        debug!("--- deserialize_row: {:?}", cursor);
+        if let Some(node) = self.fetch_page(cursor.page_num) {
+            println!("node: {:?}", node);
+            return node.get(cursor.cell_num);
+        }
+
+        panic!("row not found...");
     }
 
     pub fn delete_row(&mut self, cursor: &Cursor) {
@@ -359,8 +368,89 @@ mod test {
     }
 
     #[test]
-    fn pager_flow() {
+    fn pager_new_page() {}
+
+    #[test]
+    fn pager_fetch_page() {}
+
+    #[test]
+    fn pager_delete_page() {}
+
+    #[test]
+    fn pager_unpin_page() {
+        setup_test_db_file();
+        let mut pager = Pager::new("test.db");
+
+        pager.fetch_page(0);
+        pager.fetch_page(0);
+
+        pager.unpin_page(0, true);
+        assert_eq!(pager.replacer.size(), 0);
+
+        let page = pager.pages.get(0);
+        assert!(page.is_some());
+
+        let page = page.unwrap();
+        assert_eq!(page.pin_count, 1);
+        assert!(page.is_dirty);
+
+        pager.unpin_page(0, false);
+
+        // If a page pin_count reach 0,
+        // it should be place into replacer.
+        assert_eq!(pager.replacer.size(), 1);
+
+        let page = pager.pages.get(0);
+        assert!(page.is_some());
+
+        let page = page.unwrap();
+        assert_eq!(page.pin_count, 0);
+
+        // If a page is previously dirty, it should stay
+        // dirty.
+        assert!(page.is_dirty);
+    }
+
+    #[test]
+    fn pager_flush_page() {}
+
+    #[test]
+    fn pager_flush_all_pages() {}
+
+    #[test]
+    fn pager_deserialize_row() {
         env_logger::init();
+        setup_test_db_file();
+
+        let mut pager = Pager::new("test.db");
+        let cursor = Cursor {
+            page_num: 1,
+            cell_num: 0,
+            key_existed: false,
+            end_of_table: false,
+        };
+
+        let row = pager.deserialize_row(&cursor);
+        assert_eq!(row.id, 1);
+        assert_eq!(row.username(), "user1");
+        assert_eq!(row.email(), "user1@email.com");
+
+        let cursor = Cursor {
+            page_num: 2,
+            cell_num: 1,
+            key_existed: false,
+            end_of_table: false,
+        };
+
+        let row = pager.deserialize_row(&cursor);
+        assert_eq!(row.id, 9);
+        assert_eq!(row.username(), "user9");
+        assert_eq!(row.email(), "user9@email.com");
+
+        cleanup_test_db_file();
+    }
+
+    fn setup_test_db_file() {
         let mut table = Table::new("test.db");
 
         for i in 1..50 {
@@ -368,18 +458,11 @@ mod test {
                 Row::from_statement(&format!("insert {i} user{i} user{i}@email.com")).unwrap();
             table.insert(&row);
         }
+
         table.flush();
+    }
 
-        let mut pager = Pager::new("test.db");
-        pager.fetch_page(0);
-        pager.unpin_page(0, false);
-        pager.flush_page(0);
-        pager.flush_all_pages();
-        pager.delete_page(0);
-        pager.fetch_page(1);
-
-        println!("pager: {:?}", pager);
-
+    fn cleanup_test_db_file() {
         let _ = std::fs::remove_file("test.db");
     }
 }

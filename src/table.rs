@@ -11,7 +11,7 @@ pub struct Cursor {
     pub page_num: usize,
     pub cell_num: usize,
     pub key_existed: bool,
-    end_of_table: bool,
+    pub end_of_table: bool,
 }
 
 impl Cursor {

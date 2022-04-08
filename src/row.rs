@@ -60,22 +60,28 @@ impl Row {
             email,
         }
     }
+
+    pub fn username(&self) -> String {
+        // Since we are converting from a fixed size array, there will be NULL
+        // characters at the end. Hence, we need to trim it.
+        //
+        // While it doesn't impact outputing to the display, it caused
+        // issue with our test, as the result will have additional character while
+        // our expectation don't.
+        String::from_utf8_lossy(&self.username)
+            .trim_end_matches(char::from(0))
+            .to_owned()
+    }
+
+    pub fn email(&self) -> String {
+        String::from_utf8_lossy(&self.email)
+            .trim_end_matches(char::from(0))
+            .to_owned()
+    }
 }
 
 impl std::fmt::Debug for Row {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "({}, {}, {})",
-            self.id,
-            // Since we are converting from a fixed size array, there will be NULL
-            // characters at the end. Hence, we need to trim it.
-            //
-            // While it doesn't impact outputing to the display, it caused
-            // issue with our test, as the result will have additional character while
-            // our expectation don't.
-            String::from_utf8_lossy(&self.username).trim_end_matches(char::from(0)),
-            String::from_utf8_lossy(&self.email).trim_end_matches(char::from(0))
-        )
+        write!(f, "({}, {}, {})", self.id, self.username(), self.email())
     }
 }
