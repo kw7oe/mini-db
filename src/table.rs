@@ -109,6 +109,28 @@ impl Table {
         output
     }
 
+    pub fn select_v2(&mut self, statement: &Statement) -> String {
+        let mut cursor: Cursor;
+        let mut output = String::new();
+
+        if let Some(row) = &statement.row {
+            cursor = Cursor::table_find(self, self.root_page_num, row.id).unwrap();
+            if cursor.key_existed {
+                let row = self.pager.get_record(&cursor);
+                output.push_str(&format!("{:?}\n", row));
+            }
+        } else {
+            cursor = Cursor::table_start(self);
+            while !cursor.end_of_table {
+                let row = self.pager.get_record(&cursor);
+                output.push_str(&format!("{:?}\n", row));
+                cursor.advance(self);
+            }
+        }
+
+        output
+    }
+
     pub fn insert(&mut self, row: &Row) -> String {
         let page_num = self.root_page_num;
         match Cursor::table_find(self, page_num, row.id) {
@@ -142,5 +164,40 @@ impl Table {
 impl std::string::ToString for Table {
     fn to_string(&self) -> String {
         self.pager.to_string()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::query::prepare_statement;
+
+    use super::*;
+
+    #[test]
+    fn select() {
+        env_logger::init();
+        setup_test_db_file();
+        let mut table = Table::new("test.db");
+        let statement = prepare_statement("select").unwrap();
+        let result = table.select_v2(&statement);
+
+        println!("result: {:?}", result);
+        cleanup_test_db_file();
+    }
+
+    fn setup_test_db_file() {
+        let mut table = Table::new("test.db");
+
+        for i in 1..50 {
+            let row =
+                Row::from_statement(&format!("insert {i} user{i} user{i}@email.com")).unwrap();
+            table.insert(&row);
+        }
+
+        table.flush();
+    }
+
+    fn cleanup_test_db_file() {
+        let _ = std::fs::remove_file("test.db");
     }
 }
