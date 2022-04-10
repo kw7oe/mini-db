@@ -1,15 +1,19 @@
-## Simple SQLite in Rust
+## Mini RDBMS in Rust
 
 [![Rust](https://github.com/kw7oe/sqlite-rust/actions/workflows/rust.yml/badge.svg)](https://github.com/kw7oe/sqlite-rust/actions/workflows/rust.yml)
 
-An attempt to write SQLite in Rust to learn about database
-internals.
+An attempt to write ~~SQLite~~ relational database management system (RDBMS) in Rust
+to learn about database internals.
 
-It is implemented following the [Let's Build a Simple Database][0] tutorial.
-The codebase now contain all the implementation in the tutorial.
+We started by implementing it following the [Let's Build a Simple Database][0]
+tutorial _(which is based on SQLite)_. However, as we continue the work after the
+tutorial, we kind of diverted from following the SQLite implementation and specification.
+Hence, it's not entirely correct to call this SQLite in Rust anymore.
 
-This is by no mean an idiomatic Rust implementation as I'm learning Rust
-along the way.
+Currently, it's still a single threaded database system.
+
+_This is by no mean an idiomatic Rust implementation as I'm learning Rust
+along the way._
 
 ## What's Next?
 
@@ -37,8 +41,9 @@ quick breakdown on what I'm going to implement next:
       - This require us to generate a larger datasets to tests the
         behaviour.
 - [ ] Implement buffer pool for our database. _([Reference][1])_
-  - [ ] Implement replacement policies (LRU or Clock).
-  - [ ] Implement Buffer Pool Manager.
+  - [x] Implement least recently used (LRU) replacement policies.
+  - [x] Implement Buffer Pool Manager.
+  - [ ] Integrated Buffer Pool manager into the rest of the system.
 - [ ] Implement concurrency control for our database.
 - [ ] Implement recovery mechanism for our database.
 - [ ] Make it a distributed database????
