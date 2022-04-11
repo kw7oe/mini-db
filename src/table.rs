@@ -299,6 +299,11 @@ mod test {
         insertion_test(29)
     }
 
+    #[test]
+    fn insert_and_split_root_internal_node_with_new_buffer_pool_impl() {
+        insertion_test(36)
+    }
+
     fn insertion_test(row_count: usize) {
         let mut table = Table::new("test.db");
         for i in 1..row_count {

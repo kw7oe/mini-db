@@ -36,7 +36,6 @@ impl DiskManager {
     pub fn write_page(&mut self, page_id: usize, page_bytes: &[u8]) -> Result<(), std::io::Error> {
         let offset = page_id * PAGE_SIZE;
         let pos = self.write_file.seek(SeekFrom::Start(offset as u64))?;
-        dbg!("write pos", pos);
         self.write_file.write_all(page_bytes)?;
         self.write_file.flush()
     }
@@ -46,7 +45,6 @@ impl DiskManager {
 
         // TODO: probably need to handle when offset < file_len
         let pos = self.read_file.seek(SeekFrom::Start(offset as u64))?;
-        dbg!("read_pos", pos);
         let mut buffer = [0; PAGE_SIZE];
         self.read_file.read_exact(&mut buffer)?;
         Ok(buffer)
