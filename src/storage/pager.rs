@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use super::node::{InternalCell, Node, LEAF_NODE_MAX_CELLS, LEAF_NODE_RIGHT_SPLIT_COUNT};
+use super::node::{
+    InternalCell, Node, INTERNAL_NODE_MAX_CELLS, LEAF_NODE_LEFT_SPLIT_COUNT, LEAF_NODE_MAX_CELLS,
+    LEAF_NODE_RIGHT_SPLIT_COUNT,
+};
 use super::tree::Tree;
 use crate::row::Row;
 use crate::storage::{DiskManager, NodeType};
@@ -180,11 +183,9 @@ impl Pager {
     }
 
     pub fn fetch_page(&mut self, page_id: usize) -> Option<&mut Page> {
-        debug!("--- fetch page {page_id}");
         // Check if the page is already in memory. If yes,
         // just pin the page and return the node.
         if let Some(&frame_id) = self.page_table.get(&page_id) {
-            debug!("--- found page {page_id} in memory");
             let mut page = &mut self.pages[frame_id];
             page.pin_count += 1;
             self.replacer.pin(frame_id);
@@ -192,7 +193,6 @@ impl Pager {
         }
 
         if let Some(frame_id) = self.create_or_replace_page(page_id) {
-            debug!("--- allocate new page {page_id}");
             let page = &self.pages[frame_id];
             if page.is_dirty {
                 self.flush_page(page_id);
@@ -201,14 +201,14 @@ impl Pager {
             let page = &mut self.pages[frame_id];
             match self.disk_manager.read_page(page_id) {
                 Ok(bytes) => {
-                    debug!("--- read from disk successfully");
                     page.node = Some(Node::new_from_bytes(&bytes));
                 }
                 Err(err) => {
                     // This either mean the file is corrupted or is a partial page
                     // or it's just a new file.
-                    debug!("--- fail reading from disk: {:?}", err);
-                    page.node = Some(Node::root());
+                    if page_id == 0 {
+                        page.node = Some(Node::root());
+                    }
                     self.next_page_id += 1;
                 }
             }
@@ -342,28 +342,24 @@ impl Pager {
 
             self.unpin_page(cursor.page_num, true)
         }
-
         println!("self.pages: {:?}", self.pages);
     }
 
-    pub fn create_new_root(&mut self, right_node_page_num: usize, mut left_node: Node) {
+    pub fn create_new_root(&mut self, left_node_page_num: usize, mut right_node: Node) {
         debug!("--- create_new_root");
         let next_page_id = self.next_page_id as u32;
-        let root_page = self.fetch_page(right_node_page_num).unwrap();
+        let root_page = self.fetch_page(left_node_page_num).unwrap();
         let root_page_id = root_page.page_id.unwrap();
-        let mut right_node = root_page.node.take().unwrap();
-        let mut root_node = Node::new(true, NodeType::Internal);
-        right_node.is_root = false;
 
-        // The only reason we could hardcode all of the offsets
-        // is becuase we always insert root node to 0 and it's children to index
-        // 1 and 2, when we create a new root node.
+        let mut root_node = Node::new(true, NodeType::Internal);
         root_node.num_of_cells += 1;
         root_node.right_child_offset = next_page_id + 1;
 
         right_node.parent_offset = 0;
         right_node.next_leaf_offset = 0;
 
+        let mut left_node = root_page.node.take().unwrap();
+        left_node.is_root = false;
         left_node.next_leaf_offset = next_page_id + 1;
         left_node.parent_offset = 0;
 
@@ -385,32 +381,107 @@ impl Pager {
         self.unpin_page(right_page_id, true);
     }
 
-    fn insert_and_split_leaf_node(&mut self, cursor: &Cursor, row: &Row) {
-        // We can unwrap here since, this will be called by insert_record
-        // which have already check if the page of cursor.page_num existed.
-        let right_node = self.fetch_node(cursor.page_num).unwrap();
-        // let old_max = right_node.get_max_key();
-        right_node.insert(row, cursor);
+    pub fn insert_internal_node(&mut self, parent_page_num: usize, split_at_page_num: usize) {
+        debug!("--- insert internal node {split_at_page_num} at parent {parent_page_num}");
+        let parent_page = self.fetch_page(parent_page_num).unwrap();
+        let parent_node = parent_page.node.as_ref().unwrap();
+        let parent_right_child_offset = parent_node.right_child_offset as usize;
 
-        let mut left_node = Node::new(false, right_node.node_type);
-        for _i in 0..LEAF_NODE_RIGHT_SPLIT_COUNT {
-            let cell = right_node.cells.remove(0);
-            right_node.num_of_cells -= 1;
+        let new_node = self.fetch_node(split_at_page_num).unwrap();
+        let new_child_max_key = new_node.get_max_key();
+        new_node.parent_offset = parent_page_num as u32;
+        self.unpin_page(split_at_page_num, true);
 
-            left_node.cells.push(cell);
-            left_node.num_of_cells += 1;
+        let right_node = self.fetch_node(parent_right_child_offset).unwrap();
+        let right_max_key = right_node.get_max_key();
+        self.unpin_page(parent_right_child_offset, false);
+
+        let parent_page = self.fetch_page(parent_page_num).unwrap();
+        let parent_node = parent_page.node.as_mut().unwrap();
+        parent_node.num_of_cells += 1;
+
+        let index = parent_node.internal_search(new_child_max_key);
+        if new_child_max_key > right_max_key {
+            debug!("--- child max key: {new_child_max_key} > right_max_key: {right_max_key}");
+            parent_node.right_child_offset = split_at_page_num as u32;
+            parent_node.internal_insert(
+                index,
+                InternalCell::new(parent_right_child_offset as u32, right_max_key),
+            );
+        } else {
+            debug!("--- child max key: {new_child_max_key} <= right_max_key: {right_max_key}");
+            parent_node.internal_insert(
+                index,
+                InternalCell::new(split_at_page_num as u32, new_child_max_key),
+            );
         }
 
-        if right_node.is_root {
+        self.unpin_page(parent_page_num, true);
+        println!("self.pages: {:?}", self.pages);
+    }
+
+    fn insert_and_split_leaf_node(&mut self, cursor: &Cursor, row: &Row) {
+        debug!("--- insert_and_split_leaf_node");
+        // We can unwrap here since, this will be called by insert_record
+        // which have already check if the page of cursor.page_num existed.
+        let left_node = self.fetch_node(cursor.page_num).unwrap();
+        let old_max = left_node.get_max_key();
+        left_node.insert(row, cursor);
+
+        let mut right_node = Node::new(false, left_node.node_type);
+        for _i in 0..LEAF_NODE_RIGHT_SPLIT_COUNT {
+            let cell = left_node.cells.remove(LEAF_NODE_LEFT_SPLIT_COUNT);
+            left_node.num_of_cells -= 1;
+
+            right_node.cells.push(cell);
+            right_node.num_of_cells += 1;
+        }
+
+        if left_node.is_root {
             self.unpin_page(cursor.page_num, true);
-            self.create_new_root(cursor.page_num, left_node);
+            self.create_new_root(cursor.page_num, right_node);
         } else {
-            unimplemented!("need to split internal node and update parent");
+            debug!("--- split leaf node and update parent ---");
+            self.unpin_page(cursor.page_num, true);
+            let next_page_id = self.next_page_id as u32;
+            let left_node = self.fetch_node(cursor.page_num).unwrap();
+            debug!("--- next_page_id: {next_page_id}");
+            left_node.next_leaf_offset = next_page_id;
+            right_node.parent_offset = left_node.parent_offset;
+
+            println!("right_node: {:?}", right_node);
+
+            let parent_page_num = left_node.parent_offset as usize;
+            let new_max = left_node.get_max_key();
+
+            let parent_page = self.fetch_page(parent_page_num).unwrap();
+            let parent_node = parent_page.node.as_mut().unwrap();
+            parent_node.update_internal_key(old_max, new_max);
+
+            let right_page = self.fetch_page(self.next_page_id).unwrap();
+            let right_page_id = right_page.page_id.unwrap();
+            right_page.node = Some(right_node);
+
+            self.unpin_page(cursor.page_num, true);
+            self.unpin_page(parent_page_num, true);
+            self.unpin_page(right_page_id, true);
+
+            self.insert_internal_node(parent_page_num, right_page_id);
+            // self.maybe_split_internal_node(parent_page_num);
+
+            let parent_page = self.fetch_page(parent_page_num).unwrap();
+            let parent_node = parent_page.node.as_mut().unwrap();
+            if parent_node.num_of_cells > INTERNAL_NODE_MAX_CELLS as u32 {
+                unimplemented!("implement split internal node");
+            }
         }
     }
 
     pub fn get_record(&mut self, cursor: &Cursor) -> Row {
-        debug!("--- get_record: {:?}", cursor);
+        debug!(
+            "--- get_record at page {}, cell {}",
+            cursor.page_num, cursor.cell_num
+        );
         if let Some(page) = self.fetch_page(cursor.page_num) {
             let node = page.node.as_mut().unwrap();
             let row = node.get(cursor.cell_num);
