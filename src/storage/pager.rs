@@ -226,10 +226,8 @@ impl Pager {
     }
 
     pub fn flush_page(&mut self, page_id: usize) {
-        debug!("flush page {page_id}...");
         if let Some(&frame_id) = self.page_table.get(&page_id) {
             if let Some(node) = &self.pages[frame_id].node {
-                debug!("--- node: {:?}", node);
                 let bytes = node.to_bytes();
                 self.disk_manager.write_page(page_id, &bytes).unwrap();
             }
@@ -353,8 +351,6 @@ impl Pager {
 
             self.unpin_page(cursor.page_num, true)
         }
-
-        println!("--- --- self.pages: {:?}", self.pages);
     }
 
     pub fn create_new_root(&mut self, left_node_page_num: usize, mut right_node: Node) {
@@ -384,11 +380,13 @@ impl Pager {
 
         let left_page = self.fetch_page(self.next_page_id).unwrap();
         let left_page_id = left_page.page_id.unwrap();
+        println!("left_node: {:?}", left_node);
         left_page.node = Some(left_node);
         self.unpin_page(left_page_id, true);
 
         let right_page = self.fetch_page(self.next_page_id).unwrap();
         let right_page_id = right_page.page_id.unwrap();
+        println!("right_node: {:?}", right_node);
         right_page.node = Some(right_node);
         self.unpin_page(right_page_id, true);
     }
@@ -433,6 +431,22 @@ impl Pager {
         self.maybe_split_internal_node(parent_page_num);
     }
 
+    pub fn update_children_parent_offset(&mut self, page_num: usize) {
+        let node = self.fetch_node(page_num).unwrap();
+
+        let mut child_pointers = vec![node.right_child_offset as usize];
+        for cell in &node.internal_cells {
+            child_pointers.push(cell.child_pointer() as usize);
+        }
+        self.unpin_page(page_num, false);
+
+        for i in child_pointers {
+            let child = self.fetch_node(i).unwrap();
+            child.parent_offset = page_num as u32;
+            self.unpin_page(i, true);
+        }
+    }
+
     pub fn maybe_split_internal_node(&mut self, page_num: usize) {
         let next_page_id = self.next_page_id;
         let left_page = self.fetch_page(page_num).unwrap();
@@ -442,7 +456,7 @@ impl Pager {
             let left_node = left_page.node.as_mut().unwrap();
             let split_at_index = left_node.num_of_cells as usize / 2;
 
-            let mut right_node = Node::new(false, left_node.node_type);
+            let mut right_node = Node::new(false, NodeType::Internal);
             right_node.right_child_offset = left_node.right_child_offset;
             right_node.parent_offset = left_node.parent_offset as u32;
 
@@ -457,13 +471,13 @@ impl Pager {
                 right_node.num_of_cells += 1;
             }
 
-            println!("left_node: {:?}", left_node);
-            println!("right_node: {:?}", right_node);
-
             if left_node.is_root {
                 debug!("splitting root internal node...");
                 self.unpin_page(page_num, true);
                 self.create_new_root(page_num, right_node);
+
+                self.update_children_parent_offset(next_page_id);
+                self.update_children_parent_offset(next_page_id + 1);
             } else {
                 unimplemented!("splitting internal node...");
                 // debug!("update internal node {page_num}, parent...");
