@@ -309,6 +309,15 @@ mod test {
         insertion_test(57)
     }
 
+    #[test]
+    fn insert_ensure_pin_count_is_updated_correctly() {
+        // Previous incorrect implementation will error due to
+        // not having enough pages as pin count is not updated correctly.
+        insertion_test(65);
+        insertion_test(165);
+        insertion_test(365);
+    }
+
     fn insertion_test(row_count: usize) {
         let mut table = Table::new("test.db");
         for i in 1..row_count {

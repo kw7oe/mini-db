@@ -226,6 +226,7 @@ impl Pager {
     }
 
     pub fn flush_page(&mut self, page_id: usize) {
+        debug!("flush page {page_id}");
         if let Some(&frame_id) = self.page_table.get(&page_id) {
             if let Some(node) = &self.pages[frame_id].node {
                 let bytes = node.to_bytes();
@@ -344,12 +345,12 @@ impl Pager {
             let node = page.node.as_mut().unwrap();
             let num_of_cells = node.num_of_cells as usize;
             if num_of_cells >= LEAF_NODE_MAX_CELLS {
+                self.unpin_page(cursor.page_num, true);
                 self.insert_and_split_leaf_node(cursor, row);
             } else {
                 node.insert(row, cursor);
+                self.unpin_page(cursor.page_num, true)
             }
-
-            self.unpin_page(cursor.page_num, true)
         }
     }
 
@@ -380,13 +381,11 @@ impl Pager {
 
         let left_page = self.fetch_page(self.next_page_id).unwrap();
         let left_page_id = left_page.page_id.unwrap();
-        println!("left_node: {:?}", left_node);
         left_page.node = Some(left_node);
         self.unpin_page(left_page_id, true);
 
         let right_page = self.fetch_page(self.next_page_id).unwrap();
         let right_page_id = right_page.page_id.unwrap();
-        println!("right_node: {:?}", right_node);
         right_page.node = Some(right_node);
         self.unpin_page(right_page_id, true);
     }
@@ -441,7 +440,8 @@ impl Pager {
         self.unpin_page(page_num, false);
 
         for i in child_pointers {
-            let child = self.fetch_node(i).unwrap();
+            let page = self.fetch_page(i).unwrap();
+            let child = page.node.as_mut().unwrap();
             child.parent_offset = page_num as u32;
             self.unpin_page(i, true);
         }
@@ -471,6 +471,7 @@ impl Pager {
                 right_node.num_of_cells += 1;
             }
 
+            let left_node = left_page.node.as_ref().unwrap();
             if left_node.is_root {
                 debug!("splitting root internal node...");
                 self.unpin_page(page_num, true);
@@ -481,32 +482,13 @@ impl Pager {
             } else {
                 debug!("update internal node {page_num}, parent...");
                 let parent_offset = left_node.parent_offset as usize;
+                self.unpin_page(page_num, true);
                 let parent = self.fetch_node(parent_offset).unwrap();
 
                 let index = parent.internal_search_child_pointer(page_num as u32);
 
-                // if page_num < parent.right_child_offset as usize {
-                //     parent.right_child_offset -= 1;
-                // }
-
-                // if page_num < left_node.right_child_offset as usize {
-                //     left_node.right_child_offset -= 1;
-                // }
-
-                // if page_num < right_node.right_child_offset as usize {
-                //     right_node.right_child_offset -= 1;
-                // }
-
                 if parent.num_of_cells == index as u32 {
                     debug!("update parent after split most right internal node");
-
-                    // for cell in parent.internal_cells.iter_mut() {
-                    //     let cp = cell.child_pointer();
-                    //     if cp > page_num as u32 && cp < next_page_id {
-                    //         cell.write_child_pointer(cp - 1)
-                    //     }
-                    // }
-
                     parent.right_child_offset = next_page_id as u32;
                     parent.internal_insert(
                         index,
@@ -515,14 +497,6 @@ impl Pager {
                     parent.num_of_cells += 1;
                 } else {
                     debug!("update parent after split internal node");
-
-                    //     for cell in parent.internal_cells.iter_mut() {
-                    //         let cp = cell.child_pointer();
-                    //         if cp > page_num as u32 && cp < last_unused_page_num {
-                    //             cell.write_child_pointer(cp - 1)
-                    //         }
-                    //     }
-
                     parent.internal_insert(
                         index,
                         InternalCell::new(next_page_id as u32 - 1, ic.key()),
@@ -541,7 +515,10 @@ impl Pager {
                 right_page.is_dirty = true;
                 right_page.node = Some(right_node);
                 self.unpin_page(next_page_id, true);
+                self.update_children_parent_offset(next_page_id);
             }
+        } else {
+            self.unpin_page(page_num, true);
         }
     }
 
@@ -568,6 +545,7 @@ impl Pager {
         } else {
             debug!("--- split leaf node and update parent ---");
             self.unpin_page(cursor.page_num, true);
+
             let next_page_id = self.next_page_id as u32;
             let left_node = self.fetch_node(cursor.page_num).unwrap();
             left_node.next_leaf_offset = next_page_id;
