@@ -318,6 +318,82 @@ mod test {
         insertion_test(365);
     }
 
+    #[test]
+    fn insert_edge_case_1() {
+        let ids = UniqueIDs(vec![
+            163, 91, 7, 79, 208, 225, 157, 237, 234, 142, 45, 22, 201, 156, 43, 119, 1, 30, 252,
+            47, 169, 52, 120, 75, 189, 24, 230, 210, 103, 98, 150, 112, 100, 255, 72, 58, 29, 232,
+            11, 126, 154, 85, 20, 176, 125, 118, 83, 73, 76, 105, 130, 124, 220, 211, 114, 88, 10,
+            244, 203, 49,
+        ]);
+
+        insert_and_select_prop(ids);
+    }
+
+    use quickcheck::{Arbitrary, Gen, QuickCheck};
+    use rand::seq::SliceRandom;
+    use rand::thread_rng;
+
+    #[derive(Clone, Debug)]
+    struct UniqueIDs(pub Vec<u8>);
+
+    impl Arbitrary for UniqueIDs {
+        fn arbitrary(g: &mut Gen) -> UniqueIDs {
+            let mut vec = Vec::<u8>::arbitrary(g);
+            vec.sort();
+            vec.dedup();
+            vec.remove(0);
+            vec.shuffle(&mut thread_rng());
+            UniqueIDs(vec)
+        }
+    }
+
+    #[test]
+    fn quickcheck_insert_and_select() {
+        // Change the Gen::new(size) to have quickcheck
+        // generate larger size vector.
+        // let gen = Gen::new(100);
+
+        // QuickCheck::new()
+        //     .gen(gen)
+        //     .quickcheck(insert_and_select_prop as fn(UniqueIDs) -> bool);
+    }
+
+    fn insert_and_select_prop(mut ids: UniqueIDs) -> bool {
+        let mut table = Table::new("test.db");
+        for i in &ids.0 {
+            let query = format!("insert {i} user{i} user{i}@email.com");
+            let statement = prepare_statement(&query).unwrap();
+            table.insert_v2(&statement.row.unwrap());
+        }
+
+        ids.0.sort_unstable();
+        let expected_output = expected_output(ids.0);
+        let statement = prepare_statement("select").unwrap();
+        let result = table.select_v2(&statement);
+        assert_eq!(result, expected_output);
+
+        // if result != expected_output {
+        //     return false;
+        // }
+
+        table.flush_v2();
+
+        // Testing select after we flush all pages
+        //
+        // So this make sure that our code work as expected
+        // even reading from a file that we have just wrote to.
+        let mut table = Table::new("test.db");
+        let statement = prepare_statement("select").unwrap();
+        let result = table.select_v2(&statement);
+        if result != expected_output {
+            return false;
+        }
+        cleanup_test_db_file();
+
+        true
+    }
+
     fn insertion_test(row_count: usize) {
         let mut table = Table::new("test.db");
         for i in 1..row_count {
@@ -345,8 +421,13 @@ mod test {
         cleanup_test_db_file();
     }
 
-    fn expected_output(range: Range<usize>) -> String {
+    fn expected_output<I>(range: I) -> String
+    where
+        I: IntoIterator,
+        I::Item: std::fmt::Display,
+    {
         range
+            .into_iter()
             .map(|i| format!("({i}, user{i}, user{i}@email.com)\n"))
             .collect::<Vec<String>>()
             .join("")
