@@ -156,11 +156,18 @@ impl Pager {
         };
 
         if let Some(frame_id) = frame_id {
-            if let Some(page) = self.pages.get_mut(frame_id) {
+            if let Some(page) = self.pages.get(frame_id) {
+                if page.is_dirty {
+                    let dirty_page_id = page.page_id.unwrap();
+                    self.flush_page(dirty_page_id);
+                }
+
+                let page = self.pages.get_mut(frame_id).unwrap();
                 page.is_dirty = false;
                 page.pin_count = 0;
                 page.page_id = Some(page_id);
                 page.node = None;
+                self.page_table.retain(|_, &mut fid| fid != frame_id);
                 self.page_table.insert(page_id, frame_id);
             } else {
                 let page = Page::new(page_id);
@@ -193,11 +200,6 @@ impl Pager {
         }
 
         if let Some(frame_id) = self.create_or_replace_page(page_id) {
-            let page = &self.pages[frame_id];
-            if page.is_dirty {
-                self.flush_page(page_id);
-            }
-
             let page = &mut self.pages[frame_id];
             match self.disk_manager.read_page(page_id) {
                 Ok(bytes) => {
@@ -222,6 +224,7 @@ impl Pager {
     }
 
     pub fn flush_page(&mut self, page_id: usize) {
+        debug!("flush page {page_id}...");
         if let Some(&frame_id) = self.page_table.get(&page_id) {
             if let Some(node) = &self.pages[frame_id].node {
                 let bytes = node.to_bytes();
@@ -331,6 +334,11 @@ impl Pager {
     }
 
     pub fn insert_record(&mut self, row: &Row, cursor: &Cursor) {
+        debug!(
+            "insert record {} at page {}, cell {}",
+            row.id, cursor.page_num, cursor.cell_num
+        );
+
         if let Some(page) = self.fetch_page(cursor.page_num) {
             let node = page.node.as_mut().unwrap();
             let num_of_cells = node.num_of_cells as usize;
@@ -342,7 +350,6 @@ impl Pager {
 
             self.unpin_page(cursor.page_num, true)
         }
-        println!("self.pages: {:?}", self.pages);
     }
 
     pub fn create_new_root(&mut self, left_node_page_num: usize, mut right_node: Node) {
@@ -417,7 +424,6 @@ impl Pager {
         }
 
         self.unpin_page(parent_page_num, true);
-        println!("self.pages: {:?}", self.pages);
     }
 
     fn insert_and_split_leaf_node(&mut self, cursor: &Cursor, row: &Row) {
@@ -445,11 +451,8 @@ impl Pager {
             self.unpin_page(cursor.page_num, true);
             let next_page_id = self.next_page_id as u32;
             let left_node = self.fetch_node(cursor.page_num).unwrap();
-            debug!("--- next_page_id: {next_page_id}");
             left_node.next_leaf_offset = next_page_id;
             right_node.parent_offset = left_node.parent_offset;
-
-            println!("right_node: {:?}", right_node);
 
             let parent_page_num = left_node.parent_offset as usize;
             let new_max = left_node.get_max_key();
@@ -579,10 +582,18 @@ mod test {
         // Unpin some of the pages so there's
         // victim from our replacer.
         pager.unpin_page(2, false);
+        sleep(5);
         pager.unpin_page(5, false);
 
         let frame_id = pager.create_or_replace_page(7);
         assert!(frame_id.is_some());
+
+        // Ensure that page table only record page metadata
+        // in our pages
+        assert_eq!(pager.page_table.get(&2), None);
+        assert_eq!(pager.page_table.len(), 4);
+
+        // TODO: test it flush dirty page
 
         let frame_id = frame_id.unwrap();
         let page = &pager.pages[frame_id];

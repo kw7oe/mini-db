@@ -48,7 +48,6 @@ impl Cursor {
     pub fn table_find_v2(table: &mut Table, page_num: usize, key: u32) -> Result<Self, String> {
         let node = table.pager.fetch_node(page_num).unwrap();
         let num_of_cells = node.num_of_cells as usize;
-        println!("finding {key} in page {page_num}: {:?}", node);
         if node.node_type == NodeType::Leaf {
             match node.search(key) {
                 Ok(index) => {
@@ -282,71 +281,27 @@ mod test {
 
     #[test]
     fn insert_row_into_leaf_root_node_with_new_buffer_pool_impl() {
-        let mut table = Table::new("test.db");
-        let row_count = 10;
-
-        for i in 1..row_count {
-            let query = format!("insert {i} user{i} user{i}@email.com");
-            let statement = prepare_statement(&query).unwrap();
-            table.insert_v2(&statement.row.unwrap());
-            assert_eq!(table.pager.tree_len(), 0);
-        }
-
-        let expected_output = expected_output(1..row_count);
-        let statement = prepare_statement("select").unwrap();
-        let result = table.select_v2(&statement);
-        assert_eq!(result, expected_output);
-
-        table.flush_v2();
-
-        // Testing select after we flush all pages
-        //
-        // So this make sure that our code work as expected
-        // even reading from a file that we have just wrote to.
-        let mut table = Table::new("test.db");
-        let statement = prepare_statement("select").unwrap();
-        let result = table.select_v2(&statement);
-        assert_eq!(result, expected_output);
-
-        cleanup_test_db_file();
+        insertion_test(10);
     }
 
     #[test]
     fn insert_and_split_root_leaf_node_with_new_buffer_pool_impl() {
-        let mut table = Table::new("test.db");
-        let row_count = 15;
+        insertion_test(15);
+    }
 
-        for i in 1..row_count {
-            let query = format!("insert {i} user{i} user{i}@email.com");
-            let statement = prepare_statement(&query).unwrap();
-            table.insert_v2(&statement.row.unwrap());
-            assert_eq!(table.pager.tree_len(), 0);
-        }
-
-        let expected_output = expected_output(1..row_count);
-        let statement = prepare_statement("select").unwrap();
-        let result = table.select_v2(&statement);
-        assert_eq!(result, expected_output);
-
-        table.flush_v2();
-
-        // Testing select after we flush all pages
-        //
-        // So this make sure that our code work as expected
-        // even reading from a file that we have just wrote to.
-        let mut table = Table::new("test.db");
-        let statement = prepare_statement("select").unwrap();
-        let result = table.select_v2(&statement);
-        assert_eq!(result, expected_output);
-
-        cleanup_test_db_file();
+    #[test]
+    fn insert_internal_node_with_new_buffer_pool_impl() {
+        insertion_test(22)
     }
 
     #[test]
     fn insert_and_split_internal_node_with_new_buffer_pool_impl() {
-        let mut table = Table::new("test.db");
-        let row_count = 22;
+        env_logger::init();
+        insertion_test(29)
+    }
 
+    fn insertion_test(row_count: usize) {
+        let mut table = Table::new("test.db");
         for i in 1..row_count {
             let query = format!("insert {i} user{i} user{i}@email.com");
             let statement = prepare_statement(&query).unwrap();
@@ -369,7 +324,6 @@ mod test {
         let statement = prepare_statement("select").unwrap();
         let result = table.select_v2(&statement);
         assert_eq!(result, expected_output);
-
         cleanup_test_db_file();
     }
 
