@@ -189,6 +189,10 @@ impl Pager {
         self.fetch_page(page_id).and_then(|page| page.node.as_mut())
     }
 
+    pub fn take_node(&mut self, page_id: usize) -> Option<Node> {
+        self.fetch_page(page_id).and_then(|page| page.node.take())
+    }
+
     pub fn fetch_page(&mut self, page_id: usize) -> Option<&mut Page> {
         // Check if the page is already in memory. If yes,
         // just pin the page and return the node.
@@ -590,6 +594,140 @@ impl Pager {
         let node = page.node.as_mut().unwrap();
         node.delete(cursor.cell_num);
         self.unpin_page(cursor.page_num, true);
+        self.maybe_merge_nodes(cursor);
+    }
+
+    fn maybe_merge_nodes(&mut self, cursor: &Cursor) {
+        let page = self.fetch_page(cursor.page_num).unwrap();
+        let node = page.node.as_ref().unwrap();
+
+        if node.node_type == NodeType::Leaf
+            && node.num_of_cells < LEAF_NODE_MAX_CELLS as u32 / 2
+            && !node.is_root
+        {
+            self.unpin_page(cursor.page_num, false);
+            self.merge_leaf_nodes(cursor.page_num);
+        } else {
+            self.unpin_page(cursor.page_num, false);
+        }
+    }
+
+    fn merge_leaf_nodes(&mut self, page_num: usize) {
+        let page = self.fetch_page(page_num).unwrap();
+        let node = page.node.as_ref().unwrap();
+        let node_cells_len = node.cells.len();
+
+        let parent_page_id = node.parent_offset as usize;
+        self.unpin_page(page_num, false);
+
+        let parent_page = self.fetch_page(parent_page_id).unwrap();
+
+        let parent = parent_page.node.as_ref().unwrap();
+        let (left_child_pointer, right_child_pointer) = parent.siblings(page_num as u32);
+        self.unpin_page(parent_page_id, false);
+
+        if let Some(cp) = left_child_pointer {
+            let left_page = self.fetch_page(cp).unwrap();
+            let left_nb = left_page.node.as_ref().unwrap();
+
+            if cp != page_num && left_nb.cells.len() + node_cells_len < LEAF_NODE_MAX_CELLS {
+                self.unpin_page(cp, false);
+                debug!("Merging node {} with its left neighbour...", page_num);
+                self.do_merge_leaf_nodes(cp, page_num);
+
+                return;
+            }
+        }
+
+        if let Some(cp) = right_child_pointer {
+            let right_page = self.fetch_page(cp).unwrap();
+            let right_nb = right_page.node.as_ref().unwrap();
+
+            if cp != page_num && right_nb.cells.len() + node_cells_len < LEAF_NODE_MAX_CELLS {
+                self.unpin_page(cp, false);
+                debug!("Merging node {} with its right neighbour...", page_num);
+                self.do_merge_leaf_nodes(page_num, cp);
+            }
+        }
+    }
+
+    fn min_key(&self, max_degree: usize) -> usize {
+        let mut min_key = (max_degree / 2) - 1;
+
+        if min_key == 0 {
+            min_key = 1;
+        }
+
+        min_key
+    }
+
+    fn do_merge_leaf_nodes(&mut self, left_cp: usize, right_cp: usize) {
+        let right_node = self.take_node(right_cp).unwrap();
+        self.delete_page(right_cp);
+
+        let left_page = self.fetch_page(left_cp).unwrap();
+        let left_node = left_page.node.as_mut().unwrap();
+
+        // Merge the leaf nodes cells
+        for c in right_node.cells {
+            left_node.cells.push(c);
+            left_node.num_of_cells += 1;
+        }
+
+        let parent_offset = left_node.parent_offset as usize;
+
+        let max_key = left_node.get_max_key();
+        let min_key_length = self.min_key(INTERNAL_NODE_MAX_CELLS) as u32;
+
+        // Update parent metadata
+        let parent_page = self.fetch_page(parent_offset).unwrap();
+        let parent = parent_page.node.as_mut().unwrap();
+
+        if parent.num_of_cells == 1 && parent.is_root {
+            self.unpin_page(parent_offset, false);
+            debug!("promote last leaf node to root");
+
+            let mut node = self.take_node(left_cp).unwrap();
+            self.delete_page(left_cp);
+            node.is_root = true;
+            node.next_leaf_offset = 0;
+
+            let parent_page = self.fetch_page(parent_offset).unwrap();
+            parent_page.node = Some(node);
+            self.unpin_page(parent_offset, true);
+        } else {
+            let index = parent.internal_search_child_pointer(right_cp as u32);
+            if index == parent.num_of_cells as usize {
+                // The right_cp is our right child offset
+
+                // Move last internal cell to become the right child offset
+                let internal_cell = parent.internal_cells.remove(index - 1);
+                parent.num_of_cells -= 1;
+                parent.right_child_offset = internal_cell.child_pointer();
+            } else {
+                // Remove extra key, pointers cell as we now have one less child
+                // after merge
+                parent.num_of_cells -= 1;
+                parent.internal_cells.remove(index);
+
+                // Update the key for our existing child pointer pointing to our merged node
+                // to use the new max key.
+                if index != 0 {
+                    parent.internal_cells[index - 1] = InternalCell::new(left_cp as u32, max_key);
+                }
+            }
+            self.unpin_page(parent_offset, true);
+
+            let parent_page = self.fetch_page(parent_offset).unwrap();
+            let parent = parent_page.node.as_ref().unwrap();
+            if parent.num_of_cells <= min_key_length && !parent.is_root {
+                self.unpin_page(parent_offset, false);
+                unimplemented!("merge internal nodes");
+                // self.merge_internal_nodes(parent_offset);
+            } else {
+                self.unpin_page(parent_offset, false);
+            }
+        }
     }
 
     pub fn delete_row(&mut self, cursor: &Cursor) {

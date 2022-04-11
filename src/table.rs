@@ -433,10 +433,11 @@ mod test {
         deletion_test(10);
     }
 
-    // #[test]
-    // fn delete_cells_from_leaf_node_up_to_root_node() {
-    //     deletion_test(15);
-    // }
+    #[test]
+    fn delete_cells_from_leaf_node_up_to_root_node() {
+        env_logger::init();
+        deletion_test(15);
+    }
 
     // #[test]
     // fn delete_test_case_2() {
