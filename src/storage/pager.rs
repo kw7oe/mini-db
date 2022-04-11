@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use super::node::{Node, LEAF_NODE_MAX_CELLS};
+use super::node::{InternalCell, Node, LEAF_NODE_MAX_CELLS, LEAF_NODE_RIGHT_SPLIT_COUNT};
 use super::tree::Tree;
 use crate::row::Row;
-use crate::storage::DiskManager;
+use crate::storage::{DiskManager, NodeType};
 use crate::table::Cursor;
 use std::time::Instant;
 
@@ -110,6 +110,7 @@ pub struct Pager {
     disk_manager: DiskManager,
     replacer: LRUReplacer,
     pages: Vec<Page>,
+    next_page_id: usize,
     // Indexes in our `pages` that are "free", which mean
     // it is uninitialize.
     free_list: Vec<usize>,
@@ -128,17 +129,29 @@ impl Pager {
             free_list.push(i);
         }
 
+        let disk_manager = DiskManager::new(path);
+        let next_page_id = disk_manager.file_len / PAGE_SIZE;
+
         Pager {
-            disk_manager: DiskManager::new(path),
+            disk_manager,
             replacer: LRUReplacer::new(pool_size),
             pages: Vec::with_capacity(pool_size),
+            // This would probably need to be based on the number of pages we
+            // already have in our disk.
+            next_page_id,
             free_list,
             page_table: HashMap::new(),
             tree: Tree::new(),
         }
     }
 
-    fn new_page(&mut self, page_id: usize) -> Option<usize> {
+    fn new_page(&mut self) -> Option<usize> {
+        let page_id = self.next_page_id;
+        self.next_page_id += 1;
+        self.find_or_create_page(page_id)
+    }
+
+    fn find_or_create_page(&mut self, page_id: usize) -> Option<usize> {
         let frame_id = if let Some(frame_id) = self.free_list.pop() {
             Some(frame_id)
         } else {
@@ -184,7 +197,7 @@ impl Pager {
             return self.pages.get_mut(frame_id);
         }
 
-        if let Some(frame_id) = self.new_page(page_id) {
+        if let Some(frame_id) = self.find_or_create_page(page_id) {
             debug!("--- allocate new page {page_id}");
             let page = &self.pages[frame_id];
             if page.is_dirty {
@@ -327,11 +340,57 @@ impl Pager {
             let node = page.node.as_mut().unwrap();
             let num_of_cells = node.num_of_cells as usize;
             if num_of_cells >= LEAF_NODE_MAX_CELLS {
-                // self.tree.split_and_insert_leaf_node(cursor, row);
-                unimplemented!("implement new split and insert leaf node");
+                self.insert_and_split_leaf_node(cursor, row);
             } else {
                 node.insert(row, cursor);
+                self.unpin_page(cursor.page_num, true)
             }
+        }
+    }
+
+    pub fn create_new_root(&mut self, right_node_page_num: usize, mut left_node: Node) {
+        debug!("--- create_new_root");
+        let right_node = self.fetch_node(right_node_page_num).unwrap();
+        let mut root_node = Node::new(true, NodeType::Internal);
+        right_node.is_root = false;
+
+        // The only reason we could hardcode all of the offsets
+        // is becuase we always insert root node to 0 and it's children to index
+        // 1 and 2, when we create a new root node.
+        root_node.num_of_cells += 1;
+        root_node.right_child_offset = 2;
+
+        right_node.parent_offset = 0;
+        right_node.next_leaf_offset = 0;
+
+        left_node.next_leaf_offset = 2;
+        left_node.parent_offset = 0;
+
+        let left_max_key = left_node.get_max_key();
+        let cell = InternalCell::new(right_node_page_num as u32, left_max_key);
+        root_node.internal_cells.insert(0, cell);
+    }
+
+    fn insert_and_split_leaf_node(&mut self, cursor: &Cursor, row: &Row) {
+        // We can unwrap here since, this will be called by insert_record
+        // which have already check if the page of cursor.page_num existed.
+        let right_node = self.fetch_node(cursor.page_num).unwrap();
+        // let old_max = right_node.get_max_key();
+        right_node.insert(row, cursor);
+
+        let mut left_node = Node::new(false, right_node.node_type);
+        for _i in 0..LEAF_NODE_RIGHT_SPLIT_COUNT {
+            let cell = right_node.cells.remove(0);
+            right_node.num_of_cells -= 1;
+
+            left_node.cells.push(cell);
+            left_node.num_of_cells += 1;
+        }
+
+        if right_node.is_root {
+            self.create_new_root(cursor.page_num, left_node);
+        } else {
+            unimplemented!("need to split internal node and update parent");
         }
     }
 
@@ -375,7 +434,9 @@ mod test {
         // We have 3 candidates that can be choose to
         // be evicted by our buffer pool.
         replacer.unpin(2);
+        sleep(5);
         replacer.unpin(0);
+        sleep(5);
         replacer.unpin(1);
 
         let evicted_page = replacer.victim().unwrap();
@@ -389,7 +450,9 @@ mod test {
         // We have 3 candidates that can be choose to
         // be evicted by our buffer pool.
         replacer.unpin(2);
+        sleep(5);
         replacer.unpin(0);
+        sleep(5);
         replacer.unpin(1);
         replacer.pin(2);
 
@@ -402,7 +465,7 @@ mod test {
         setup_test_db_file();
         let mut pager = Pager::new("test.db");
 
-        let frame_id = pager.new_page(0);
+        let frame_id = pager.find_or_create_page(0);
         assert!(frame_id.is_some());
         let frame_id = frame_id.unwrap();
 
@@ -415,7 +478,7 @@ mod test {
     }
 
     #[test]
-    fn pager_new_page_when_page_cache_is_full_with_victims_in_replacer() {
+    fn pager_find_or_create_page_when_page_cache_is_full_with_victims_in_replacer() {
         setup_test_db_file();
         let mut pager = Pager::new("test.db");
 
@@ -432,7 +495,7 @@ mod test {
         pager.unpin_page(2, false);
         pager.unpin_page(5, false);
 
-        let frame_id = pager.new_page(7);
+        let frame_id = pager.find_or_create_page(7);
         assert!(frame_id.is_some());
 
         let frame_id = frame_id.unwrap();
@@ -445,7 +508,7 @@ mod test {
     }
 
     #[test]
-    fn pager_new_page_when_no_pages_can_be_freed() {
+    fn pager_find_or_create_page_page_when_no_pages_can_be_freed() {
         setup_test_db_file();
         let mut pager = Pager::new("test.db");
 
@@ -457,7 +520,7 @@ mod test {
         pager.fetch_page(2);
         pager.fetch_page(5);
 
-        let frame_id = pager.new_page(7);
+        let frame_id = pager.find_or_create_page(7);
         assert!(frame_id.is_none());
         cleanup_test_db_file();
     }
@@ -561,5 +624,10 @@ mod test {
 
     fn cleanup_test_db_file() {
         let _ = std::fs::remove_file("test.db");
+    }
+
+    fn sleep(duration_in_ms: u64) {
+        let ten_millis = std::time::Duration::from_millis(duration_in_ms);
+        std::thread::sleep(ten_millis);
     }
 }

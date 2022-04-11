@@ -10,7 +10,7 @@ use std::{
 pub struct DiskManager {
     write_file: File,
     read_file: File,
-    file_len: usize,
+    pub file_len: usize,
 }
 
 impl DiskManager {

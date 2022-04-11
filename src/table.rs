@@ -283,17 +283,19 @@ mod test {
     #[test]
     fn insert_row_into_leaf_root_node_with_new_buffer_pool_impl() {
         let mut table = Table::new("test.db");
+        let row_count = 10;
 
-        for i in 1..10 {
+        for i in 1..row_count {
             let query = format!("insert {i} user{i} user{i}@email.com");
             let statement = prepare_statement(&query).unwrap();
             table.insert_v2(&statement.row.unwrap());
             assert_eq!(table.pager.tree_len(), 0);
         }
 
+        let expected_output = expected_output(1..row_count);
         let statement = prepare_statement("select").unwrap();
         let result = table.select_v2(&statement);
-        assert_eq!(result, expected_output(1..10));
+        assert_eq!(result, expected_output);
 
         table.flush_v2();
 
@@ -304,7 +306,38 @@ mod test {
         let mut table = Table::new("test.db");
         let statement = prepare_statement("select").unwrap();
         let result = table.select_v2(&statement);
-        assert_eq!(result, expected_output(1..10));
+        assert_eq!(result, expected_output);
+
+        cleanup_test_db_file();
+    }
+
+    #[test]
+    fn insert_and_split_root_leaf_node_with_new_buffer_pool_impl() {
+        let mut table = Table::new("test.db");
+        let row_count = 15;
+
+        for i in 1..row_count {
+            let query = format!("insert {i} user{i} user{i}@email.com");
+            let statement = prepare_statement(&query).unwrap();
+            table.insert_v2(&statement.row.unwrap());
+            assert_eq!(table.pager.tree_len(), 0);
+        }
+
+        let expected_output = expected_output(1..row_count);
+        let statement = prepare_statement("select").unwrap();
+        let result = table.select_v2(&statement);
+        assert_eq!(result, expected_output);
+
+        table.flush_v2();
+
+        // Testing select after we flush all pages
+        //
+        // So this make sure that our code work as expected
+        // even reading from a file that we have just wrote to.
+        let mut table = Table::new("test.db");
+        let statement = prepare_statement("select").unwrap();
+        let result = table.select_v2(&statement);
+        assert_eq!(result, expected_output);
 
         cleanup_test_db_file();
     }
