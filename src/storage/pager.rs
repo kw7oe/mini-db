@@ -145,13 +145,7 @@ impl Pager {
         }
     }
 
-    fn new_page(&mut self) -> Option<usize> {
-        let page_id = self.next_page_id;
-        self.next_page_id += 1;
-        self.find_or_create_page(page_id)
-    }
-
-    fn find_or_create_page(&mut self, page_id: usize) -> Option<usize> {
+    fn create_or_replace_page(&mut self, page_id: usize) -> Option<usize> {
         let frame_id = if let Some(frame_id) = self.free_list.pop() {
             Some(frame_id)
         } else {
@@ -197,7 +191,7 @@ impl Pager {
             return self.pages.get_mut(frame_id);
         }
 
-        if let Some(frame_id) = self.find_or_create_page(page_id) {
+        if let Some(frame_id) = self.create_or_replace_page(page_id) {
             debug!("--- allocate new page {page_id}");
             let page = &self.pages[frame_id];
             if page.is_dirty {
@@ -215,6 +209,7 @@ impl Pager {
                     // or it's just a new file.
                     debug!("--- fail reading from disk: {:?}", err);
                     page.node = Some(Node::root());
+                    self.next_page_id += 1;
                 }
             }
 
@@ -343,14 +338,20 @@ impl Pager {
                 self.insert_and_split_leaf_node(cursor, row);
             } else {
                 node.insert(row, cursor);
-                self.unpin_page(cursor.page_num, true)
             }
+
+            self.unpin_page(cursor.page_num, true)
         }
+
+        println!("self.pages: {:?}", self.pages);
     }
 
     pub fn create_new_root(&mut self, right_node_page_num: usize, mut left_node: Node) {
         debug!("--- create_new_root");
-        let right_node = self.fetch_node(right_node_page_num).unwrap();
+        let next_page_id = self.next_page_id as u32;
+        let root_page = self.fetch_page(right_node_page_num).unwrap();
+        let root_page_id = root_page.page_id.unwrap();
+        let mut right_node = root_page.node.take().unwrap();
         let mut root_node = Node::new(true, NodeType::Internal);
         right_node.is_root = false;
 
@@ -358,17 +359,30 @@ impl Pager {
         // is becuase we always insert root node to 0 and it's children to index
         // 1 and 2, when we create a new root node.
         root_node.num_of_cells += 1;
-        root_node.right_child_offset = 2;
+        root_node.right_child_offset = next_page_id + 1;
 
         right_node.parent_offset = 0;
         right_node.next_leaf_offset = 0;
 
-        left_node.next_leaf_offset = 2;
+        left_node.next_leaf_offset = next_page_id + 1;
         left_node.parent_offset = 0;
 
         let left_max_key = left_node.get_max_key();
-        let cell = InternalCell::new(right_node_page_num as u32, left_max_key);
+        let cell = InternalCell::new(next_page_id, left_max_key);
         root_node.internal_cells.insert(0, cell);
+
+        root_page.node = Some(root_node);
+        self.unpin_page(root_page_id, true);
+
+        let left_page = self.fetch_page(self.next_page_id).unwrap();
+        let left_page_id = left_page.page_id.unwrap();
+        left_page.node = Some(left_node);
+        self.unpin_page(left_page_id, true);
+
+        let right_page = self.fetch_page(self.next_page_id).unwrap();
+        let right_page_id = right_page.page_id.unwrap();
+        right_page.node = Some(right_node);
+        self.unpin_page(right_page_id, true);
     }
 
     fn insert_and_split_leaf_node(&mut self, cursor: &Cursor, row: &Row) {
@@ -388,6 +402,7 @@ impl Pager {
         }
 
         if right_node.is_root {
+            self.unpin_page(cursor.page_num, true);
             self.create_new_root(cursor.page_num, left_node);
         } else {
             unimplemented!("need to split internal node and update parent");
@@ -461,11 +476,11 @@ mod test {
     }
 
     #[test]
-    fn pager_new_page_when_page_cache_is_not_full() {
+    fn pager_create_or_replace_page_when_page_cache_is_not_full() {
         setup_test_db_file();
         let mut pager = Pager::new("test.db");
 
-        let frame_id = pager.find_or_create_page(0);
+        let frame_id = pager.create_or_replace_page(0);
         assert!(frame_id.is_some());
         let frame_id = frame_id.unwrap();
 
@@ -478,7 +493,7 @@ mod test {
     }
 
     #[test]
-    fn pager_find_or_create_page_when_page_cache_is_full_with_victims_in_replacer() {
+    fn pager_create_or_replace_page_when_page_cache_is_full_with_victims_in_replacer() {
         setup_test_db_file();
         let mut pager = Pager::new("test.db");
 
@@ -495,7 +510,7 @@ mod test {
         pager.unpin_page(2, false);
         pager.unpin_page(5, false);
 
-        let frame_id = pager.find_or_create_page(7);
+        let frame_id = pager.create_or_replace_page(7);
         assert!(frame_id.is_some());
 
         let frame_id = frame_id.unwrap();
@@ -508,7 +523,7 @@ mod test {
     }
 
     #[test]
-    fn pager_find_or_create_page_page_when_no_pages_can_be_freed() {
+    fn pager_create_or_replace_page_when_no_pages_can_be_freed() {
         setup_test_db_file();
         let mut pager = Pager::new("test.db");
 
@@ -520,7 +535,7 @@ mod test {
         pager.fetch_page(2);
         pager.fetch_page(5);
 
-        let frame_id = pager.find_or_create_page(7);
+        let frame_id = pager.create_or_replace_page(7);
         assert!(frame_id.is_none());
         cleanup_test_db_file();
     }
