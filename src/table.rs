@@ -448,16 +448,17 @@ mod test {
         deletion_test(36)
     }
 
-    // #[test]
-    // fn delete_test_case_5() {
-    //     deletion_test(57)
-    // }
+    #[test]
+    fn delete_ensure_pages_is_unpin_correctly() {
+        // Previous impl doesn not unpin left page during merge operation.
+        deletion_test(57)
+    }
 
     // #[test]
     // fn delete_test_case_6() {
-    //     deletion_test(65);
+    //     env_logger::init();
     //     deletion_test(165);
-    //     deletion_test(365);
+    //     // deletion_test(365);
     // }
 
     fn deletion_test(row_count: usize) {

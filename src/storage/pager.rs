@@ -590,11 +590,21 @@ impl Pager {
     }
 
     pub fn delete_record(&mut self, cursor: &Cursor) {
+        debug!(
+            "--- delete_record at page {}, cell {}",
+            cursor.page_num, cursor.cell_num
+        );
+
         let page = self.fetch_page(cursor.page_num).unwrap();
         let node = page.node.as_mut().unwrap();
         node.delete(cursor.cell_num);
         self.unpin_page(cursor.page_num, true);
+        println!("---- before self.pages: {:?}", self.pages);
         self.maybe_merge_nodes(cursor);
+        println!("---- after self.pages: {:?}", self.pages);
+
+        //         self.flush_all_pages();
+        //         self.debug_pages();
     }
 
     fn maybe_merge_nodes(&mut self, cursor: &Cursor) {
@@ -700,6 +710,8 @@ impl Pager {
         let parent_offset = left_node.parent_offset as usize;
 
         let max_key = left_node.get_max_key();
+        self.unpin_page(left_cp, true);
+
         let min_key_length = self.min_key(INTERNAL_NODE_MAX_CELLS) as u32;
 
         // Update parent metadata
@@ -819,9 +831,12 @@ impl Pager {
         }
 
         left_node.right_child_offset = right_node.right_child_offset;
+        println!("\n\n---------");
 
         // Update parent metadata
         let parent_offset = left_node.parent_offset as usize;
+        self.unpin_page(left_cp, true);
+
         let parent_page = self.fetch_page(parent_offset).unwrap();
         let parent = parent_page.node.as_ref().unwrap();
 
@@ -836,7 +851,9 @@ impl Pager {
             let parent_right_child_offset = parent.right_child_offset as usize;
 
             let index = parent.internal_search_child_pointer(left_cp as u32);
+            println!("left_cp: {left_cp}, index: {:?}", index);
             parent.internal_cells.remove(index);
+            println!("parent: {:?}", parent);
             parent.num_of_cells -= 1;
 
             if right_cp == parent_right_child_offset {
@@ -847,7 +864,8 @@ impl Pager {
                 debug!("  update parent after merging child");
                 parent.internal_cells[index].write_child_pointer(left_cp as u32);
             }
-            self.unpin_page(parent_offset, false);
+            println!("parent: {:?}", parent);
+            self.unpin_page(parent_offset, true);
 
             self.update_children_parent_offset(left_cp as usize);
         }
