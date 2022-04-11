@@ -1042,7 +1042,6 @@ mod test {
     // the middle of our internal nodes, and caused the children of the nodes after
     // the removed node not having their parent offset updated.
     fn delete_and_merge_internal_nodes_while_updating_old_right_cp_parent_offset() {
-        env_logger::init();
         let delete_input = DeleteInputs {
             insertion_ids: vec![
                 137, 71, 81, 209, 0, 90, 235, 141, 208, 110, 178, 241, 160, 111, 63, 245, 246, 255,

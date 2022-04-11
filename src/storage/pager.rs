@@ -196,15 +196,18 @@ impl Pager {
                 Ok(bytes) => {
                     debug!("--- read from disk successfully");
                     page.node = Some(Node::new_from_bytes(&bytes));
-                    page.pin_count += 1;
-                    self.replacer.pin(frame_id);
-
-                    return self.pages.get_mut(frame_id);
                 }
                 Err(err) => {
+                    // This either mean the file is corrupted or is a partial page
+                    // or it's just a new file.
                     debug!("--- fail reading from disk: {:?}", err);
+                    page.node = Some(Node::root());
                 }
             }
+
+            page.pin_count += 1;
+            self.replacer.pin(frame_id);
+            return self.pages.get_mut(frame_id);
         };
 
         None

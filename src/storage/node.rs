@@ -196,6 +196,20 @@ impl Node {
         }
     }
 
+    pub fn root() -> Self {
+        Node {
+            node_type: NodeType::Leaf,
+            is_root: true,
+            parent_offset: 0,
+            right_child_offset: 0,
+            next_leaf_offset: 0,
+            num_of_cells: 0,
+            has_initialize: true,
+            cells: Vec::new(),
+            internal_cells: Vec::new(),
+        }
+    }
+
     pub fn uninitialize() -> Self {
         let mut node = Self::new(true, NodeType::Leaf);
         node.has_initialize = false;

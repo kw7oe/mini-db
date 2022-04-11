@@ -157,6 +157,10 @@ impl Table {
         self.pager.flush_all();
     }
 
+    pub fn flush_v2(&mut self) {
+        self.pager.flush_all_pages();
+    }
+
     pub fn select(&mut self, statement: &Statement) -> String {
         let mut cursor: Cursor;
         let mut output = String::new();
@@ -219,6 +223,24 @@ impl Table {
         }
     }
 
+    pub fn insert_v2(&mut self, row: &Row) -> String {
+        let page_num = self.root_page_num;
+        match Cursor::table_find_v2(self, page_num, row.id) {
+            Ok(cursor) => {
+                if cursor.key_existed {
+                    return "duplicate key\n".to_string();
+                }
+                self.pager.insert_record(row, &cursor);
+
+                format!(
+                    "inserting into page: {}, cell: {}...\n",
+                    cursor.page_num, cursor.cell_num
+                )
+            }
+            Err(message) => message,
+        }
+    }
+
     pub fn delete(&mut self, row: &Row) -> String {
         debug!("deleting row with id {}", row.id);
         let cursor = Cursor::table_find(self, self.root_page_num, row.id).unwrap();
@@ -239,26 +261,56 @@ impl std::string::ToString for Table {
 
 #[cfg(test)]
 mod test {
+    use std::ops::Range;
+
     use crate::query::prepare_statement;
 
     use super::*;
 
     #[test]
     fn select_with_new_buffer_pool_impl() {
-        env_logger::init();
         setup_test_db_file();
         let mut table = Table::new("test.db");
         let statement = prepare_statement("select").unwrap();
         let result = table.select_v2(&statement);
 
-        assert_eq!(result, expected_output());
+        assert_eq!(result, expected_output(1..50));
         assert_eq!(table.pager.tree_len(), 0);
 
         cleanup_test_db_file();
     }
 
-    fn expected_output() -> String {
-        (1..50)
+    #[test]
+    fn insert_row_into_leaf_root_node_with_new_buffer_pool_impl() {
+        let mut table = Table::new("test.db");
+
+        for i in 1..10 {
+            let query = format!("insert {i} user{i} user{i}@email.com");
+            let statement = prepare_statement(&query).unwrap();
+            table.insert_v2(&statement.row.unwrap());
+            assert_eq!(table.pager.tree_len(), 0);
+        }
+
+        let statement = prepare_statement("select").unwrap();
+        let result = table.select_v2(&statement);
+        assert_eq!(result, expected_output(1..10));
+
+        table.flush_v2();
+
+        // Testing select after we flush all pages
+        //
+        // So this make sure that our code work as expected
+        // even reading from a file that we have just wrote to.
+        let mut table = Table::new("test.db");
+        let statement = prepare_statement("select").unwrap();
+        let result = table.select_v2(&statement);
+        assert_eq!(result, expected_output(1..10));
+
+        cleanup_test_db_file();
+    }
+
+    fn expected_output(range: Range<usize>) -> String {
+        range
             .map(|i| format!("({i}, user{i}, user{i}@email.com)\n"))
             .collect::<Vec<String>>()
             .join("")
