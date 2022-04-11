@@ -354,7 +354,12 @@ impl Pager {
         }
     }
 
-    pub fn create_new_root(&mut self, left_node_page_num: usize, mut right_node: Node) {
+    pub fn create_new_root(
+        &mut self,
+        left_node_page_num: usize,
+        mut right_node: Node,
+        max_key: u32,
+    ) {
         debug!("--- create_new_root");
         let next_page_id = self.next_page_id as u32;
         let root_page = self.fetch_page(left_node_page_num).unwrap();
@@ -372,8 +377,7 @@ impl Pager {
         left_node.next_leaf_offset = next_page_id + 1;
         left_node.parent_offset = 0;
 
-        let left_max_key = left_node.get_max_key();
-        let cell = InternalCell::new(next_page_id, left_max_key);
+        let cell = InternalCell::new(next_page_id, max_key);
         root_node.internal_cells.insert(0, cell);
 
         root_page.node = Some(root_node);
@@ -475,10 +479,10 @@ impl Pager {
             if left_node.is_root {
                 debug!("splitting root internal node...");
                 self.unpin_page(page_num, true);
-                self.create_new_root(page_num, right_node);
+                self.create_new_root(page_num, right_node, ic.key());
 
-                self.update_children_parent_offset(next_page_id);
-                self.update_children_parent_offset(next_page_id + 1);
+                self.update_children_parent_offset(next_page_id as usize);
+                self.update_children_parent_offset(next_page_id as usize + 1);
             } else {
                 debug!("update internal node {page_num}, parent...");
                 let parent_offset = left_node.parent_offset as usize;
@@ -490,17 +494,11 @@ impl Pager {
                 if parent.num_of_cells == index as u32 {
                     debug!("update parent after split most right internal node");
                     parent.right_child_offset = next_page_id as u32;
-                    parent.internal_insert(
-                        index,
-                        InternalCell::new(next_page_id as u32 - 1, ic.key()),
-                    );
+                    parent.internal_insert(index, InternalCell::new(page_num as u32, ic.key()));
                     parent.num_of_cells += 1;
                 } else {
                     debug!("update parent after split internal node");
-                    parent.internal_insert(
-                        index,
-                        InternalCell::new(next_page_id as u32 - 1, ic.key()),
-                    );
+                    parent.internal_insert(index, InternalCell::new(page_num as u32, ic.key()));
 
                     let internel_cell = parent.internal_cells.remove(index + 1);
                     parent.internal_insert(
@@ -539,15 +537,18 @@ impl Pager {
             right_node.num_of_cells += 1;
         }
 
+        let left_max_key = left_node.get_max_key();
+
         if left_node.is_root {
             self.unpin_page(cursor.page_num, true);
-            self.create_new_root(cursor.page_num, right_node);
+            self.create_new_root(cursor.page_num, right_node, left_max_key);
         } else {
             debug!("--- split leaf node and update parent ---");
             self.unpin_page(cursor.page_num, true);
 
             let next_page_id = self.next_page_id as u32;
             let left_node = self.fetch_node(cursor.page_num).unwrap();
+            right_node.next_leaf_offset = left_node.next_leaf_offset;
             left_node.next_leaf_offset = next_page_id;
             right_node.parent_offset = left_node.parent_offset;
 
@@ -591,6 +592,16 @@ impl Pager {
 
     pub fn tree_len(&self) -> usize {
         self.tree.len()
+    }
+
+    pub fn debug_pages(&mut self) {
+        println!("\n\n------ DEBUG ------");
+        for i in 0..self.next_page_id {
+            let bytes = self.disk_manager.read_page(i).unwrap();
+            println!("--- Page {i} ---");
+            println!("{:?}", Node::new_from_bytes(&bytes));
+        }
+        println!("------ END DEBUG ------\n\n");
     }
 }
 

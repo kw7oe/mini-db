@@ -319,7 +319,12 @@ mod test {
     }
 
     #[test]
-    fn insert_edge_case_1() {
+    fn insert_ensure_siblings_and_children_page_id_is_updated_correctly() {
+        env_logger::init();
+        // Previous implementation did not update the child pointer of the parent
+        // correctly when we split or create new root node.
+        //
+        // Also, we didn't update right_node next_leaf page id correctly as well.
         let ids = UniqueIDs(vec![
             163, 91, 7, 79, 208, 225, 157, 237, 234, 142, 45, 22, 201, 156, 43, 119, 1, 30, 252,
             47, 169, 52, 120, 75, 189, 24, 230, 210, 103, 98, 150, 112, 100, 255, 72, 58, 29, 232,
@@ -340,9 +345,8 @@ mod test {
     impl Arbitrary for UniqueIDs {
         fn arbitrary(g: &mut Gen) -> UniqueIDs {
             let mut vec = Vec::<u8>::arbitrary(g);
-            vec.sort();
+            vec.sort_unstable();
             vec.dedup();
-            vec.remove(0);
             vec.shuffle(&mut thread_rng());
             UniqueIDs(vec)
         }
@@ -352,14 +356,14 @@ mod test {
     fn quickcheck_insert_and_select() {
         // Change the Gen::new(size) to have quickcheck
         // generate larger size vector.
-        // let gen = Gen::new(100);
+        let gen = Gen::new(100);
 
-        // QuickCheck::new()
-        //     .gen(gen)
-        //     .quickcheck(insert_and_select_prop as fn(UniqueIDs) -> bool);
+        QuickCheck::new()
+            .gen(gen)
+            .quickcheck(insert_and_select_prop as fn(UniqueIDs));
     }
 
-    fn insert_and_select_prop(mut ids: UniqueIDs) -> bool {
+    fn insert_and_select_prop(mut ids: UniqueIDs) {
         let mut table = Table::new("test.db");
         for i in &ids.0 {
             let query = format!("insert {i} user{i} user{i}@email.com");
@@ -373,10 +377,6 @@ mod test {
         let result = table.select_v2(&statement);
         assert_eq!(result, expected_output);
 
-        // if result != expected_output {
-        //     return false;
-        // }
-
         table.flush_v2();
 
         // Testing select after we flush all pages
@@ -386,12 +386,9 @@ mod test {
         let mut table = Table::new("test.db");
         let statement = prepare_statement("select").unwrap();
         let result = table.select_v2(&statement);
-        if result != expected_output {
-            return false;
-        }
-        cleanup_test_db_file();
+        assert_eq!(result, expected_output);
 
-        true
+        cleanup_test_db_file();
     }
 
     fn insertion_test(row_count: usize) {
