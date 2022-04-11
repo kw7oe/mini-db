@@ -443,10 +443,10 @@ mod test {
         deletion_test(22)
     }
 
-    // #[test]
-    // fn delete_cells_and_merge_internal_nodes() {
-    //     deletion_test(36)
-    // }
+    #[test]
+    fn delete_cells_and_merge_internal_nodes() {
+        deletion_test(36)
+    }
 
     // #[test]
     // fn delete_test_case_5() {
@@ -481,6 +481,8 @@ mod test {
             let result = table.select_v2(&statement);
             assert_eq!(result, expected_output(&remaining));
         }
+
+        cleanup_test_db_file();
     }
 
     fn expected_output<I>(range: I) -> String

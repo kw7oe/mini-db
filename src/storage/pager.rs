@@ -665,6 +665,19 @@ impl Pager {
         min_key
     }
 
+    fn promote_last_node_to_root(&mut self, page_num: usize) {
+        let mut node = self.take_node(page_num).unwrap();
+        let parent_offset = node.parent_offset as usize;
+        self.unpin_page(page_num, true);
+        self.delete_page(page_num);
+        node.is_root = true;
+        node.next_leaf_offset = 0;
+
+        let parent_page = self.fetch_page(parent_offset).unwrap();
+        parent_page.node = Some(node);
+        self.unpin_page(parent_offset, true);
+    }
+
     fn do_merge_leaf_nodes(&mut self, left_cp: usize, right_cp: usize) {
         // TODO: I'm not really sure if this is really correct.
         //
@@ -696,16 +709,7 @@ impl Pager {
         if parent.num_of_cells == 1 && parent.is_root {
             self.unpin_page(parent_offset, false);
             debug!("promote last leaf node to root");
-
-            let mut node = self.take_node(left_cp).unwrap();
-            self.unpin_page(left_cp, true);
-            self.delete_page(left_cp);
-            node.is_root = true;
-            node.next_leaf_offset = 0;
-
-            let parent_page = self.fetch_page(parent_offset).unwrap();
-            parent_page.node = Some(node);
-            self.unpin_page(parent_offset, true);
+            self.promote_last_node_to_root(left_cp);
         } else {
             let index = parent.internal_search_child_pointer(right_cp as u32);
             if index == parent.num_of_cells as usize {
@@ -733,11 +737,119 @@ impl Pager {
             let parent = parent_page.node.as_ref().unwrap();
             if parent.num_of_cells <= min_key_length && !parent.is_root {
                 self.unpin_page(parent_offset, false);
-                unimplemented!("merge internal nodes");
-                // self.merge_internal_nodes(parent_offset);
+                self.merge_internal_nodes(parent_offset);
             } else {
                 self.unpin_page(parent_offset, false);
             }
+        }
+    }
+
+    fn merge_internal_nodes(&mut self, page_num: usize) {
+        let page = self.fetch_page(page_num).unwrap();
+        let node = page.node.as_ref().unwrap();
+        let node_num_of_cells = node.num_of_cells as usize;
+        let parent_page_id = node.parent_offset as usize;
+        self.unpin_page(page_num, false);
+
+        let parent_page = self.fetch_page(parent_page_id).unwrap();
+        let parent = parent_page.node.as_ref().unwrap();
+
+        let (left_child_pointer, right_child_pointer) = parent.siblings(page_num as u32);
+        self.unpin_page(parent_page_id, false);
+
+        if let Some(cp) = left_child_pointer {
+            let left_page = self.fetch_page(cp).unwrap();
+            let left_nb = left_page.node.as_ref().unwrap();
+
+            if cp != page_num
+                && left_nb.internal_cells.len() + node_num_of_cells <= INTERNAL_NODE_MAX_CELLS
+            {
+                self.unpin_page(cp, false);
+                debug!("Merging internal node {page_num} with left neighbour");
+                self.do_merge_internal_nodes(cp, page_num);
+                return;
+            } else {
+                self.unpin_page(cp, false);
+            }
+        }
+
+        if let Some(cp) = right_child_pointer {
+            let right_page = self.fetch_page(cp).unwrap();
+            let right_nb = right_page.node.as_ref().unwrap();
+            if cp != page_num
+                && right_nb.internal_cells.len() + node_num_of_cells <= INTERNAL_NODE_MAX_CELLS
+            {
+                self.unpin_page(cp, false);
+                debug!("Merging internal node {page_num} with right neighbour");
+                self.do_merge_internal_nodes(page_num, cp);
+            } else {
+                self.unpin_page(cp, false);
+            }
+        }
+    }
+
+    fn do_merge_internal_nodes(&mut self, left_cp: usize, right_cp: usize) {
+        // let min_key_length = self.min_key(3) as u32;
+
+        let left_page = self.fetch_page(left_cp).unwrap();
+        let left_node = left_page.node.as_ref().unwrap();
+        let left_node_right_child_offset = left_node.right_child_offset as usize;
+        self.unpin_page(left_cp, false);
+
+        let left_most_right_child_page = self.fetch_page(left_node_right_child_offset).unwrap();
+        let left_most_right_child_node = left_most_right_child_page.node.as_ref().unwrap();
+        let new_left_max_key = left_most_right_child_node.get_max_key();
+
+        let right_node = self.take_node(right_cp).unwrap();
+        self.unpin_page(right_cp, false);
+        self.delete_page(right_cp);
+
+        let left_page = self.fetch_page(left_cp).unwrap();
+        let left_node = left_page.node.as_mut().unwrap();
+        left_node.internal_cells.push(InternalCell::new(
+            left_node.right_child_offset,
+            new_left_max_key,
+        ));
+        left_node.num_of_cells += 1;
+
+        // Merge the leaf nodes cells
+        for c in right_node.internal_cells {
+            left_node.internal_cells.push(c);
+            left_node.num_of_cells += 1;
+        }
+
+        left_node.right_child_offset = right_node.right_child_offset;
+
+        // Update parent metadata
+        let parent_offset = left_node.parent_offset as usize;
+        let parent_page = self.fetch_page(parent_offset).unwrap();
+        let parent = parent_page.node.as_ref().unwrap();
+
+        if parent.num_of_cells == 1 && parent.is_root {
+            self.unpin_page(parent_offset, false);
+            debug!("promote internal nodes to root");
+            self.promote_last_node_to_root(left_cp);
+            self.update_children_parent_offset(0);
+        } else {
+            debug!("update parent linked with childrens");
+            let parent = parent_page.node.as_mut().unwrap();
+            let parent_right_child_offset = parent.right_child_offset as usize;
+
+            let index = parent.internal_search_child_pointer(left_cp as u32);
+            parent.internal_cells.remove(index);
+            parent.num_of_cells -= 1;
+
+            if right_cp == parent_right_child_offset {
+                debug!("  update parent after merging most right child");
+
+                parent.right_child_offset = left_cp as u32;
+            } else {
+                debug!("  update parent after merging child");
+                parent.internal_cells[index].write_child_pointer(left_cp as u32);
+            }
+            self.unpin_page(parent_offset, false);
+
+            self.update_children_parent_offset(left_cp as usize);
         }
     }
 
