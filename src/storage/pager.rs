@@ -636,6 +636,8 @@ impl Pager {
                 self.do_merge_leaf_nodes(cp, page_num);
 
                 return;
+            } else {
+                self.unpin_page(cp, false);
             }
         }
 
@@ -647,6 +649,8 @@ impl Pager {
                 self.unpin_page(cp, false);
                 debug!("Merging node {} with its right neighbour...", page_num);
                 self.do_merge_leaf_nodes(page_num, cp);
+            } else {
+                self.unpin_page(cp, false);
             }
         }
     }
@@ -662,7 +666,11 @@ impl Pager {
     }
 
     fn do_merge_leaf_nodes(&mut self, left_cp: usize, right_cp: usize) {
+        // TODO: I'm not really sure if this is really correct.
+        //
+        // If things happen concurrently, this might caused issued.
         let right_node = self.take_node(right_cp).unwrap();
+        self.unpin_page(right_cp, true);
         self.delete_page(right_cp);
 
         let left_page = self.fetch_page(left_cp).unwrap();
@@ -673,6 +681,8 @@ impl Pager {
             left_node.cells.push(c);
             left_node.num_of_cells += 1;
         }
+
+        left_node.next_leaf_offset = right_node.next_leaf_offset;
 
         let parent_offset = left_node.parent_offset as usize;
 
@@ -688,6 +698,7 @@ impl Pager {
             debug!("promote last leaf node to root");
 
             let mut node = self.take_node(left_cp).unwrap();
+            self.unpin_page(left_cp, true);
             self.delete_page(left_cp);
             node.is_root = true;
             node.next_leaf_offset = 0;

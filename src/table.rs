@@ -435,22 +435,16 @@ mod test {
 
     #[test]
     fn delete_cells_from_leaf_node_up_to_root_node() {
-        env_logger::init();
         deletion_test(15);
     }
 
-    // #[test]
-    // fn delete_test_case_2() {
-    //     deletion_test(22)
-    // }
+    #[test]
+    fn delete_cells_and_ensure_new_merged_node_next_leaf_offset_is_updated_correctly() {
+        deletion_test(22)
+    }
 
     // #[test]
-    // fn delete_test_case_3() {
-    //     deletion_test(29)
-    // }
-
-    // #[test]
-    // fn delete_test_case_4() {
+    // fn delete_cells_and_merge_internal_nodes() {
     //     deletion_test(36)
     // }
 
