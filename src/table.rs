@@ -306,7 +306,6 @@ mod test {
 
     #[test]
     fn insert_and_split_internal_node_with_new_buffer_pool_impl() {
-        env_logger::init();
         insertion_test(57)
     }
 

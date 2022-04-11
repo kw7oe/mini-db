@@ -479,11 +479,12 @@ impl Pager {
                 self.update_children_parent_offset(next_page_id);
                 self.update_children_parent_offset(next_page_id + 1);
             } else {
-                unimplemented!("splitting internal node...");
-                // debug!("update internal node {page_num}, parent...");
-                // let parent = &mut self.0[left_node.parent_offset as usize];
+                debug!("update internal node {page_num}, parent...");
+                let parent_offset = left_node.parent_offset as usize;
+                let parent = self.fetch_node(parent_offset).unwrap();
 
-                // let index = parent.internal_search_child_pointer(page_num as u32);
+                let index = parent.internal_search_child_pointer(page_num as u32);
+
                 // if page_num < parent.right_child_offset as usize {
                 //     parent.right_child_offset -= 1;
                 // }
@@ -496,47 +497,50 @@ impl Pager {
                 //     right_node.right_child_offset -= 1;
                 // }
 
-                // if parent.num_of_cells == index as u32 {
-                //     debug!("update parent after split most right internal node");
+                if parent.num_of_cells == index as u32 {
+                    debug!("update parent after split most right internal node");
 
-                //     for cell in parent.internal_cells.iter_mut() {
-                //         let cp = cell.child_pointer();
-                //         if cp > page_num as u32 && cp < last_unused_page_num {
-                //             cell.write_child_pointer(cp - 1)
-                //         }
-                //     }
+                    // for cell in parent.internal_cells.iter_mut() {
+                    //     let cp = cell.child_pointer();
+                    //     if cp > page_num as u32 && cp < next_page_id {
+                    //         cell.write_child_pointer(cp - 1)
+                    //     }
+                    // }
 
-                //     parent.right_child_offset = last_unused_page_num;
-                //     parent.internal_insert(
-                //         index,
-                //         InternalCell::new(last_unused_page_num - 1, ic.key()),
-                //     );
-                //     parent.num_of_cells += 1;
-                // } else {
-                //     debug!("update parent after split internal node");
+                    parent.right_child_offset = next_page_id as u32;
+                    parent.internal_insert(
+                        index,
+                        InternalCell::new(next_page_id as u32 - 1, ic.key()),
+                    );
+                    parent.num_of_cells += 1;
+                } else {
+                    debug!("update parent after split internal node");
 
-                //     for cell in parent.internal_cells.iter_mut() {
-                //         let cp = cell.child_pointer();
-                //         if cp > page_num as u32 && cp < last_unused_page_num {
-                //             cell.write_child_pointer(cp - 1)
-                //         }
-                //     }
+                    //     for cell in parent.internal_cells.iter_mut() {
+                    //         let cp = cell.child_pointer();
+                    //         if cp > page_num as u32 && cp < last_unused_page_num {
+                    //             cell.write_child_pointer(cp - 1)
+                    //         }
+                    //     }
 
-                //     parent.internal_insert(
-                //         index,
-                //         InternalCell::new(last_unused_page_num - 1, ic.key()),
-                //     );
+                    parent.internal_insert(
+                        index,
+                        InternalCell::new(next_page_id as u32 - 1, ic.key()),
+                    );
 
-                //     let internel_cell = parent.internal_cells.remove(index + 1);
-                //     parent.internal_insert(
-                //         index + 1,
-                //         InternalCell::new(last_unused_page_num, internel_cell.key()),
-                //     );
-                //     parent.num_of_cells += 1;
-                // }
+                    let internel_cell = parent.internal_cells.remove(index + 1);
+                    parent.internal_insert(
+                        index + 1,
+                        InternalCell::new(next_page_id as u32, internel_cell.key()),
+                    );
+                    parent.num_of_cells += 1;
+                }
+                self.unpin_page(parent_offset, true);
 
-                // self.0.push(left_node);
-                // self.0.push(right_node);
+                let right_page = self.fetch_page(next_page_id).unwrap();
+                right_page.is_dirty = true;
+                right_page.node = Some(right_node);
+                self.unpin_page(next_page_id, true);
             }
         }
     }
