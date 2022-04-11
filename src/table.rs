@@ -250,6 +250,17 @@ impl Table {
             format!("item not found with id {}", row.id)
         }
     }
+
+    pub fn delete_v2(&mut self, row: &Row) -> String {
+        debug!("deleting row with id {}", row.id);
+        let cursor = Cursor::table_find_v2(self, self.root_page_num, row.id).unwrap();
+        if cursor.key_existed {
+            self.pager.delete_record(&cursor);
+            format!("deleted {}", row.id)
+        } else {
+            format!("item not found with id {}", row.id)
+        }
+    }
 }
 
 impl std::string::ToString for Table {
@@ -397,7 +408,6 @@ mod test {
             let query = format!("insert {i} user{i} user{i}@email.com");
             let statement = prepare_statement(&query).unwrap();
             table.insert_v2(&statement.row.unwrap());
-            assert_eq!(table.pager.tree_len(), 0);
         }
 
         let expected_output = expected_output(1..row_count);
@@ -416,6 +426,66 @@ mod test {
         let result = table.select_v2(&statement);
         assert_eq!(result, expected_output);
         cleanup_test_db_file();
+    }
+
+    #[test]
+    fn delete_cells_from_root_node() {
+        deletion_test(10);
+    }
+
+    // #[test]
+    // fn delete_cells_from_leaf_node_up_to_root_node() {
+    //     deletion_test(15);
+    // }
+
+    // #[test]
+    // fn delete_test_case_2() {
+    //     deletion_test(22)
+    // }
+
+    // #[test]
+    // fn delete_test_case_3() {
+    //     deletion_test(29)
+    // }
+
+    // #[test]
+    // fn delete_test_case_4() {
+    //     deletion_test(36)
+    // }
+
+    // #[test]
+    // fn delete_test_case_5() {
+    //     deletion_test(57)
+    // }
+
+    // #[test]
+    // fn delete_test_case_6() {
+    //     deletion_test(65);
+    //     deletion_test(165);
+    //     deletion_test(365);
+    // }
+
+    fn deletion_test(row_count: usize) {
+        let mut table = Table::new("test.db");
+        for i in 1..row_count {
+            let query = format!("insert {i} user{i} user{i}@email.com");
+            let statement = prepare_statement(&query).unwrap();
+            table.insert_v2(&statement.row.unwrap());
+        }
+
+        let mut remaining: Vec<usize> = (1..row_count).collect();
+        for i in 1..row_count {
+            let query = format!("delete {i}");
+            let statement = prepare_statement(&query).unwrap();
+            table.delete_v2(&statement.row.unwrap());
+
+            let index = remaining.iter().position(|&x| x == i).unwrap();
+            remaining.remove(index);
+
+            let statement = prepare_statement("select").unwrap();
+            let result = table.select_v2(&statement);
+            assert_eq!(result, expected_output(&remaining));
+        }
     }
 
     fn expected_output<I>(range: I) -> String

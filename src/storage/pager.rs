@@ -585,6 +585,13 @@ impl Pager {
         panic!("row not found...");
     }
 
+    pub fn delete_record(&mut self, cursor: &Cursor) {
+        let page = self.fetch_page(cursor.page_num).unwrap();
+        let node = page.node.as_mut().unwrap();
+        node.delete(cursor.cell_num);
+        self.unpin_page(cursor.page_num, true);
+    }
+
     pub fn delete_row(&mut self, cursor: &Cursor) {
         self.get_page(cursor.page_num);
         self.tree.delete(cursor);
