@@ -295,8 +295,7 @@ mod test {
     }
 
     #[test]
-    fn insert_and_split_internal_node_with_new_buffer_pool_impl() {
-        env_logger::init();
+    fn insert_with_replace_pages_and_flush_dirty_pages_with_new_buffer_pool_impl() {
         insertion_test(29)
     }
 

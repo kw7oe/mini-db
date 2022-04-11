@@ -156,8 +156,10 @@ impl Pager {
         };
 
         if let Some(frame_id) = frame_id {
+            debug!("page_table: {:?}", self.page_table);
             if let Some(page) = self.pages.get(frame_id) {
                 if page.is_dirty {
+                    debug!("page: {:?}", page);
                     let dirty_page_id = page.page_id.unwrap();
                     self.flush_page(dirty_page_id);
                 }
@@ -192,6 +194,7 @@ impl Pager {
     pub fn fetch_page(&mut self, page_id: usize) -> Option<&mut Page> {
         // Check if the page is already in memory. If yes,
         // just pin the page and return the node.
+
         if let Some(&frame_id) = self.page_table.get(&page_id) {
             let mut page = &mut self.pages[frame_id];
             page.pin_count += 1;
@@ -201,6 +204,7 @@ impl Pager {
 
         if let Some(frame_id) = self.create_or_replace_page(page_id) {
             let page = &mut self.pages[frame_id];
+            debug!("reading page {page_id} into frame {frame_id}");
             match self.disk_manager.read_page(page_id) {
                 Ok(bytes) => {
                     page.node = Some(Node::new_from_bytes(&bytes));
@@ -227,6 +231,7 @@ impl Pager {
         debug!("flush page {page_id}...");
         if let Some(&frame_id) = self.page_table.get(&page_id) {
             if let Some(node) = &self.pages[frame_id].node {
+                debug!("--- node: {:?}", node);
                 let bytes = node.to_bytes();
                 self.disk_manager.write_page(page_id, &bytes).unwrap();
             }
@@ -350,6 +355,7 @@ impl Pager {
 
             self.unpin_page(cursor.page_num, true)
         }
+        println!("self.pages: {:?}", self.pages);
     }
 
     pub fn create_new_root(&mut self, left_node_page_num: usize, mut right_node: Node) {
