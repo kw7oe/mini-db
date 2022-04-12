@@ -600,9 +600,6 @@ impl Pager {
         node.delete(cursor.cell_num);
         self.unpin_page(cursor.page_num, true);
         self.maybe_merge_nodes(cursor);
-
-        //         self.flush_all_pages();
-        //         self.debug_pages();
     }
 
     fn maybe_merge_nodes(&mut self, cursor: &Cursor) {

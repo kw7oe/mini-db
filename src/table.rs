@@ -485,6 +485,68 @@ mod test {
         cleanup_test_db_file();
     }
 
+    #[derive(Clone, Debug)]
+    struct DeleteInputs {
+        pub insertion_ids: Vec<u8>,
+        pub deletion_ids: Vec<u8>,
+    }
+
+    impl Arbitrary for DeleteInputs {
+        fn arbitrary(g: &mut Gen) -> DeleteInputs {
+            let mut insertion_ids = Vec::<u8>::arbitrary(g);
+            insertion_ids.sort_unstable();
+            insertion_ids.dedup();
+            insertion_ids.shuffle(&mut thread_rng());
+
+            let mut deletion_ids = insertion_ids.clone();
+            deletion_ids.shuffle(&mut thread_rng());
+
+            Self {
+                insertion_ids,
+                deletion_ids,
+            }
+        }
+    }
+
+    #[test]
+    fn quickcheck_insert_delete_and_select() {
+        // Change the Gen::new(size) to have quickcheck
+        // generate larger size vector.
+        let gen = Gen::new(100);
+
+        QuickCheck::new()
+            .gen(gen)
+            .quickcheck(insert_delete_and_select_prop as fn(DeleteInputs));
+    }
+
+    fn insert_delete_and_select_prop(delete_input: DeleteInputs) {
+        let mut table = Table::new("test.db".to_string());
+
+        for i in &delete_input.insertion_ids {
+            let query = format!("insert {i} user{i} user{i}@email.com");
+            let statement = prepare_statement(&query).unwrap();
+            table.insert_v2(&statement.row.unwrap());
+        }
+
+        let mut remaining: Vec<u8> = delete_input.insertion_ids.clone();
+        remaining.sort_unstable();
+
+        for i in &delete_input.deletion_ids {
+            let query = format!("delete {i}");
+            let statement = prepare_statement(&query).unwrap();
+            table.delete_v2(&statement.row.unwrap());
+
+            let index = remaining.iter().position(|x| x == i).unwrap();
+            remaining.remove(index);
+
+            let statement = prepare_statement("select").unwrap();
+            let result = table.select_v2(&statement);
+            assert_eq!(result, expected_output(&remaining));
+        }
+
+        cleanup_test_db_file();
+    }
+
     fn expected_output<I>(range: I) -> String
     where
         I: IntoIterator,
