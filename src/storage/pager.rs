@@ -5,7 +5,6 @@ use super::node::{
     InternalCell, Node, INTERNAL_NODE_MAX_CELLS, LEAF_NODE_LEFT_SPLIT_COUNT, LEAF_NODE_MAX_CELLS,
     LEAF_NODE_RIGHT_SPLIT_COUNT,
 };
-use super::tree::Tree;
 use crate::row::Row;
 use crate::storage::{DiskManager, NodeType};
 use crate::table::Cursor;
@@ -119,7 +118,6 @@ pub struct Pager {
     free_list: Vec<usize>,
     // Mapping page id to frame id
     page_table: HashMap<usize, usize>,
-    tree: Tree,
 }
 
 impl Pager {
@@ -144,7 +142,6 @@ impl Pager {
             next_page_id,
             free_list,
             page_table: HashMap::new(),
-            tree: Tree::new(),
         }
     }
 
@@ -287,56 +284,6 @@ impl Pager {
                 self.replacer.unpin(frame_id);
             }
         }
-    }
-
-    pub fn get_page(&mut self, page_num: usize) -> &Node {
-        if self.tree.nodes().get(page_num).is_none() {
-            if page_num > self.tree.nodes().len() {
-                for i in self.tree.nodes().len()..page_num {
-                    self.tree.mut_nodes().insert(i, Node::uninitialize());
-                }
-            }
-
-            self.tree.mut_nodes().insert(page_num, Node::uninitialize());
-        }
-
-        let node = self.tree.mut_nodes().get_mut(page_num).unwrap();
-        if !node.has_initialize {
-            if let Ok(bytes) = self.disk_manager.read_page(page_num) {
-                node.from_bytes(&bytes);
-            }
-        }
-
-        &self.tree.nodes()[page_num]
-    }
-
-    pub fn flush_all(&mut self) {
-        // Again, the reason why we can't just deserialize whole node
-        // with bincode is because we are tracking our own num_of_cells.
-        //
-        // So, if we just use deserialize directly, it will also include
-        // the node.cells len by Vec<Cell>.
-        //
-        // Ideally, we should have just need to call bincode deserialize.
-        for (i, node) in self.tree.nodes().iter().enumerate() {
-            self.disk_manager.write_page(i, &node.to_bytes()).unwrap();
-        }
-    }
-
-    pub fn serialize_row(&mut self, row: &Row, cursor: &Cursor) {
-        let node = &mut self.tree.mut_nodes()[cursor.page_num];
-        let num_of_cells = node.num_of_cells as usize;
-        if num_of_cells >= LEAF_NODE_MAX_CELLS {
-            self.tree.split_and_insert_leaf_node(cursor, row);
-        } else {
-            node.insert(row, cursor);
-        }
-    }
-
-    pub fn deserialize_row(&mut self, cursor: &Cursor) -> Row {
-        self.get_page(cursor.page_num);
-        let node = &mut self.tree.mut_nodes()[cursor.page_num];
-        node.get(cursor.cell_num)
     }
 
     pub fn insert_record(&mut self, row: &Row, cursor: &Cursor) {
@@ -863,15 +810,6 @@ impl Pager {
         }
     }
 
-    pub fn delete_row(&mut self, cursor: &Cursor) {
-        self.get_page(cursor.page_num);
-        self.tree.delete(cursor);
-    }
-
-    pub fn tree_len(&self) -> usize {
-        self.tree.len()
-    }
-
     pub fn debug_pages(&mut self) {
         println!("\n\n------ DEBUG ------");
         for i in 0..self.next_page_id {
@@ -880,12 +818,6 @@ impl Pager {
             println!("{:?}", Node::new_from_bytes(&bytes));
         }
         println!("------ END DEBUG ------\n\n");
-    }
-}
-
-impl std::string::ToString for Pager {
-    fn to_string(&self) -> String {
-        self.tree.to_string()
     }
 }
 
