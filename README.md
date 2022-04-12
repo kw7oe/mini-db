@@ -44,7 +44,9 @@ quick breakdown on what I'm going to implement next:
   - [x] Implement least recently used (LRU) replacement policies.
   - [x] Implement Buffer Pool Manager.
   - [x] Integrated Buffer Pool manager into the rest of the system.
+  - [ ] Make buffer pool page size configurable. Currently is hardcoded to 4.
 - [ ] Implement concurrency control for our database.
+  - [ ] Make all operations thread safe?
 - [ ] Implement recovery mechanism for our database.
 - [ ] Make it a distributed database????
 
