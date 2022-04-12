@@ -206,7 +206,7 @@ impl Pager {
 
         if let Some(frame_id) = self.create_or_replace_page(page_id) {
             let page = &mut self.pages[frame_id];
-            debug!("reading page {page_id} into frame {frame_id}");
+            // debug!("reading page {page_id} into frame {frame_id}");
             match self.disk_manager.read_page(page_id) {
                 Ok(bytes) => {
                     page.node = Some(Node::new_from_bytes(&bytes));
@@ -575,10 +575,10 @@ impl Pager {
     }
 
     pub fn get_record(&mut self, cursor: &Cursor) -> Row {
-        debug!(
-            "--- get_record at page {}, cell {}",
-            cursor.page_num, cursor.cell_num
-        );
+        // debug!(
+        //     "--- get_record at page {}, cell {}",
+        //     cursor.page_num, cursor.cell_num
+        // );
         if let Some(page) = self.fetch_page(cursor.page_num) {
             let node = page.node.as_mut().unwrap();
             let row = node.get(cursor.cell_num);
@@ -599,9 +599,7 @@ impl Pager {
         let node = page.node.as_mut().unwrap();
         node.delete(cursor.cell_num);
         self.unpin_page(cursor.page_num, true);
-        println!("---- before self.pages: {:?}", self.pages);
         self.maybe_merge_nodes(cursor);
-        println!("---- after self.pages: {:?}", self.pages);
 
         //         self.flush_all_pages();
         //         self.debug_pages();
@@ -811,9 +809,10 @@ impl Pager {
         let left_most_right_child_page = self.fetch_page(left_node_right_child_offset).unwrap();
         let left_most_right_child_node = left_most_right_child_page.node.as_ref().unwrap();
         let new_left_max_key = left_most_right_child_node.get_max_key();
+        self.unpin_page(left_node_right_child_offset, false);
 
         let right_node = self.take_node(right_cp).unwrap();
-        self.unpin_page(right_cp, false);
+        self.unpin_page(right_cp, true);
         self.delete_page(right_cp);
 
         let left_page = self.fetch_page(left_cp).unwrap();
@@ -831,7 +830,6 @@ impl Pager {
         }
 
         left_node.right_child_offset = right_node.right_child_offset;
-        println!("\n\n---------");
 
         // Update parent metadata
         let parent_offset = left_node.parent_offset as usize;
@@ -851,9 +849,7 @@ impl Pager {
             let parent_right_child_offset = parent.right_child_offset as usize;
 
             let index = parent.internal_search_child_pointer(left_cp as u32);
-            println!("left_cp: {left_cp}, index: {:?}", index);
             parent.internal_cells.remove(index);
-            println!("parent: {:?}", parent);
             parent.num_of_cells -= 1;
 
             if right_cp == parent_right_child_offset {
@@ -864,7 +860,6 @@ impl Pager {
                 debug!("  update parent after merging child");
                 parent.internal_cells[index].write_child_pointer(left_cp as u32);
             }
-            println!("parent: {:?}", parent);
             self.unpin_page(parent_offset, true);
 
             self.update_children_parent_offset(left_cp as usize);

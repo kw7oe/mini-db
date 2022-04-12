@@ -451,15 +451,14 @@ mod test {
     #[test]
     fn delete_ensure_pages_is_unpin_correctly() {
         // Previous impl doesn not unpin left page during merge operation.
-        deletion_test(57)
-    }
+        deletion_test(57);
 
-    // #[test]
-    // fn delete_test_case_6() {
-    //     env_logger::init();
-    //     deletion_test(165);
-    //     // deletion_test(365);
-    // }
+        // Previous impl does not unpin left page most right node during merge operation.
+        deletion_test(165);
+
+        // Testing on a bigger db.
+        deletion_test(365);
+    }
 
     fn deletion_test(row_count: usize) {
         let mut table = Table::new("test.db");
