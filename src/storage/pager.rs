@@ -46,9 +46,9 @@ impl LRUReplacer {
     }
 
     /// Number of frames that are currently in the replacer.
-    // pub fn size(&self) -> usize {
-    //     self.page_table.len()
-    // }
+    pub fn size(&self) -> usize {
+        self.page_table.len()
+    }
 
     /// Return frame metadata that are accessed least recently
     /// as compared to the other frame.
