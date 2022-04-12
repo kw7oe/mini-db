@@ -40,10 +40,10 @@ quick breakdown on what I'm going to implement next:
     node count supported by our data format.
       - This require us to generate a larger datasets to tests the
         behaviour.
-- [ ] Implement buffer pool for our database. _([Reference][1])_
+- [x] Implement buffer pool for our database. _([Reference][1])_
   - [x] Implement least recently used (LRU) replacement policies.
   - [x] Implement Buffer Pool Manager.
-  - [ ] Integrated Buffer Pool manager into the rest of the system.
+  - [x] Integrated Buffer Pool manager into the rest of the system.
 - [ ] Implement concurrency control for our database.
 - [ ] Implement recovery mechanism for our database.
 - [ ] Make it a distributed database????
