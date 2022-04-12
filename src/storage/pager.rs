@@ -46,9 +46,9 @@ impl LRUReplacer {
     }
 
     /// Number of frames that are currently in the replacer.
-    pub fn size(&self) -> usize {
-        self.page_table.len()
-    }
+    // pub fn size(&self) -> usize {
+    //     self.page_table.len()
+    // }
 
     /// Return frame metadata that are accessed least recently
     /// as compared to the other frame.
@@ -208,7 +208,7 @@ impl Pager {
                 Ok(bytes) => {
                     page.node = Some(Node::new_from_bytes(&bytes));
                 }
-                Err(err) => {
+                Err(_err) => {
                     // This either mean the file is corrupted or is a partial page
                     // or it's just a new file.
                     if page_id == 0 {
@@ -810,15 +810,15 @@ impl Pager {
         }
     }
 
-    pub fn debug_pages(&mut self) {
-        println!("\n\n------ DEBUG ------");
-        for i in 0..self.next_page_id {
-            let bytes = self.disk_manager.read_page(i).unwrap();
-            println!("--- Page {i} ---");
-            println!("{:?}", Node::new_from_bytes(&bytes));
-        }
-        println!("------ END DEBUG ------\n\n");
-    }
+    // pub fn debug_pages(&mut self) {
+    //     println!("\n\n------ DEBUG ------");
+    //     for i in 0..self.next_page_id {
+    //         let bytes = self.disk_manager.read_page(i).unwrap();
+    //         println!("--- Page {i} ---");
+    //         println!("{:?}", Node::new_from_bytes(&bytes));
+    //     }
+    //     println!("------ END DEBUG ------\n\n");
+    // }
 }
 
 #[cfg(test)]

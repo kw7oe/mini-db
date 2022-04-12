@@ -267,20 +267,6 @@ impl Node {
         bytes
     }
 
-    pub fn from_bytes(&mut self, bytes: &[u8]) {
-        self.set_common_header(&bytes[0..COMMON_NODE_HEADER_SIZE]);
-
-        if self.node_type == NodeType::Leaf {
-            self.set_leaf_header(&bytes[COMMON_NODE_HEADER_SIZE..LEAF_NODE_HEADER_SIZE]);
-            self.set_leaf_cells(&bytes[LEAF_NODE_HEADER_SIZE..]);
-        }
-
-        if self.node_type == NodeType::Internal {
-            self.set_internal_header(&bytes[COMMON_NODE_HEADER_SIZE..INTERNAL_NODE_HEADER_SIZE]);
-            self.set_internal_cells(&bytes[INTERNAL_NODE_HEADER_SIZE..]);
-        }
-    }
-
     pub fn set_common_header(&mut self, bytes: &[u8]) {
         let node_type_bytes = [bytes[0]];
         self.node_type = bincode::deserialize(&node_type_bytes).unwrap();
@@ -472,30 +458,6 @@ impl Node {
         let index = self.internal_search(old_key);
         if index < self.internal_cells.len() {
             self.internal_cells[index].write_key(new_key);
-        }
-    }
-
-    pub fn increment_internal_child_pointers(&mut self, page_num: usize) {
-        for cell in &mut self.internal_cells {
-            if page_num < cell.child_pointer() as usize {
-                cell.write_child_pointer(cell.child_pointer() + 1);
-            }
-        }
-
-        if page_num < self.right_child_offset as usize {
-            self.right_child_offset += 1;
-        }
-    }
-
-    pub fn decrement_internal_child_pointers(&mut self, page_num: usize) {
-        for cell in &mut self.internal_cells {
-            if page_num < cell.child_pointer() as usize {
-                cell.write_child_pointer(cell.child_pointer() - 1);
-            }
-        }
-
-        if page_num < self.right_child_offset as usize {
-            self.right_child_offset -= 1;
         }
     }
 
