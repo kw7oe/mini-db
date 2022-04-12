@@ -10,6 +10,11 @@ tutorial _(which is based on SQLite)_. However, as we continue the work after th
 tutorial, we kind of diverted from following the SQLite implementation and specification.
 Hence, it's not entirely correct to call this SQLite in Rust anymore.
 
+The rest of the work is continue based on multiple [references](#references).
+One of the most important one is [CMU Intro to Database Systems projects][5]
+_(including previous years archive, since each year they have students
+implement different structure)_.
+
 Currently, it's still a single threaded database system.
 
 _This is by no mean an idiomatic Rust implementation as I'm learning Rust
@@ -45,8 +50,12 @@ quick breakdown on what I'm going to implement next:
   - [x] Implement Buffer Pool Manager.
   - [x] Integrated Buffer Pool manager into the rest of the system.
   - [ ] Make buffer pool page size configurable. Currently is hardcoded to 4.
-- [ ] Implement concurrency control for our database.
-  - [ ] Make all operations thread safe?
+- [ ] Implement concurrency for our database.
+  - [ ] Multi threaded index concurrency control. _([Reference][2], [Reference, see Task 4][3])_
+  - [ ] Implement concurrency control at row/tuple level. _([Reference][4])_
+    - [ ] Implement lock manager.
+    - [ ] Implement dead lock detection.
+    - [ ] Implement concurrent query execution.
 - [ ] Implement recovery mechanism for our database.
 - [ ] Make it a distributed database????
 
@@ -91,3 +100,7 @@ cargo test -- --test-threads=1
 
 [0]: https://cstack.github.io/db_tutorial/
 [1]: https://15445.courses.cs.cmu.edu/fall2021/project1/
+[2]: https://www.youtube.com/watch?v=x5tqzyf0zrk&list=PLSE8ODhjZXjbohkNBWQs_otTrBTrjyohi&index=9
+[3]: https://15445.courses.cs.cmu.edu/fall2020/project2/
+[4]: https://15445.courses.cs.cmu.edu/fall2020/project4/
+[5]: https://15445.courses.cs.cmu.edu/fall2021/assignments.html
