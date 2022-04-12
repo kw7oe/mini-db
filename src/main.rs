@@ -52,7 +52,7 @@ fn handle_input(table: &mut Table, input: &str) -> String {
     if input.starts_with('.') {
         match handle_meta_command(input) {
             MetaCommand::Exit => return "Exit".to_string(),
-            MetaCommand::PrintTree => return "unimplemnted".to_string(),
+            MetaCommand::PrintTree => return table.to_string(),
             MetaCommand::Unrecognized => return format!("Unrecognized command '{input}'."),
         }
     }
@@ -163,7 +163,7 @@ mod test {
             handle_input(&mut table, &format!("insert {i} user{i} user{i}@email.com"));
         }
 
-        handle_input(&mut table, &format!("insert 15 user15 user15@email.com"));
+        handle_input(&mut table, "insert 15 user15 user15@email.com");
 
         let expected_output = "- internal (size 1)
   - leaf (size 7)
@@ -185,8 +185,8 @@ mod test {
     - 14
     - 15
 ";
-        // let output = table.to_string();
-        // assert_eq!(output, expected_output);
+        let output = table.to_string();
+        assert_eq!(output, expected_output);
 
         clean_test();
     }
@@ -270,8 +270,8 @@ mod test {
     - 29
     - 30
 ";
-        // let output = table.to_string();
-        // assert_eq!(output, expected_output);
+        let output = table.to_string();
+        assert_eq!(output, expected_output);
 
         clean_test();
     }
@@ -364,8 +364,8 @@ mod test {
     - 88
     - 90
 ";
-        // let output = table.to_string();
-        // assert_eq!(output, expected_output);
+        let output = table.to_string();
+        assert_eq!(output, expected_output);
         clean_test()
     }
 
@@ -425,8 +425,8 @@ mod test {
       - 34
       - 35
 ";
-        // let output = table.to_string();
-        // assert_eq!(output, expected_output);
+        let output = table.to_string();
+        assert_eq!(output, expected_output);
 
         clean_test();
     }

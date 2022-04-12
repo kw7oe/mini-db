@@ -819,6 +819,63 @@ impl Pager {
     //     }
     //     println!("------ END DEBUG ------\n\n");
     // }
+    //
+
+    pub fn node_to_string(&mut self, node_index: usize, indent_level: usize) -> String {
+        let page = self.fetch_page(node_index).unwrap();
+        let node = page.node.as_ref().unwrap();
+        let mut result = String::new();
+
+        if node.node_type == NodeType::Internal {
+            for _ in 0..indent_level {
+                result += "  ";
+            }
+            result += &format!("- internal (size {})\n", node.num_of_cells);
+            let most_righ_child_index = node.right_child_offset as usize;
+
+            let mut child_pointers = vec![];
+            for c in &node.internal_cells {
+                let child_index = c.child_pointer() as usize;
+                child_pointers.push((child_index, c.key()));
+            }
+            self.unpin_page(node_index, false);
+
+            for (i, k) in child_pointers {
+                result += &self.node_to_string(i, indent_level + 1);
+
+                for _ in 0..indent_level + 1 {
+                    result += "  ";
+                }
+                result += &format!("- key {}\n", k);
+            }
+
+            result += &self.node_to_string(most_righ_child_index, indent_level + 1);
+        } else if node.node_type == NodeType::Leaf {
+            for _ in 0..indent_level {
+                result += "  ";
+            }
+
+            result += &format!("- leaf (size {})\n", node.num_of_cells);
+            for c in &node.cells {
+                for _ in 0..indent_level + 1 {
+                    result += "  ";
+                }
+                result += &format!("- {}\n", c.key());
+            }
+
+            self.unpin_page(node_index, false);
+        }
+
+        result
+    }
+
+    pub fn to_tree_string(&mut self) -> String {
+        if self.next_page_id != 0 {
+            self.node_to_string(0, 0)
+        } else {
+            "Empty tree...".to_string()
+        }
+    }
 }
 
 #[cfg(test)]

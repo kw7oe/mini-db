@@ -153,6 +153,10 @@ impl Table {
             format!("item not found with id {}", row.id)
         }
     }
+
+    pub fn to_string(&mut self) -> String {
+        self.pager.to_tree_string()
+    }
 }
 
 #[cfg(test)]
