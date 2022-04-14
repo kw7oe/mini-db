@@ -161,6 +161,8 @@ impl Table {
 
 #[cfg(test)]
 mod test {
+    use std::thread;
+
     use crate::query::prepare_statement;
 
     use super::*;
@@ -430,6 +432,52 @@ mod test {
             let result = table.select(&statement);
             assert_eq!(result, expected_output(&remaining));
         }
+
+        cleanup_test_db_file();
+    }
+
+    use std::sync::{Arc, Mutex};
+
+    #[test]
+    // Okay, this is not exactly what we want. Since we probably have
+    // a mutual exclusive lock on Table, but what we want is selectively having a
+    // read/write latch on pages as needed.
+    //
+    // But I'm really not sure how to allow table to be access multiple threads at the same
+    // time while telling Rust that it's the resource underneath table that need to be
+    // accessed concurrently. Same applied to our pager.
+    //
+    // Both our Table and Pager module is just an public interface where the client can
+    // call concurrently.
+    fn insert_concurrently() {
+        let table = Arc::new(Mutex::new(Table::new("test.db".to_string())));
+
+        for i in 1..10 {
+            let row =
+                Row::from_statement(&format!("insert {i} user{i} user{i}@email.com")).unwrap();
+            let mut table = table.lock().unwrap();
+            table.insert(&row);
+        }
+
+        let mut handles = vec![];
+        for i in 10..12 {
+            let table = Arc::clone(&table);
+            let handle = thread::spawn(move || {
+                let row =
+                    Row::from_statement(&format!("insert {i} user{i} user{i}@email.com")).unwrap();
+                let mut table = table.lock().unwrap();
+                table.insert(&row);
+            });
+            handles.push(handle);
+        }
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        let statement = prepare_statement("select").unwrap();
+        let mut table = table.lock().unwrap();
+        let result = table.select(&statement);
+        assert_eq!(result, expected_output(1..12));
 
         cleanup_test_db_file();
     }
