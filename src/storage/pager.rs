@@ -45,6 +45,7 @@ impl LRUReplacer {
         }
     }
 
+    #[cfg(test)]
     /// Number of frames that are currently in the replacer.
     pub fn size(&self) -> usize {
         self.page_table.len()
