@@ -11,7 +11,6 @@ use std::{
 pub struct DiskManager {
     write_file: Mutex<File>,
     read_file: Mutex<File>,
-    // read_file: File,
     pub file_len: usize,
 }
 
@@ -31,7 +30,6 @@ impl DiskManager {
         Self {
             write_file: Mutex::new(write_file),
             read_file: Mutex::new(read_file),
-            // read_file,
             file_len,
         }
     }
@@ -85,6 +83,74 @@ mod test {
                 let result = handle.join().unwrap();
                 assert_eq!(result, [i as u8; 4096]);
             }
+        }
+
+        let _ = std::fs::remove_file("test_file");
+    }
+
+    #[test]
+    fn write_file_concurrently() {
+        let disk_manager = Arc::new(DiskManager::new("test_file"));
+
+        let mut handles = vec![];
+        for i in 0..8 {
+            let disk_manager = disk_manager.clone();
+            let handle =
+                thread::spawn(move || disk_manager.write_page(i, &[i as u8; 4096]).unwrap());
+            handles.push((i, handle));
+        }
+
+        for (i, handle) in handles {
+            handle.join().unwrap();
+        }
+
+        for i in 0..8 {
+            let result = disk_manager.read_page(i).unwrap();
+            assert_eq!(result, [i as u8; 4096]);
+        }
+
+        let _ = std::fs::remove_file("test_file");
+    }
+
+    #[test]
+    fn write_and_read_file_concurrently() {
+        let disk_manager = Arc::new(DiskManager::new("test_file"));
+
+        // Setup file
+        for i in 0..8 {
+            disk_manager.write_page(i, &[i as u8; 4096]).unwrap();
+        }
+
+        // Read concurrently
+        let mut read_handles = vec![];
+        for i in 0..8 {
+            let disk_manager = disk_manager.clone();
+            let handle = thread::spawn(move || disk_manager.read_page(i).unwrap());
+            read_handles.push((i, handle));
+        }
+
+        // Write concurrently
+        let mut write_handles = vec![];
+        for i in 8..16 {
+            let disk_manager = disk_manager.clone();
+            let handle =
+                thread::spawn(move || disk_manager.write_page(i, &[i as u8; 4096]).unwrap());
+            write_handles.push(handle);
+        }
+
+        for handle in write_handles {
+            handle.join().unwrap();
+        }
+
+        for (i, handle) in read_handles {
+            let result = handle.join().unwrap();
+            assert_eq!(result, [i as u8; 4096]);
+        }
+
+        // Verify write
+        for i in 8..16 {
+            let result = disk_manager.read_page(i).unwrap();
+            assert_eq!(result, [i as u8; 4096]);
         }
 
         let _ = std::fs::remove_file("test_file");
