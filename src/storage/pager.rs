@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Mutex;
 
 use super::node::{
     InternalCell, Node, INTERNAL_NODE_MAX_CELLS, LEAF_NODE_LEFT_SPLIT_COUNT, LEAF_NODE_MAX_CELLS,
@@ -35,50 +36,48 @@ struct LRUReplacer {
     //
     // And it's a bit easier to deal with Vec than
     // HashMap for the time being.
-    page_table: Vec<PageMetadata>,
+    page_table: Mutex<Vec<PageMetadata>>,
 }
 
 impl LRUReplacer {
     pub fn new(pool_size: usize) -> Self {
         Self {
-            page_table: Vec::with_capacity(pool_size),
+            page_table: Mutex::new(Vec::with_capacity(pool_size)),
         }
     }
 
     #[cfg(test)]
     /// Number of frames that are currently in the replacer.
     pub fn size(&self) -> usize {
-        self.page_table.len()
+        let page_table = self.page_table.lock().unwrap();
+        page_table.len()
     }
 
     /// Return frame metadata that are accessed least recently
     /// as compared to the other frame.
-    pub fn victim(&mut self) -> Option<PageMetadata> {
-        self.page_table
-            .sort_by(|a, b| b.last_accessed_at.cmp(&a.last_accessed_at));
-
-        self.page_table.pop()
+    pub fn victim(&self) -> Option<PageMetadata> {
+        let mut page_table = self.page_table.lock().unwrap();
+        page_table.sort_by(|a, b| b.last_accessed_at.cmp(&a.last_accessed_at));
+        page_table.pop()
     }
 
     /// This should be called after our Pager place the page into
     /// our memory. Here, pin a frame means removing it from our
     /// replacer. I guess this prevent it from the page being
     /// evicted
-    pub fn pin(&mut self, frame_id: usize) {
-        if let Some(index) = self
-            .page_table
-            .iter()
-            .position(|md| md.frame_id == frame_id)
-        {
-            self.page_table.remove(index);
+    pub fn pin(&self, frame_id: usize) {
+        let mut page_table = self.page_table.lock().unwrap();
+        if let Some(index) = page_table.iter().position(|md| md.frame_id == frame_id) {
+            page_table.remove(index);
         }
     }
 
     /// This should be called by our Pager when the page pin_count
     /// becomes 0. Here, unpin a frame means adding it to our
     /// replacer. This allow the page to be evicted.
-    pub fn unpin(&mut self, frame_id: usize) {
-        self.page_table.push(PageMetadata::new(frame_id));
+    pub fn unpin(&self, frame_id: usize) {
+        let mut page_table = self.page_table.lock().unwrap();
+        page_table.push(PageMetadata::new(frame_id));
     }
 }
 
@@ -886,7 +885,7 @@ mod test {
 
     #[test]
     fn lru_replacer_evict_least_recently_accessed_page() {
-        let mut replacer = LRUReplacer::new(4);
+        let replacer = LRUReplacer::new(4);
 
         // We have 3 candidates that can be choose to
         // be evicted by our buffer pool.
@@ -902,7 +901,7 @@ mod test {
 
     #[test]
     fn lru_replacer_do_not_evict_pin_page() {
-        let mut replacer = LRUReplacer::new(4);
+        let replacer = LRUReplacer::new(4);
 
         // We have 3 candidates that can be choose to
         // be evicted by our buffer pool.
@@ -915,6 +914,31 @@ mod test {
 
         let evicted_page = replacer.victim().unwrap();
         assert_eq!(evicted_page.frame_id, 0);
+    }
+
+    use std::sync::Arc;
+    use std::thread;
+    #[test]
+    // I'm not really sure how to further verify
+    // the behaviour when it being accessed concurrently.
+    //
+    // At least now it's "thread safe".
+    fn lru_replacer_works_concurrently() {
+        let replacer = Arc::new(LRUReplacer::new(4));
+
+        let re = replacer.clone();
+        let handle = thread::spawn(move || re.unpin(2));
+
+        let re = replacer.clone();
+        let handle2 = thread::spawn(move || re.unpin(3));
+
+        handle.join().unwrap();
+        handle2.join().unwrap();
+
+        replacer.pin(2);
+
+        let evicted_page = replacer.victim().unwrap();
+        assert_eq!(evicted_page.frame_id, 3);
     }
 
     #[test]

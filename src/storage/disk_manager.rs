@@ -97,10 +97,10 @@ mod test {
             let disk_manager = disk_manager.clone();
             let handle =
                 thread::spawn(move || disk_manager.write_page(i, &[i as u8; 4096]).unwrap());
-            handles.push((i, handle));
+            handles.push(handle);
         }
 
-        for (i, handle) in handles {
+        for handle in handles {
             handle.join().unwrap();
         }
 
