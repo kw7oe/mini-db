@@ -159,14 +159,16 @@ impl Pager {
         if let Some(frame_id) = frame_id {
             let mut pages = self.pages.lock().unwrap();
             if let Some(page) = pages.get(frame_id) {
+                let page_arc = page.clone();
                 let page = page.lock().unwrap();
                 if page.is_dirty {
                     let dirty_page_id = page.page_id.unwrap();
                     drop(page);
-                    self.flush_page(dirty_page_id);
+                    self.flush_page_v2(dirty_page_id, page_arc);
+                } else {
+                    drop(page)
                 }
 
-                let pages = self.pages.lock().unwrap();
                 let page = pages.get(frame_id).unwrap();
                 let mut page = page.lock().unwrap();
                 page.is_dirty = false;
@@ -238,19 +240,13 @@ impl Pager {
         None
     }
 
-    pub fn flush_page(&self, page_id: usize) {
-        debug!("flush page {page_id}");
-        let page_table = self.page_table.lock().unwrap();
-
-        if let Some(&frame_id) = page_table.get(&page_id) {
-            if let Some(page) = self.pages.lock().unwrap().get(frame_id) {
-                let page = page.lock().unwrap();
-                let node = page.node.as_ref().unwrap();
-                let bytes = node.to_bytes();
-                drop(page);
-                self.disk_manager.write_page(page_id, &bytes).unwrap();
-            }
-        }
+    // Taking in a page so we don't have to lock the whole Vec<Page>
+    pub fn flush_page_v2(&self, page_id: usize, page: Arc<Mutex<Page>>) {
+        let page = page.lock().unwrap();
+        let node = page.node.as_ref().unwrap();
+        let bytes = node.to_bytes();
+        drop(page);
+        self.disk_manager.write_page(page_id, &bytes).unwrap();
     }
 
     pub fn flush_all_pages(&self) {
@@ -1173,12 +1169,15 @@ mod test {
         assert_eq!(page.pin_count, 1);
         assert!(page.is_dirty);
 
+        drop(page);
+        drop(pages);
         pager.unpin_page(0, false);
 
         // If a page pin_count reach 0,
         // it should be place into replacer.
         assert_eq!(pager.replacer.size(), 1);
 
+        let pages = pager.pages.lock().unwrap();
         let page = &pages.get(0);
         assert!(page.is_some());
 

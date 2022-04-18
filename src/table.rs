@@ -32,7 +32,6 @@ impl Cursor {
     }
 
     pub fn table_find(table: &mut Table, page_num: usize, key: u32) -> Result<Self, String> {
-        println!("--- table find: {page_num}, {key}");
         let page = table.pager.fetch_page(page_num).unwrap();
         let page = page.lock().unwrap();
         let node = page.node.as_ref().unwrap();
