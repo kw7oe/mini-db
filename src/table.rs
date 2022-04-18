@@ -180,7 +180,7 @@ mod test {
     #[test]
     fn select_with_new_buffer_pool_impl() {
         setup_test_db_file();
-        let mut table = Table::new("test.db");
+        let table = Table::new("test.db");
         let statement = prepare_statement("select").unwrap();
         let result = table.select(&statement);
 
@@ -274,7 +274,7 @@ mod test {
     }
 
     fn insert_and_select_prop(mut ids: UniqueIDs) {
-        let mut table = Table::new("test.db");
+        let table = Table::new("test.db");
         for i in &ids.0 {
             let query = format!("insert {i} user{i} user{i}@email.com");
             let statement = prepare_statement(&query).unwrap();
@@ -293,7 +293,7 @@ mod test {
         //
         // So this make sure that our code work as expected
         // even reading from a file that we have just wrote to.
-        let mut table = Table::new("test.db");
+        let table = Table::new("test.db");
         let statement = prepare_statement("select").unwrap();
         let result = table.select(&statement);
         assert_eq!(result, expected_output);
@@ -302,7 +302,7 @@ mod test {
     }
 
     fn insertion_test(row_count: usize) {
-        let mut table = Table::new("test.db");
+        let table = Table::new("test.db");
         for i in 1..row_count {
             let query = format!("insert {i} user{i} user{i}@email.com");
             let statement = prepare_statement(&query).unwrap();
@@ -320,7 +320,7 @@ mod test {
         //
         // So this make sure that our code work as expected
         // even reading from a file that we have just wrote to.
-        let mut table = Table::new("test.db");
+        let table = Table::new("test.db");
         let statement = prepare_statement("select").unwrap();
         let result = table.select(&statement);
         assert_eq!(result, expected_output);
@@ -360,7 +360,7 @@ mod test {
     }
 
     fn deletion_test(row_count: usize) {
-        let mut table = Table::new("test.db");
+        let table = Table::new("test.db");
         for i in 1..row_count {
             let query = format!("insert {i} user{i} user{i}@email.com");
             let statement = prepare_statement(&query).unwrap();
@@ -419,7 +419,7 @@ mod test {
     }
 
     fn insert_delete_and_select_prop(delete_input: DeleteInputs) {
-        let mut table = Table::new("test.db".to_string());
+        let table = Table::new("test.db".to_string());
 
         for i in &delete_input.insertion_ids {
             let query = format!("insert {i} user{i} user{i}@email.com");
@@ -460,22 +460,20 @@ mod test {
     // Both our Table and Pager module is just an public interface where the client can
     // call concurrently.
     fn insert_concurrently() {
-        let table = Arc::new(Mutex::new(Table::new("test.db".to_string())));
+        let table = Arc::new(Table::new("test.db".to_string()));
 
-        for i in 1..10 {
+        for i in 1..5 {
             let row =
                 Row::from_statement(&format!("insert {i} user{i} user{i}@email.com")).unwrap();
-            let mut table = table.lock().unwrap();
             table.insert(&row);
         }
 
         let mut handles = vec![];
-        for i in 10..12 {
+        for i in 5..12 {
             let table = Arc::clone(&table);
             let handle = thread::spawn(move || {
                 let row =
                     Row::from_statement(&format!("insert {i} user{i} user{i}@email.com")).unwrap();
-                let mut table = table.lock().unwrap();
                 table.insert(&row);
             });
             handles.push(handle);
@@ -485,7 +483,6 @@ mod test {
         }
 
         let statement = prepare_statement("select").unwrap();
-        let mut table = table.lock().unwrap();
         let result = table.select(&statement);
         assert_eq!(result, expected_output(1..12));
 
@@ -505,7 +502,7 @@ mod test {
     }
 
     fn setup_test_db_file() {
-        let mut table = Table::new("test.db");
+        let table = Table::new("test.db");
 
         for i in 1..50 {
             let row =

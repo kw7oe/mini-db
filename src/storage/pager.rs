@@ -176,6 +176,7 @@ impl Pager {
                 page.pin_count = 0;
                 page.page_id = Some(page_id);
                 page.node = None;
+                drop(page);
 
                 let mut page_table = self.page_table.lock().unwrap();
                 page_table.retain(|_, &mut fid| fid != frame_id);
@@ -212,6 +213,7 @@ impl Pager {
 
         drop(pages);
         drop(page_table);
+
         if let Some(frame_id) = self.create_or_replace_page(page_id) {
             let pages = self.pages.lock().unwrap();
             let page = &pages[frame_id];
@@ -1202,7 +1204,7 @@ mod test {
     fn pager_get_record() {
         setup_test_db_file();
 
-        let mut pager = Pager::new("test.db");
+        let pager = Pager::new("test.db");
         let cursor = Cursor {
             page_num: 1,
             cell_num: 0,
@@ -1238,7 +1240,7 @@ mod test {
     }
 
     fn setup_test_db_file() {
-        let mut table = Table::new("test.db");
+        let table = Table::new("test.db");
 
         for i in 1..50 {
             let row =
