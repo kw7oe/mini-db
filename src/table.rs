@@ -15,7 +15,7 @@ pub struct Cursor {
 }
 
 impl Cursor {
-    pub fn table_start(table: &mut Table) -> Self {
+    pub fn table_start(table: &Table) -> Self {
         let page_num = table.root_page_num;
         if let Ok(mut cursor) = Self::table_find(table, page_num, 0) {
             let page = table.pager.fetch_page(cursor.page_num).unwrap();
@@ -31,7 +31,7 @@ impl Cursor {
         }
     }
 
-    pub fn table_find(table: &mut Table, page_num: usize, key: u32) -> Result<Self, String> {
+    pub fn table_find(table: &Table, page_num: usize, key: u32) -> Result<Self, String> {
         let page = table.pager.fetch_page(page_num).unwrap();
         let page = page.lock().unwrap();
         let node = page.node.as_ref().unwrap();
@@ -71,7 +71,7 @@ impl Cursor {
         }
     }
 
-    fn advance(&mut self, table: &mut Table) {
+    fn advance(&mut self, table: &Table) {
         self.cell_num += 1;
         let old_page_num = self.page_num;
         let page = table.pager.fetch_page(self.page_num).unwrap();
@@ -107,11 +107,11 @@ impl Table {
         }
     }
 
-    pub fn flush(&mut self) {
+    pub fn flush(&self) {
         self.pager.flush_all_pages();
     }
 
-    pub fn select(&mut self, statement: &Statement) -> String {
+    pub fn select(&self, statement: &Statement) -> String {
         let mut cursor: Cursor;
         let mut output = String::new();
 
@@ -133,7 +133,7 @@ impl Table {
         output
     }
 
-    pub fn insert(&mut self, row: &Row) -> String {
+    pub fn insert(&self, row: &Row) -> String {
         let page_num = self.root_page_num;
         match Cursor::table_find(self, page_num, row.id) {
             Ok(cursor) => {
@@ -151,7 +151,7 @@ impl Table {
         }
     }
 
-    pub fn delete(&mut self, row: &Row) -> String {
+    pub fn delete(&self, row: &Row) -> String {
         debug!("deleting row with id {}", row.id);
         let cursor = Cursor::table_find(self, self.root_page_num, row.id).unwrap();
         if cursor.key_existed {
@@ -161,8 +161,10 @@ impl Table {
             format!("item not found with id {}", row.id)
         }
     }
+}
 
-    pub fn to_string(&mut self) -> String {
+impl std::string::ToString for Table {
+    fn to_string(&self) -> String {
         self.pager.to_tree_string()
     }
 }

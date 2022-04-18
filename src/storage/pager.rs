@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 // use std::sync::{Arc, Mutex};
 use no_deadlocks::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use super::node::{
@@ -114,7 +115,7 @@ pub struct Pager {
     disk_manager: DiskManager,
     replacer: LRUReplacer,
     pages: Arc<Mutex<Vec<Arc<Mutex<Page>>>>>,
-    next_page_id: usize,
+    next_page_id: AtomicUsize,
     // Indexes in our `pages` that are "free", which mean
     // it is uninitialize.
     free_list: Mutex<Vec<usize>>,
@@ -141,7 +142,7 @@ impl Pager {
             pages: Arc::new(Mutex::new(Vec::with_capacity(pool_size))),
             // This would probably need to be based on the number of pages we
             // already have in our disk.
-            next_page_id,
+            next_page_id: AtomicUsize::new(next_page_id),
             free_list: Mutex::new(free_list),
             page_table: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -193,7 +194,7 @@ impl Pager {
         }
     }
 
-    pub fn fetch_page(&mut self, page_id: usize) -> Option<Arc<Mutex<Page>>> {
+    pub fn fetch_page(&self, page_id: usize) -> Option<Arc<Mutex<Page>>> {
         // Check if the page is already in memory. If yes,
         // just pin the page and return the node.
 
@@ -226,7 +227,8 @@ impl Pager {
                     if page_id == 0 {
                         page.node = Some(Node::root());
                     }
-                    self.next_page_id += 1;
+
+                    self.next_page_id.fetch_add(1, Ordering::SeqCst);
                 }
             }
 
@@ -305,7 +307,7 @@ impl Pager {
         }
     }
 
-    pub fn insert_record(&mut self, row: &Row, cursor: &Cursor) {
+    pub fn insert_record(&self, row: &Row, cursor: &Cursor) {
         debug!(
             "insert record {} at page {}, cell {}",
             row.id, cursor.page_num, cursor.cell_num
@@ -328,45 +330,44 @@ impl Pager {
         }
     }
 
-    pub fn create_new_root(
-        &mut self,
-        left_node_page_num: usize,
-        mut right_node: Node,
-        max_key: u32,
-    ) {
+    pub fn create_new_root(&self, left_node_page_num: usize, mut right_node: Node, max_key: u32) {
         debug!("--- create_new_root");
-        let next_page_id = self.next_page_id as u32;
+        let next_page_id = self.next_page_id.load(Ordering::Acquire);
         let root_page = self.fetch_page(left_node_page_num).unwrap();
         let mut root_page = root_page.lock().unwrap();
         let root_page_id = root_page.page_id.unwrap();
 
         let mut root_node = Node::new(true, NodeType::Internal);
         root_node.num_of_cells += 1;
-        root_node.right_child_offset = next_page_id + 1;
+        root_node.right_child_offset = next_page_id as u32 + 1;
 
         right_node.parent_offset = 0;
         right_node.next_leaf_offset = 0;
 
         let mut left_node = root_page.node.take().unwrap();
         left_node.is_root = false;
-        left_node.next_leaf_offset = next_page_id + 1;
+        left_node.next_leaf_offset = next_page_id as u32 + 1;
         left_node.parent_offset = 0;
 
-        let cell = InternalCell::new(next_page_id, max_key);
+        let cell = InternalCell::new(next_page_id as u32, max_key);
         root_node.internal_cells.insert(0, cell);
 
         root_page.node = Some(root_node);
         drop(root_page);
         self.unpin_page(root_page_id, true);
 
-        let left_page = self.fetch_page(self.next_page_id).unwrap();
+        let left_page = self
+            .fetch_page(self.next_page_id.load(Ordering::Acquire))
+            .unwrap();
         let mut left_page = left_page.lock().unwrap();
         let left_page_id = left_page.page_id.unwrap();
         left_page.node = Some(left_node);
         drop(left_page);
         self.unpin_page(left_page_id, true);
 
-        let right_page = self.fetch_page(self.next_page_id).unwrap();
+        let right_page = self
+            .fetch_page(self.next_page_id.load(Ordering::Acquire))
+            .unwrap();
         let mut right_page = right_page.lock().unwrap();
         let right_page_id = right_page.page_id.unwrap();
         right_page.node = Some(right_node);
@@ -374,7 +375,7 @@ impl Pager {
         self.unpin_page(right_page_id, true);
     }
 
-    pub fn insert_internal_node(&mut self, parent_page_num: usize, split_at_page_num: usize) {
+    pub fn insert_internal_node(&self, parent_page_num: usize, split_at_page_num: usize) {
         debug!("--- insert internal node {split_at_page_num} at parent {parent_page_num}");
         let parent_page = self.fetch_page(parent_page_num).unwrap();
         let parent_page = parent_page.lock().unwrap();
@@ -424,7 +425,7 @@ impl Pager {
         self.maybe_split_internal_node(parent_page_num);
     }
 
-    pub fn update_children_parent_offset(&mut self, page_num: usize) {
+    pub fn update_children_parent_offset(&self, page_num: usize) {
         let page = self.fetch_page(page_num).unwrap();
         let page = page.lock().unwrap();
         let node = page.node.as_ref().unwrap();
@@ -446,8 +447,8 @@ impl Pager {
         }
     }
 
-    pub fn maybe_split_internal_node(&mut self, page_num: usize) {
-        let next_page_id = self.next_page_id;
+    pub fn maybe_split_internal_node(&self, page_num: usize) {
+        let next_page_id = self.next_page_id.load(Ordering::Acquire);
         let left_page = self.fetch_page(page_num).unwrap();
         let mut left_page = left_page.lock().unwrap();
         let left_node = left_page.node.as_ref().unwrap();
@@ -524,7 +525,7 @@ impl Pager {
         }
     }
 
-    fn insert_and_split_leaf_node(&mut self, cursor: &Cursor, row: &Row) {
+    fn insert_and_split_leaf_node(&self, cursor: &Cursor, row: &Row) {
         debug!("--- insert_and_split_leaf_node");
         // We can unwrap here since, this will be called by insert_record
         // which have already check if the page of cursor.page_num existed.
@@ -554,12 +555,12 @@ impl Pager {
             drop(left_page);
             self.unpin_page(cursor.page_num, true);
 
-            let next_page_id = self.next_page_id as u32;
+            let next_page_id = self.next_page_id.load(Ordering::Acquire);
             let left_page = self.fetch_page(cursor.page_num).unwrap();
             let mut left_page = left_page.lock().unwrap();
             let left_node = left_page.node.as_mut().unwrap();
             right_node.next_leaf_offset = left_node.next_leaf_offset;
-            left_node.next_leaf_offset = next_page_id;
+            left_node.next_leaf_offset = next_page_id as u32;
             right_node.parent_offset = left_node.parent_offset;
 
             let parent_page_num = left_node.parent_offset as usize;
@@ -574,7 +575,9 @@ impl Pager {
             drop(parent_page);
             self.unpin_page(parent_page_num, true);
 
-            let right_page = self.fetch_page(self.next_page_id).unwrap();
+            let right_page = self
+                .fetch_page(self.next_page_id.load(Ordering::Acquire))
+                .unwrap();
             let mut right_page = right_page.lock().unwrap();
             let right_page_id = right_page.page_id.unwrap();
             right_page.node = Some(right_node);
@@ -585,7 +588,7 @@ impl Pager {
         }
     }
 
-    pub fn get_record(&mut self, cursor: &Cursor) -> Row {
+    pub fn get_record(&self, cursor: &Cursor) -> Row {
         // debug!(
         //     "--- get_record at page {}, cell {}",
         //     cursor.page_num, cursor.cell_num
@@ -602,7 +605,7 @@ impl Pager {
         panic!("row not found...");
     }
 
-    pub fn delete_record(&mut self, cursor: &Cursor) {
+    pub fn delete_record(&self, cursor: &Cursor) {
         debug!(
             "--- delete_record at page {}, cell {}",
             cursor.page_num, cursor.cell_num
@@ -617,7 +620,7 @@ impl Pager {
         self.maybe_merge_nodes(cursor);
     }
 
-    fn maybe_merge_nodes(&mut self, cursor: &Cursor) {
+    fn maybe_merge_nodes(&self, cursor: &Cursor) {
         let page = self.fetch_page(cursor.page_num).unwrap();
         let page = page.lock().unwrap();
         let node = page.node.as_ref().unwrap();
@@ -635,7 +638,7 @@ impl Pager {
         }
     }
 
-    fn merge_leaf_nodes(&mut self, page_num: usize) {
+    fn merge_leaf_nodes(&self, page_num: usize) {
         let page = self.fetch_page(page_num).unwrap();
         let page = page.lock().unwrap();
         let node = page.node.as_ref().unwrap();
@@ -697,7 +700,7 @@ impl Pager {
         min_key
     }
 
-    fn promote_last_node_to_root(&mut self, page_num: usize) {
+    fn promote_last_node_to_root(&self, page_num: usize) {
         let page = self.fetch_page(page_num).unwrap();
         let mut page = page.lock().unwrap();
         let mut node = page.node.take().unwrap();
@@ -716,7 +719,7 @@ impl Pager {
         self.unpin_page(parent_offset, true);
     }
 
-    fn do_merge_leaf_nodes(&mut self, left_cp: usize, right_cp: usize) {
+    fn do_merge_leaf_nodes(&self, left_cp: usize, right_cp: usize) {
         // TODO: I'm not really sure if this is really correct.
         //
         // If things happen concurrently, this might caused issued.
@@ -795,7 +798,7 @@ impl Pager {
         }
     }
 
-    fn merge_internal_nodes(&mut self, page_num: usize) {
+    fn merge_internal_nodes(&self, page_num: usize) {
         let page = self.fetch_page(page_num).unwrap();
         let page = page.lock().unwrap();
         let node = page.node.as_ref().unwrap();
@@ -849,7 +852,7 @@ impl Pager {
         }
     }
 
-    fn do_merge_internal_nodes(&mut self, left_cp: usize, right_cp: usize) {
+    fn do_merge_internal_nodes(&self, left_cp: usize, right_cp: usize) {
         // let min_key_length = self.min_key(3) as u32;
 
         let left_page = self.fetch_page(left_cp).unwrap();
@@ -940,7 +943,7 @@ impl Pager {
     // }
     //
 
-    pub fn node_to_string(&mut self, node_index: usize, indent_level: usize) -> String {
+    pub fn node_to_string(&self, node_index: usize, indent_level: usize) -> String {
         let page = self.fetch_page(node_index).unwrap();
         let page = page.lock().unwrap();
         let node = page.node.as_ref().unwrap();
@@ -991,8 +994,8 @@ impl Pager {
         result
     }
 
-    pub fn to_tree_string(&mut self) -> String {
-        if self.next_page_id != 0 {
+    pub fn to_tree_string(&self) -> String {
+        if self.next_page_id.load(Ordering::Acquire) != 0 {
             self.node_to_string(0, 0)
         } else {
             "Empty tree...".to_string()
@@ -1085,7 +1088,7 @@ mod test {
     #[test]
     fn pager_create_or_replace_page_when_page_cache_is_full_with_victims_in_replacer() {
         setup_test_db_file();
-        let mut pager = Pager::new("test.db");
+        let pager = Pager::new("test.db");
 
         // Since our pool size is hardcoded to 4,
         // we just need to fetch 4 pages to fill
@@ -1127,7 +1130,7 @@ mod test {
     #[test]
     fn pager_create_or_replace_page_when_no_pages_can_be_freed() {
         setup_test_db_file();
-        let mut pager = Pager::new("test.db");
+        let pager = Pager::new("test.db");
 
         // Since our pool size is hardcoded to 4,
         // we just need to fetch 4 pages to fill
@@ -1151,7 +1154,7 @@ mod test {
     #[test]
     fn pager_unpin_page() {
         setup_test_db_file();
-        let mut pager = Pager::new("test.db");
+        let pager = Pager::new("test.db");
 
         pager.fetch_page(0);
         pager.fetch_page(0);
