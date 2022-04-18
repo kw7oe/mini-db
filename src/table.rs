@@ -19,7 +19,7 @@ impl Cursor {
         let page_num = table.root_page_num;
         if let Ok(mut cursor) = Self::table_find(table, page_num, 0) {
             let page = table.pager.fetch_page(cursor.page_num).unwrap();
-            let page = page.lock().unwrap();
+            let page = page.read().unwrap();
             let num_of_cells = page.node.as_ref().unwrap().num_of_cells as usize;
 
             drop(page);
@@ -33,7 +33,7 @@ impl Cursor {
 
     pub fn table_find(table: &Table, page_num: usize, key: u32) -> Result<Self, String> {
         let page = table.pager.fetch_page(page_num).unwrap();
-        let page = page.lock().unwrap();
+        let page = page.read().unwrap();
         let node = page.node.as_ref().unwrap();
         let num_of_cells = node.num_of_cells as usize;
 
@@ -75,7 +75,7 @@ impl Cursor {
         self.cell_num += 1;
         let old_page_num = self.page_num;
         let page = table.pager.fetch_page(self.page_num).unwrap();
-        let page = page.lock().unwrap();
+        let page = page.read().unwrap();
         let node = page.node.as_ref().unwrap();
         let num_of_cells = node.num_of_cells as usize;
 
@@ -446,7 +446,7 @@ mod test {
         cleanup_test_db_file();
     }
 
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
 
     #[test]
     // Okay, this is not exactly what we want. Since we probably have

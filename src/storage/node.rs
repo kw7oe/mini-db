@@ -394,7 +394,7 @@ impl Node {
         Ok(child_pointer as usize)
     }
 
-    pub fn get(&mut self, cell_num: usize) -> Row {
+    pub fn get(&self, cell_num: usize) -> Row {
         let bytes = self.cells[cell_num].value();
         bincode::deserialize(bytes).unwrap()
     }
