@@ -18,13 +18,11 @@ impl Cursor {
     pub fn table_start(table: &mut Table) -> Self {
         let page_num = table.root_page_num;
         if let Ok(mut cursor) = Self::table_find(table, page_num, 0) {
-            let num_of_cells = table
-                .pager
-                .fetch_node(cursor.page_num)
-                .as_ref()
-                .unwrap()
-                .num_of_cells as usize;
+            let page = table.pager.fetch_page(cursor.page_num).unwrap();
+            let page = page.lock().unwrap();
+            let num_of_cells = page.node.as_ref().unwrap().num_of_cells as usize;
 
+            drop(page);
             table.pager.unpin_page(cursor.page_num, false);
             cursor.end_of_table = num_of_cells == 0;
             cursor
@@ -34,11 +32,16 @@ impl Cursor {
     }
 
     pub fn table_find(table: &mut Table, page_num: usize, key: u32) -> Result<Self, String> {
-        let node = table.pager.fetch_node(page_num).unwrap();
+        println!("--- table find: {page_num}, {key}");
+        let page = table.pager.fetch_page(page_num).unwrap();
+        let page = page.lock().unwrap();
+        let node = page.node.as_ref().unwrap();
         let num_of_cells = node.num_of_cells as usize;
+
         if node.node_type == NodeType::Leaf {
             match node.search(key) {
                 Ok(index) => {
+                    drop(page);
                     table.pager.unpin_page(page_num, false);
                     Ok(Cursor {
                         page_num,
@@ -48,6 +51,7 @@ impl Cursor {
                     })
                 }
                 Err(index) => {
+                    drop(page);
                     table.pager.unpin_page(page_num, false);
                     Ok(Cursor {
                         page_num,
@@ -58,9 +62,11 @@ impl Cursor {
                 }
             }
         } else if let Ok(next_page_num) = node.search(key) {
+            drop(page);
             table.pager.unpin_page(page_num, false);
             Self::table_find(table, next_page_num, key)
         } else {
+            drop(page);
             table.pager.unpin_page(page_num, false);
             Err("something went wrong".to_string())
         }
@@ -69,7 +75,9 @@ impl Cursor {
     fn advance(&mut self, table: &mut Table) {
         self.cell_num += 1;
         let old_page_num = self.page_num;
-        let node = table.pager.get_node(self.page_num).unwrap();
+        let page = table.pager.fetch_page(self.page_num).unwrap();
+        let page = page.lock().unwrap();
+        let node = page.node.as_ref().unwrap();
         let num_of_cells = node.num_of_cells as usize;
 
         if self.cell_num >= num_of_cells {
@@ -81,6 +89,7 @@ impl Cursor {
             }
         }
 
+        drop(page);
         table.pager.unpin_page(old_page_num, false);
     }
 }
