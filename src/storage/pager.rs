@@ -269,14 +269,12 @@ impl Pager {
         debug!("--- delete page {page_id}");
         let mut page_table = self.page_table.lock().unwrap();
         if let Some(&frame_id) = page_table.get(&page_id) {
-            let page = &self.pages.lock().unwrap()[frame_id];
-            let page = page.lock().unwrap();
+            let pages = &self.pages.lock().unwrap();
+            let page = &pages[frame_id];
+            let mut page = page.lock().unwrap();
             if page.pin_count == 0 {
                 debug!("--- page {page_id} found, deleting it...");
-                self.pages.lock().unwrap()[frame_id]
-                    .lock()
-                    .unwrap()
-                    .deallocate();
+                page.deallocate();
                 page_table.remove(&page_id);
                 self.free_list.lock().unwrap().push(frame_id);
 
