@@ -19,7 +19,7 @@ impl Cursor {
         let page_num = table.root_page_num;
         if let Ok(mut cursor) = Self::table_find(table, page_num, 0) {
             let page = table.pager.fetch_page(cursor.page_num).unwrap();
-            let page = page.read().unwrap();
+            let page = page.read();
             let num_of_cells = page.node.as_ref().unwrap().num_of_cells as usize;
 
             drop(page);
@@ -33,7 +33,7 @@ impl Cursor {
 
     pub fn table_find(table: &Table, page_num: usize, key: u32) -> Result<Self, String> {
         let page = table.pager.fetch_page(page_num).unwrap();
-        let page = page.read().unwrap();
+        let page = page.read();
         let node = page.node.as_ref().unwrap();
         let num_of_cells = node.num_of_cells as usize;
 
@@ -75,7 +75,7 @@ impl Cursor {
         self.cell_num += 1;
         let old_page_num = self.page_num;
         let page = table.pager.fetch_page(self.page_num).unwrap();
-        let page = page.read().unwrap();
+        let page = page.read();
         let node = page.node.as_ref().unwrap();
         let num_of_cells = node.num_of_cells as usize;
 
@@ -131,6 +131,11 @@ impl Table {
         }
 
         output
+    }
+
+    pub fn insert_concurrently(&self, row: &Row) -> String {
+        let page_num = self.root_page_num;
+        self.pager.insert(page_num, row).unwrap()
     }
 
     pub fn insert(&self, row: &Row) -> String {
@@ -460,6 +465,7 @@ mod test {
     // Both our Table and Pager module is just an public interface where the client can
     // call concurrently.
     fn insert_concurrently() {
+        env_logger::init();
         let table = Arc::new(Table::new("test.db".to_string()));
 
         for i in 1..5 {
@@ -474,7 +480,7 @@ mod test {
             let handle = thread::spawn(move || {
                 let row =
                     Row::from_statement(&format!("insert {i} user{i} user{i}@email.com")).unwrap();
-                table.insert(&row);
+                table.insert_concurrently(&row);
             });
             handles.push(handle);
         }
