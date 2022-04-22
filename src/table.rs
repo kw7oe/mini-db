@@ -235,7 +235,6 @@ mod test {
 
     #[test]
     fn insert_ensure_siblings_and_children_page_id_is_updated_correctly() {
-        env_logger::init();
         // Previous implementation did not update the child pointer of the parent
         // correctly when we split or create new root node.
         //
@@ -454,18 +453,7 @@ mod test {
     use std::sync::Arc;
 
     #[test]
-    // Okay, this is not exactly what we want. Since we probably have
-    // a mutual exclusive lock on Table, but what we want is selectively having a
-    // read/write latch on pages as needed.
-    //
-    // But I'm really not sure how to allow table to be access multiple threads at the same
-    // time while telling Rust that it's the resource underneath table that need to be
-    // accessed concurrently. Same applied to our pager.
-    //
-    // Both our Table and Pager module is just an public interface where the client can
-    // call concurrently.
-    fn insert_concurrently() {
-        env_logger::init();
+    fn concurrent_insert_into_root_leaf_node() {
         let table = Arc::new(Table::new("test.db".to_string()));
 
         for i in 1..5 {
@@ -491,6 +479,41 @@ mod test {
         let statement = prepare_statement("select").unwrap();
         let result = table.select(&statement);
         assert_eq!(result, expected_output(1..12));
+
+        cleanup_test_db_file();
+    }
+
+    #[test]
+    #[ignore]
+    // Ignore first before pushing as we will be facing dead lock if
+    // we run this test
+    fn insert_concurrently() {
+        env_logger::init();
+        let table = Arc::new(Table::new("test.db".to_string()));
+
+        for i in 1..5 {
+            let row =
+                Row::from_statement(&format!("insert {i} user{i} user{i}@email.com")).unwrap();
+            table.insert(&row);
+        }
+
+        let mut handles = vec![];
+        for i in 5..20 {
+            let table = Arc::clone(&table);
+            let handle = thread::spawn(move || {
+                let row =
+                    Row::from_statement(&format!("insert {i} user{i} user{i}@email.com")).unwrap();
+                table.insert_concurrently(&row);
+            });
+            handles.push(handle);
+        }
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        let statement = prepare_statement("select").unwrap();
+        let result = table.select(&statement);
+        assert_eq!(result, expected_output(1..20));
 
         cleanup_test_db_file();
     }

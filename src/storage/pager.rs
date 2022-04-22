@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 // use std::sync::{Arc, Mutex};
-use parking_lot::{MappedRwLockWriteGuard, Mutex, RwLock, RwLockWriteGuard};
+use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -195,26 +195,91 @@ impl Pager {
         }
     }
 
+    fn concurrent_create_or_replace_page(
+        &self,
+        mut pages: RwLockWriteGuard<Vec<Arc<RwLock<Page>>>>,
+        page_id: usize,
+    ) -> Option<usize> {
+        debug!("--- concurrent_create_or_replace_page");
+        let mut free_list = self.free_list.lock();
+        let frame_id = if let Some(frame_id) = free_list.pop() {
+            Some(frame_id)
+        } else {
+            self.replacer.victim().map(|md| md.frame_id)
+        };
+        drop(free_list);
+
+        if let Some(frame_id) = frame_id {
+            if let Some(page) = pages.get(frame_id) {
+                let page_arc = page.clone();
+                let page = page.read();
+                if page.is_dirty {
+                    let dirty_page_id = page.page_id.unwrap();
+                    drop(page);
+                    self.flush_page_v2(dirty_page_id, page_arc);
+                } else {
+                    drop(page)
+                }
+
+                let page = pages.get(frame_id).unwrap();
+                let mut page = page.write();
+                page.is_dirty = false;
+                page.pin_count = 0;
+                page.page_id = Some(page_id);
+                page.node = None;
+                drop(page);
+
+                let mut page_table = self.page_table.write();
+                page_table.retain(|_, &mut fid| fid != frame_id);
+                page_table.insert(page_id, frame_id);
+            } else {
+                let page = Page::new(page_id);
+                pages.insert(frame_id, Arc::new(RwLock::new(page)));
+
+                let mut page_table = self.page_table.write();
+                page_table.insert(page_id, frame_id);
+            }
+
+            Some(frame_id)
+        } else {
+            None
+        }
+    }
+
     pub fn fetch_page(&self, page_id: usize) -> Option<Arc<RwLock<Page>>> {
         // Check if the page is already in memory. If yes,
         // just pin the page and return the node.
 
         let page_table = self.page_table.read();
-        let pages = self.pages.read();
+        let thread_id = std::thread::current().id();
+        debug!(
+            "--- fetch --- {:?}: start {page_id}: S({}), X({})",
+            thread_id,
+            self.pages.is_locked(),
+            self.pages.is_locked_exclusive()
+        );
+        let pages = self.pages.write();
+        debug!(
+            "--- fetch --- {:?}: not being blocked on pages.write()!",
+            thread_id
+        );
         if let Some(&frame_id) = page_table.get(&page_id) {
             let page = &pages[frame_id];
+
             let mut page = page.write();
+            debug!(
+                "--- fetch --- {:?}: not being blocked on page.write!",
+                thread_id
+            );
             page.pin_count += 1;
             self.replacer.pin(frame_id);
 
             let page = &pages[frame_id];
             return Some(page.to_owned());
         }
-
-        drop(pages);
         drop(page_table);
 
-        if let Some(frame_id) = self.create_or_replace_page(page_id) {
+        if let Some(frame_id) = self.concurrent_create_or_replace_page(pages, page_id) {
             let pages = self.pages.read();
             let page = &pages[frame_id];
             let mut page = page.write();
@@ -307,73 +372,6 @@ impl Pager {
                 self.replacer.unpin(frame_id);
             }
         }
-    }
-
-    pub fn search_and_then<F, T>(&self, page_num: usize, key: u32, func: F) -> Option<T>
-    where
-        F: FnOnce(Cursor, RwLockWriteGuard<Page>) -> Option<T>,
-    {
-        let page = self.fetch_page(page_num).unwrap();
-        let page = page.write();
-        let node = page.node.as_ref().unwrap();
-        let num_of_cells = node.num_of_cells as usize;
-
-        if node.node_type == NodeType::Leaf {
-            match node.search(key) {
-                Ok(index) => func(
-                    Cursor {
-                        page_num,
-                        cell_num: index,
-                        key_existed: true,
-                        end_of_table: index == num_of_cells,
-                    },
-                    page,
-                ),
-                Err(index) => func(
-                    Cursor {
-                        page_num,
-                        cell_num: index,
-                        key_existed: false,
-                        end_of_table: index == num_of_cells,
-                    },
-                    page,
-                ),
-            }
-        } else if let Ok(next_page_num) = node.search(key) {
-            drop(page);
-            self.unpin_page(page_num, false);
-            self.search_and_then(next_page_num, key, func)
-        } else {
-            unreachable!("this shouldn't happen!");
-        }
-    }
-
-    pub fn insert(&self, root_page_num: usize, row: &Row) -> Option<String> {
-        self.search_and_then(root_page_num, row.id, |cursor, mut page| {
-            debug!(
-                "insert record {} at page {}, cell {}",
-                row.id, cursor.page_num, cursor.cell_num
-            );
-
-            let node = page.node.as_ref().unwrap();
-            let num_of_cells = node.num_of_cells as usize;
-
-            if num_of_cells >= LEAF_NODE_MAX_CELLS {
-                drop(page);
-                self.unpin_page(cursor.page_num, true);
-                self.insert_and_split_leaf_node(&cursor, row);
-            } else {
-                let node = page.node.as_mut().unwrap();
-                node.insert(row, &cursor);
-                drop(page);
-                self.unpin_page(cursor.page_num, true)
-            }
-
-            Some(format!(
-                "inserting into page: {}, cell: {}...\n",
-                cursor.page_num, cursor.cell_num
-            ))
-        })
     }
 
     pub fn insert_record(&self, row: &Row, cursor: &Cursor) {
@@ -1071,6 +1069,234 @@ impl Pager {
         } else {
             "Empty tree...".to_string()
         }
+    }
+
+    // ---------------------
+    // Concurrent Operations
+    // ---------------------
+    pub fn search_and_then<F, T>(
+        &self,
+        parent_page_guard: Option<RwLockWriteGuard<Page>>,
+        page_num: usize,
+        key: u32,
+        func: F,
+    ) -> Option<T>
+    where
+        F: FnOnce(Cursor, Option<RwLockWriteGuard<Page>>, RwLockWriteGuard<Page>) -> Option<T>,
+    {
+        let page = self.fetch_page(page_num).unwrap();
+        debug!(
+            "--- fetch --- {:?}: end page: S({}), X({})",
+            std::thread::current().id(),
+            self.pages.is_locked(),
+            self.pages.is_locked_exclusive()
+        );
+
+        let page = page.write();
+        let node = page.node.as_ref().unwrap();
+        let num_of_cells = node.num_of_cells as usize;
+
+        if node.node_type == NodeType::Leaf {
+            match node.search(key) {
+                Ok(index) => func(
+                    Cursor {
+                        page_num,
+                        cell_num: index,
+                        key_existed: true,
+                        end_of_table: index == num_of_cells,
+                    },
+                    parent_page_guard,
+                    page,
+                ),
+                Err(index) => func(
+                    Cursor {
+                        page_num,
+                        cell_num: index,
+                        key_existed: false,
+                        end_of_table: index == num_of_cells,
+                    },
+                    parent_page_guard,
+                    page,
+                ),
+            }
+        } else if let Ok(next_page_num) = node.search(key) {
+            // drop(page);
+            // self.unpin_page(page_num, false);
+            self.search_and_then(Some(page), next_page_num, key, func)
+        } else {
+            unreachable!("this shouldn't happen!");
+        }
+    }
+
+    pub fn insert(&self, root_page_num: usize, row: &Row) -> Option<String> {
+        debug!(
+            "--- insert ---: {:?}: start: record {}",
+            std::thread::current().id(),
+            row.id
+        );
+        let result = self.search_and_then(
+            None,
+            root_page_num,
+            row.id,
+            |cursor, parent_page, mut page| {
+                let node = page.node.as_ref().unwrap();
+                let num_of_cells = node.num_of_cells as usize;
+
+                if num_of_cells >= LEAF_NODE_MAX_CELLS {
+                    self.concurrent_insert_and_split_node(parent_page, page, &cursor, row);
+                } else {
+                    if let Some(parent_page) = parent_page {
+                        let parent_page_id = parent_page.page_id.unwrap();
+                        drop(parent_page);
+                        self.unpin_page(parent_page_id, false);
+                    }
+
+                    let node = page.node.as_mut().unwrap();
+                    node.insert(row, &cursor);
+                    drop(page);
+                    self.unpin_page(cursor.page_num, true)
+                }
+
+                Some(format!(
+                    "inserting into page: {}, cell: {}...\n",
+                    cursor.page_num, cursor.cell_num
+                ))
+            },
+        );
+
+        debug!(
+            "--- insert ---: {:?}: end: S({}), X({})",
+            std::thread::current().id(),
+            self.pages.is_locked(),
+            self.pages.is_locked_exclusive()
+        );
+
+        result
+    }
+
+    fn concurrent_insert_and_split_node(
+        &self,
+        parent_page: Option<RwLockWriteGuard<Page>>,
+        mut left_page: RwLockWriteGuard<Page>,
+        cursor: &Cursor,
+        row: &Row,
+    ) {
+        let left_node = left_page.node.as_mut().unwrap();
+        // let old_max = left_node.get_max_key();
+        left_node.insert(row, cursor);
+
+        let mut right_node = Node::new(false, left_node.node_type);
+        for _i in 0..LEAF_NODE_RIGHT_SPLIT_COUNT {
+            let cell = left_node.cells.remove(LEAF_NODE_LEFT_SPLIT_COUNT);
+            left_node.num_of_cells -= 1;
+
+            right_node.cells.push(cell);
+            right_node.num_of_cells += 1;
+        }
+
+        let left_max_key = left_node.get_max_key();
+
+        if left_node.is_root {
+            self.concurrent_create_new_root(parent_page, left_page, right_node, left_max_key);
+        } else {
+            debug!("--- split leaf node and update parent ---");
+            unimplemented!("implement split node and update parent");
+            // drop(left_page);
+            // self.unpin_page(cursor.page_num, true);
+
+            // let next_page_id = self.next_page_id.load(Ordering::Acquire);
+            // let left_page = self.fetch_page(cursor.page_num).unwrap();
+            // let mut left_page = left_page.write();
+            // let left_node = left_page.node.as_mut().unwrap();
+            // right_node.next_leaf_offset = left_node.next_leaf_offset;
+            // left_node.next_leaf_offset = next_page_id as u32;
+            // right_node.parent_offset = left_node.parent_offset;
+
+            // let parent_page_num = left_node.parent_offset as usize;
+            // let new_max = left_node.get_max_key();
+            // drop(left_page);
+            // self.unpin_page(cursor.page_num, true);
+
+            // let parent_page = self.fetch_page(parent_page_num).unwrap();
+            // let mut parent_page = parent_page.write();
+            // let parent_node = parent_page.node.as_mut().unwrap();
+            // parent_node.update_internal_key(old_max, new_max);
+            // drop(parent_page);
+            // self.unpin_page(parent_page_num, true);
+
+            // let right_page = self
+            //     .fetch_page(self.next_page_id.load(Ordering::Acquire))
+            //     .unwrap();
+            // let mut right_page = right_page.write();
+            // let right_page_id = right_page.page_id.unwrap();
+            // right_page.node = Some(right_node);
+            // drop(right_page);
+            // self.unpin_page(right_page_id, true);
+
+            // self.insert_internal_node(parent_page_num, right_page_id);
+        }
+    }
+
+    fn concurrent_create_new_root(
+        &self,
+        parent_page: Option<RwLockWriteGuard<Page>>,
+        mut page: RwLockWriteGuard<Page>,
+        mut right_node: Node,
+        max_key: u32,
+    ) {
+        debug!("--- create_new_root --- {:?}", std::thread::current().id());
+        let next_page_id = self.next_page_id.load(Ordering::Acquire);
+        let root_page_id = page.page_id.unwrap();
+
+        let mut root_node = Node::new(true, NodeType::Internal);
+        root_node.num_of_cells += 1;
+        root_node.right_child_offset = next_page_id as u32 + 1;
+
+        right_node.parent_offset = 0;
+        right_node.next_leaf_offset = 0;
+
+        let mut left_node = page.node.take().unwrap();
+        left_node.is_root = false;
+        left_node.next_leaf_offset = next_page_id as u32 + 1;
+        left_node.parent_offset = 0;
+
+        let cell = InternalCell::new(next_page_id as u32, max_key);
+        root_node.internal_cells.insert(0, cell);
+
+        page.node = Some(root_node);
+        drop(page);
+        self.unpin_page(root_page_id, true);
+
+        debug!("--- fetch left page");
+        debug!(
+            "{:?}: S({}), X({})",
+            std::thread::current().id(),
+            self.pages.is_locked(),
+            self.pages.is_locked_exclusive()
+        );
+        let left_page_id = self.next_page_id.load(Ordering::Acquire);
+        let left_page = self.fetch_page(left_page_id).unwrap();
+        let mut left_page = left_page.write();
+        let left_page_id = left_page.page_id.unwrap();
+        left_page.node = Some(left_node);
+        drop(left_page);
+        self.unpin_page(left_page_id, true);
+
+        debug!("--- fetch right page");
+        debug!(
+            "{:?}: S({}), X({})",
+            std::thread::current().id(),
+            self.pages.is_locked(),
+            self.pages.is_locked_exclusive()
+        );
+        let right_page = self
+            .fetch_page(self.next_page_id.load(Ordering::Acquire))
+            .unwrap();
+        let mut right_page = right_page.write();
+        let right_page_id = right_page.page_id.unwrap();
+        right_page.node = Some(right_node);
+        drop(right_page);
+        self.unpin_page(right_page_id, true);
     }
 }
 
