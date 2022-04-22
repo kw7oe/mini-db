@@ -1,7 +1,7 @@
+use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
+use rand::Rng;
 use std::collections::HashMap;
 use std::path::PathBuf;
-// use std::sync::{Arc, Mutex};
-use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -250,34 +250,53 @@ impl Pager {
         // Check if the page is already in memory. If yes,
         // just pin the page and return the node.
 
-        let page_table = self.page_table.read();
         let thread_id = std::thread::current().id();
-        debug!(
-            "--- fetch --- {:?}: start {page_id}: S({}), X({})",
-            thread_id,
-            self.pages.is_locked(),
-            self.pages.is_locked_exclusive()
-        );
+        // debug!(
+        //     "--- fetch (start ) --- {:?}: page {page_id}: S({}), X({})",
+        //     thread_id,
+        //     self.pages.is_locked(),
+        //     self.pages.is_locked_exclusive()
+        // );
         let pages = self.pages.write();
-        debug!(
-            "--- fetch --- {:?}: not being blocked on pages.write()!",
-            thread_id
-        );
+        let page_table = self.page_table.read();
+        // debug!(
+        //     "--- fetch (progre) --- {:?}: not being blocked on pages.write()!",
+        //     thread_id
+        // );
         if let Some(&frame_id) = page_table.get(&page_id) {
-            let page = &pages[frame_id];
+            let page = pages.get(frame_id).unwrap();
+            let page = page.try_write();
+            if let Some(mut page) = page {
+                // debug!(
+                //     "--- fetch (progre) --- {:?}: not being blocked on page.write!",
+                //     thread_id
+                // );
+                page.pin_count += 1;
+                self.replacer.pin(frame_id);
 
-            let mut page = page.write();
-            debug!(
-                "--- fetch --- {:?}: not being blocked on page.write!",
-                thread_id
-            );
-            page.pin_count += 1;
-            self.replacer.pin(frame_id);
-
-            let page = &pages[frame_id];
-            return Some(page.to_owned());
+                let page = &pages[frame_id];
+                return Some(page.to_owned());
+            } else {
+                let mut rng = rand::thread_rng();
+                drop(page_table);
+                drop(page);
+                drop(pages);
+                let duration = std::time::Duration::from_millis(rng.gen_range(1..100));
+                debug!(
+                    "--- fetch (failed) --- {:?}: cant acquire page.try_write(), sleep for {:?}",
+                    thread_id, duration
+                );
+                std::thread::sleep(duration);
+                return self.fetch_page(page_id);
+            }
         }
+
         drop(page_table);
+        // debug!(
+        //     "after fetch page: {:?}, {:?}",
+        //     self.page_table.is_locked(),
+        //     self.page_table.is_locked_exclusive()
+        // );
 
         if let Some(frame_id) = self.concurrent_create_or_replace_page(pages, page_id) {
             let pages = self.pages.read();
@@ -359,9 +378,10 @@ impl Pager {
     }
 
     pub fn unpin_page(&self, page_id: usize, is_dirty: bool) {
+        let pages = self.pages.read();
         let page_table = self.page_table.read();
         if let Some(&frame_id) = page_table.get(&page_id) {
-            let page = &self.pages.read()[frame_id];
+            let page = &pages[frame_id];
             let mut page = page.write();
             if !page.is_dirty {
                 page.is_dirty = is_dirty;
@@ -372,6 +392,8 @@ impl Pager {
                 self.replacer.unpin(frame_id);
             }
         }
+        drop(page_table);
+        drop(pages);
     }
 
     pub fn insert_record(&self, row: &Row, cursor: &Cursor) {
@@ -1086,7 +1108,7 @@ impl Pager {
     {
         let page = self.fetch_page(page_num).unwrap();
         debug!(
-            "--- fetch --- {:?}: end page: S({}), X({})",
+            "--- fetch (end   ) --- {:?}: S({}), X({})",
             std::thread::current().id(),
             self.pages.is_locked(),
             self.pages.is_locked_exclusive()
@@ -1130,7 +1152,7 @@ impl Pager {
 
     pub fn insert(&self, root_page_num: usize, row: &Row) -> Option<String> {
         debug!(
-            "--- insert ---: {:?}: start: record {}",
+            "--- inser (start ) --- {:?}: record {}",
             std::thread::current().id(),
             row.id
         );
@@ -1164,12 +1186,12 @@ impl Pager {
             },
         );
 
-        debug!(
-            "--- insert ---: {:?}: end: S({}), X({})",
-            std::thread::current().id(),
-            self.pages.is_locked(),
-            self.pages.is_locked_exclusive()
-        );
+        // debug!(
+        //     "--- inser (end   ) --- {:?}: S({}), X({})",
+        //     std::thread::current().id(),
+        //     self.pages.is_locked(),
+        //     self.pages.is_locked_exclusive()
+        // );
 
         result
     }
@@ -1264,16 +1286,9 @@ impl Pager {
         root_node.internal_cells.insert(0, cell);
 
         page.node = Some(root_node);
-        drop(page);
-        self.unpin_page(root_page_id, true);
+        // drop(page);
+        // self.unpin_page(root_page_id, true);
 
-        debug!("--- fetch left page");
-        debug!(
-            "{:?}: S({}), X({})",
-            std::thread::current().id(),
-            self.pages.is_locked(),
-            self.pages.is_locked_exclusive()
-        );
         let left_page_id = self.next_page_id.load(Ordering::Acquire);
         let left_page = self.fetch_page(left_page_id).unwrap();
         let mut left_page = left_page.write();
@@ -1282,13 +1297,6 @@ impl Pager {
         drop(left_page);
         self.unpin_page(left_page_id, true);
 
-        debug!("--- fetch right page");
-        debug!(
-            "{:?}: S({}), X({})",
-            std::thread::current().id(),
-            self.pages.is_locked(),
-            self.pages.is_locked_exclusive()
-        );
         let right_page = self
             .fetch_page(self.next_page_id.load(Ordering::Acquire))
             .unwrap();

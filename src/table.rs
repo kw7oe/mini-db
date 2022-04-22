@@ -484,9 +484,6 @@ mod test {
     }
 
     #[test]
-    #[ignore]
-    // Ignore first before pushing as we will be facing dead lock if
-    // we run this test
     fn insert_concurrently() {
         env_logger::init();
         let table = Arc::new(Table::new("test.db".to_string()));
