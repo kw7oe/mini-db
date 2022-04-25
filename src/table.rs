@@ -454,65 +454,72 @@ mod test {
 
     #[test]
     fn concurrent_insert_into_root_leaf_node() {
-        let table = Arc::new(Table::new("test.db".to_string()));
+        let frequency = 100;
+        for _ in 0..frequency {
+            let table = Arc::new(Table::new("test.db".to_string()));
 
-        for i in 1..5 {
-            let row =
-                Row::from_statement(&format!("insert {i} user{i} user{i}@email.com")).unwrap();
-            table.insert(&row);
-        }
-
-        let mut handles = vec![];
-        for i in 5..12 {
-            let table = Arc::clone(&table);
-            let handle = thread::spawn(move || {
+            for i in 1..5 {
                 let row =
                     Row::from_statement(&format!("insert {i} user{i} user{i}@email.com")).unwrap();
-                table.insert_concurrently(&row);
-            });
-            handles.push(handle);
-        }
-        for handle in handles {
-            handle.join().unwrap();
-        }
+                table.insert(&row);
+            }
 
-        let statement = prepare_statement("select").unwrap();
-        let result = table.select(&statement);
-        assert_eq!(result, expected_output(1..12));
+            let mut handles = vec![];
+            for i in 5..12 {
+                let table = Arc::clone(&table);
+                let handle = thread::spawn(move || {
+                    let row = Row::from_statement(&format!("insert {i} user{i} user{i}@email.com"))
+                        .unwrap();
+                    table.insert_concurrently(&row);
+                });
+                handles.push(handle);
+            }
+            for handle in handles {
+                handle.join().unwrap();
+            }
 
-        cleanup_test_db_file();
+            let statement = prepare_statement("select").unwrap();
+            let result = table.select(&statement);
+            assert_eq!(result, expected_output(1..12));
+
+            cleanup_test_db_file();
+        }
     }
 
     #[test]
     fn insert_concurrently() {
         env_logger::init();
-        let table = Arc::new(Table::new("test.db".to_string()));
+        let frequency = 100;
+        for i in 0..frequency {
+            info!("--- test insert_concurrently: {i} ---");
+            let table = Arc::new(Table::new("test.db".to_string()));
 
-        for i in 1..5 {
-            let row =
-                Row::from_statement(&format!("insert {i} user{i} user{i}@email.com")).unwrap();
-            table.insert(&row);
-        }
-
-        let mut handles = vec![];
-        for i in 5..20 {
-            let table = Arc::clone(&table);
-            let handle = thread::spawn(move || {
+            for i in 1..5 {
                 let row =
                     Row::from_statement(&format!("insert {i} user{i} user{i}@email.com")).unwrap();
-                table.insert_concurrently(&row);
-            });
-            handles.push(handle);
-        }
-        for handle in handles {
-            handle.join().unwrap();
-        }
+                table.insert(&row);
+            }
 
-        let statement = prepare_statement("select").unwrap();
-        let result = table.select(&statement);
-        assert_eq!(result, expected_output(1..20));
+            let mut handles = vec![];
+            for i in 5..20 {
+                let table = Arc::clone(&table);
+                let handle = thread::spawn(move || {
+                    let row = Row::from_statement(&format!("insert {i} user{i} user{i}@email.com"))
+                        .unwrap();
+                    table.insert_concurrently(&row);
+                });
+                handles.push(handle);
+            }
+            for handle in handles {
+                handle.join().unwrap();
+            }
 
-        cleanup_test_db_file();
+            let statement = prepare_statement("select").unwrap();
+            let result = table.select(&statement);
+            assert_eq!(result, expected_output(1..20));
+
+            cleanup_test_db_file();
+        }
     }
 
     fn expected_output<I>(range: I) -> String
