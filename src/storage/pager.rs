@@ -404,6 +404,22 @@ impl Pager {
         }
     }
 
+    pub fn unpin_page_with_write_guard(&self, page: &mut RwLockWriteGuard<Page>, is_dirty: bool) {
+        let page_table = self.page_table.read();
+        if let Some(&frame_id) = page_table.get(&page.page_id.unwrap()) {
+            drop(page_table);
+
+            if !page.is_dirty {
+                page.is_dirty = is_dirty;
+            }
+            page.pin_count -= 1;
+
+            if page.pin_count == 0 {
+                self.replacer.unpin(frame_id);
+            };
+        }
+    }
+
     pub fn unpin_page(&self, page_id: usize, is_dirty: bool) {
         let thread_id = std::thread::current().id();
         debug!("--- unpin page ---: {:?}", thread_id);
@@ -1149,6 +1165,32 @@ impl Pager {
     // ---------------------
     // Concurrent Operations
     // ---------------------
+    pub fn fetch_page_with_pages_guard(
+        &self,
+        pages: &mut RwLockWriteGuard<Vec<Arc<RwLock<Page>>>>,
+        page_id: usize,
+    ) -> Option<Arc<RwLock<Page>>> {
+        let page_table = self.page_table.read();
+        if let Some(&frame_id) = page_table.get(&page_id) {
+            let page = pages.get(frame_id).unwrap();
+
+            // The reason we can do this safely is becaused,
+            // we will be holding Pages for quite a while before
+            // this function is getting called.
+            //
+            // So it should not be deadlock.
+            let mut page = page.write();
+            page.pin_count += 1;
+            self.replacer.pin(frame_id);
+            drop(page);
+
+            let page = &pages[frame_id];
+            return Some(page.to_owned());
+        }
+
+        drop(page_table);
+        self.concurrent_create_or_replace_page(pages, page_id)
+    }
     pub fn search_and_then<F, T>(
         &self,
         parent_page_guard: Option<RwLockWriteGuard<Page>>,
@@ -1259,14 +1301,14 @@ impl Pager {
 
     fn concurrent_insert_and_split_node(
         &self,
-        pages: RwLockWriteGuard<Vec<Arc<RwLock<Page>>>>,
+        mut pages: RwLockWriteGuard<Vec<Arc<RwLock<Page>>>>,
         parent_page: Option<RwLockWriteGuard<Page>>,
         mut left_page: RwLockWriteGuard<Page>,
         cursor: &Cursor,
         row: &Row,
     ) {
         let left_node = left_page.node.as_mut().unwrap();
-        // let old_max = left_node.get_max_key();
+        let old_max = left_node.get_max_key();
         left_node.insert(row, cursor);
 
         let mut right_node = Node::new(false, left_node.node_type);
@@ -1290,41 +1332,99 @@ impl Pager {
             );
             debug!("--- create new root (end) ---");
         } else {
-            debug!("--- split leaf node and update parent ---");
-            unimplemented!("implement split node and update parent");
-            // drop(left_page);
-            // self.unpin_page(cursor.page_num, true);
+            self.concurrent_split_node_and_update_parent(
+                pages,
+                parent_page,
+                left_page,
+                right_node,
+                left_max_key,
+            );
+        }
+    }
 
-            // let next_page_id = self.next_page_id.load(Ordering::Acquire);
-            // let left_page = self.fetch_page(cursor.page_num).unwrap();
-            // let mut left_page = left_page.write();
-            // let left_node = left_page.node.as_mut().unwrap();
-            // right_node.next_leaf_offset = left_node.next_leaf_offset;
-            // left_node.next_leaf_offset = next_page_id as u32;
-            // right_node.parent_offset = left_node.parent_offset;
+    fn concurrent_split_node_and_update_parent(
+        &self,
+        mut pages: RwLockWriteGuard<Vec<Arc<RwLock<Page>>>>,
+        parent_page: Option<RwLockWriteGuard<Page>>,
+        mut left_page: RwLockWriteGuard<Page>,
+        mut right_node: Node,
+        max_key: u32,
+    ) {
+        let left_node = left_page.node.as_mut().unwrap();
+        right_node.next_leaf_offset = left_node.next_leaf_offset;
 
-            // let parent_page_num = left_node.parent_offset as usize;
-            // let new_max = left_node.get_max_key();
-            // drop(left_page);
-            // self.unpin_page(cursor.page_num, true);
+        let next_page_id = self.next_page_id.load(Ordering::Acquire);
+        left_node.next_leaf_offset = next_page_id as u32;
+        right_node.parent_offset = left_node.parent_offset;
 
-            // let parent_page = self.fetch_page(parent_page_num).unwrap();
-            // let mut parent_page = parent_page.write();
-            // let parent_node = parent_page.node.as_mut().unwrap();
-            // parent_node.update_internal_key(old_max, new_max);
-            // drop(parent_page);
-            // self.unpin_page(parent_page_num, true);
+        let parent_page_num = left_node.parent_offset as usize;
+        let new_max = left_node.get_max_key();
+        self.unpin_page_with_write_guard(&mut left_page, true);
+        drop(left_page);
 
-            // let right_page = self
-            //     .fetch_page(self.next_page_id.load(Ordering::Acquire))
-            //     .unwrap();
-            // let mut right_page = right_page.write();
-            // let right_page_id = right_page.page_id.unwrap();
-            // right_page.node = Some(right_node);
-            // drop(right_page);
-            // self.unpin_page(right_page_id, true);
+        let parent_page = self
+            .fetch_page_with_pages_guard(&mut pages, parent_page_num)
+            .unwrap();
+        let mut parent_page = parent_page.write();
+        let parent_node = parent_page.node.as_mut().unwrap();
+        parent_node.update_internal_key(max_key, new_max);
 
-            // self.insert_internal_node(parent_page_num, right_page_id);
+        self.unpin_page_with_write_guard(&mut parent_page, true);
+        drop(parent_page);
+
+        let right_page = self
+            .concurrent_create_or_replace_page(
+                &mut pages,
+                self.next_page_id.load(Ordering::Acquire),
+            )
+            .unwrap();
+        let mut right_page = right_page.write();
+        let right_page_id = right_page.page_id.unwrap();
+        right_page.node = Some(right_node);
+
+        let new_node = right_page.node.as_mut().unwrap();
+        let new_child_max_key = new_node.get_max_key();
+        new_node.parent_offset = parent_page_num as u32;
+        self.unpin_page_with_write_guard(&mut right_page, true);
+        drop(right_page);
+
+        let split_at_page_num = right_page_id;
+        let parent_page = self
+            .fetch_page_with_pages_guard(&mut pages, parent_page_num)
+            .unwrap();
+
+        let mut parent_page = parent_page.write();
+        let parent_node = parent_page.node.as_ref().unwrap();
+        let parent_right_child_offset = parent_node.right_child_offset as usize;
+
+        let most_right_page = self
+            .fetch_page_with_pages_guard(&mut pages, parent_right_child_offset)
+            .unwrap();
+        let most_right_page = most_right_page.read();
+        let right_node = most_right_page.node.as_ref().unwrap();
+        let right_max_key = right_node.get_max_key();
+
+        let parent_node = parent_page.node.as_mut().unwrap();
+        parent_node.num_of_cells += 1;
+
+        let index = parent_node.internal_search(new_child_max_key);
+        if new_child_max_key > right_max_key {
+            debug!("--- child max key: {new_child_max_key} > right_max_key: {right_max_key}");
+            parent_node.right_child_offset = split_at_page_num as u32;
+            parent_node.internal_insert(
+                index,
+                InternalCell::new(parent_right_child_offset as u32, right_max_key),
+            );
+        } else {
+            debug!("--- child max key: {new_child_max_key} <= right_max_key: {right_max_key}");
+            parent_node.internal_insert(
+                index,
+                InternalCell::new(split_at_page_num as u32, new_child_max_key),
+            );
+        }
+
+        if parent_node.num_of_cells > INTERNAL_NODE_MAX_CELLS as u32 {
+            unimplemented!("split internal node");
         }
     }
 
