@@ -130,6 +130,8 @@ impl Table {
             }
         }
 
+        // info!("{:?}", self.pager.pages);
+
         output
     }
 
