@@ -454,83 +454,25 @@ mod test {
 
     #[test]
     fn concurrent_insert_into_root_leaf_node() {
-        let frequency = 100;
-        for _ in 0..frequency {
-            let table = Arc::new(Table::new("test.db".to_string()));
-
-            for i in 1..5 {
-                let row =
-                    Row::from_statement(&format!("insert {i} user{i} user{i}@email.com")).unwrap();
-                table.insert(&row);
-            }
-
-            let mut handles = vec![];
-            for i in 5..12 {
-                let table = Arc::clone(&table);
-                let handle = thread::spawn(move || {
-                    let row = Row::from_statement(&format!("insert {i} user{i} user{i}@email.com"))
-                        .unwrap();
-                    table.insert_concurrently(&row);
-                });
-                handles.push(handle);
-            }
-            for handle in handles {
-                handle.join().unwrap();
-            }
-
-            let statement = prepare_statement("select").unwrap();
-            let result = table.select(&statement);
-            assert_eq!(result, expected_output(1..12));
-
-            cleanup_test_db_file();
-        }
+        test_concurrent_insert(100, 12)
     }
 
     #[test]
     fn concurrent_insert_and_split_into_level_2() {
-        let frequency = 100;
-        for i in 0..frequency {
-            info!("--- test insert_concurrently: {i} ---");
-            let table = Arc::new(Table::new("test.db".to_string()));
-
-            for i in 1..5 {
-                let row =
-                    Row::from_statement(&format!("insert {i} user{i} user{i}@email.com")).unwrap();
-                table.insert(&row);
-            }
-
-            let mut handles = vec![];
-            for i in 5..20 {
-                let table = Arc::clone(&table);
-                let handle = thread::spawn(move || {
-                    let row = Row::from_statement(&format!("insert {i} user{i} user{i}@email.com"))
-                        .unwrap();
-                    table.insert_concurrently(&row);
-                });
-                handles.push(handle);
-            }
-            for handle in handles {
-                handle.join().unwrap();
-            }
-
-            let statement = prepare_statement("select").unwrap();
-            let result = table.select(&statement);
-            assert_eq!(result, expected_output(1..20));
-
-            cleanup_test_db_file();
-        }
+        test_concurrent_insert(100, 20)
     }
 
     #[test]
-    fn insert_concurrently() {
-        env_logger::init();
-        let frequency = 100;
-        for i in 0..frequency {
-            info!("--- test insert_concurrently: {i} ---");
+    fn concurrent_insert_and_split_leaf_node_and_update_parent_at_level_2() {
+        test_concurrent_insert(100, 30)
+    }
+
+    fn test_concurrent_insert(frequency: usize, row: usize) {
+        for _i in 0..frequency {
             let table = Arc::new(Table::new("test.db".to_string()));
 
             let mut handles = vec![];
-            for i in 1..5 {
+            for i in 1..row {
                 let table = Arc::clone(&table);
                 let handle = thread::spawn(move || {
                     let row = Row::from_statement(&format!("insert {i} user{i} user{i}@email.com"))
@@ -545,7 +487,7 @@ mod test {
 
             let statement = prepare_statement("select").unwrap();
             let result = table.select(&statement);
-            assert_eq!(result, expected_output(1..5));
+            assert_eq!(result, expected_output(1..row));
 
             cleanup_test_db_file();
         }
