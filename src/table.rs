@@ -130,8 +130,6 @@ impl Table {
             }
         }
 
-        // info!("{:?}", self.pager.pages);
-
         output
     }
 
@@ -489,7 +487,7 @@ mod test {
     }
 
     #[test]
-    fn concurrent_split_and_insert_into_level_2() {
+    fn concurrent_insert_and_split_into_level_2() {
         let frequency = 100;
         for i in 0..frequency {
             info!("--- test insert_concurrently: {i} ---");
