@@ -530,7 +530,7 @@ mod test {
             let table = Arc::new(Table::new("test.db".to_string()));
 
             let mut handles = vec![];
-            for i in 1..30 {
+            for i in 1..5 {
                 let table = Arc::clone(&table);
                 let handle = thread::spawn(move || {
                     let row = Row::from_statement(&format!("insert {i} user{i} user{i}@email.com"))
@@ -545,7 +545,7 @@ mod test {
 
             let statement = prepare_statement("select").unwrap();
             let result = table.select(&statement);
-            assert_eq!(result, expected_output(1..30));
+            assert_eq!(result, expected_output(1..5));
 
             cleanup_test_db_file();
         }

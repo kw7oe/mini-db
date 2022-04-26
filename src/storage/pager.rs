@@ -204,7 +204,34 @@ impl Pager {
         }
     }
 
-    fn concurrent_create_or_replace_page(&self, page_id: usize) -> Option<&RwLock<Page>> {
+    fn concurrent_create_or_replace_page_v2(
+        &self,
+        page_id: usize,
+    ) -> Option<RwLockWriteGuard<Page>> {
+        // The reason we are locking since the beginning because this is our
+        // critical section.
+        //
+        // If we take a read lock, if both thread A and B that need page 0,
+        // both will pop unused page from free_list for the same page and caused
+        // a race condition.
+        //
+        // Hence, we need to take an exclusive access to page_table and check if
+        // the page_id already existed in page_table. This would occur when both thread B
+        // is waiting for the lock here, but turn out that thread A already read in the page
+        // first.
+        //
+        // Without the checking, we would read the same content into different pages.
+        let mut page_table = self.page_table.write();
+        if let Some(&frame_id) = page_table.get(&page_id) {
+            drop(page_table);
+            let page = &self.pages[frame_id];
+            let mut page = page.write();
+            page.pin_count += 1;
+            self.replacer.pin(frame_id);
+            return Some(page);
+        }
+
+        // Pop unused page index from free list.
         let mut free_list = self.free_list.lock();
         let frame_id = if let Some(frame_id) = free_list.pop() {
             Some(frame_id)
@@ -217,10 +244,9 @@ impl Pager {
         if let Some(frame_id) = frame_id {
             let unlock_page = self.pages.get(frame_id).unwrap();
             let page = unlock_page.read();
-            debug!(
-                "--- create or replace page ---: {:?} passed through page.read()",
-                thread_id
-            );
+
+            // Check if page is dirty. Flush page to disk
+            // if needed
             if page.is_dirty {
                 let dirty_page_id = page.page_id.unwrap();
                 self.flush_page(dirty_page_id, &page);
@@ -230,32 +256,24 @@ impl Pager {
             }
 
             let page = self.pages.get(frame_id).unwrap();
+
+            // Reset page
             let mut page = page.write();
             debug!(
-                "--- create or replace page ---: {:?} passed through page.write()",
-                thread_id
+                "--- conurrent create page --- {:?}: pass through page {:?} write()",
+                std::thread::current().id(),
+                frame_id
             );
             page.is_dirty = false;
             page.pin_count = 0;
             page.page_id = Some(page_id);
             page.node = None;
-            drop(page);
 
-            let mut page_table = self.page_table.write();
-            debug!(
-                "--- create or replace page ---: {:?} passed through page_table.write()",
-                thread_id
-            );
+            // Update page table
             page_table.retain(|_, &mut fid| fid != frame_id);
             page_table.insert(page_id, frame_id);
             drop(page_table);
 
-            let page = &self.pages[frame_id];
-            let mut page = page.write();
-            debug!(
-                "--- create or replace page ---: {:?} passed through page.write()",
-                thread_id
-            );
             match self.disk_manager.read_page(page_id) {
                 Ok(bytes) => {
                     page.node = Some(Node::new_from_bytes(&bytes));
@@ -274,6 +292,71 @@ impl Pager {
             page.pin_count += 1;
             self.replacer.pin(frame_id);
 
+            debug!("--- create or replace page (end) --- {:?}", thread_id);
+            Some(page)
+        } else {
+            None
+        }
+    }
+
+    fn concurrent_create_or_replace_page(&self, page_id: usize) -> Option<&RwLock<Page>> {
+        let mut free_list = self.free_list.lock();
+        let frame_id = if let Some(frame_id) = free_list.pop() {
+            Some(frame_id)
+        } else {
+            self.replacer.victim().map(|md| md.frame_id)
+        };
+        drop(free_list);
+
+        let thread_id = std::thread::current().id();
+        if let Some(frame_id) = frame_id {
+            let unlock_page = self.pages.get(frame_id).unwrap();
+            let page = unlock_page.read();
+
+            // Check if page is dirty. Flush page to disk
+            // if needed
+            if page.is_dirty {
+                let dirty_page_id = page.page_id.unwrap();
+                self.flush_page(dirty_page_id, &page);
+                drop(page);
+            } else {
+                drop(page)
+            }
+
+            let page = self.pages.get(frame_id).unwrap();
+
+            // Reset page
+            let mut page = page.write();
+            page.is_dirty = false;
+            page.pin_count = 0;
+            page.page_id = Some(page_id);
+            page.node = None;
+
+            // Update page table
+            let mut page_table = self.page_table.write();
+            page_table.retain(|_, &mut fid| fid != frame_id);
+            page_table.insert(page_id, frame_id);
+            drop(page_table);
+
+            match self.disk_manager.read_page(page_id) {
+                Ok(bytes) => {
+                    page.node = Some(Node::new_from_bytes(&bytes));
+                }
+                Err(_err) => {
+                    // This either mean the file is corrupted or is a partial page
+                    // or it's just a new file.
+                    if page_id == 0 {
+                        page.node = Some(Node::root());
+                    }
+
+                    self.next_page_id.fetch_add(1, Ordering::SeqCst);
+                }
+            }
+
+            page.pin_count += 1;
+            drop(page);
+            self.replacer.pin(frame_id);
+
             let page = &self.pages[frame_id];
             debug!("--- create or replace page (end) --- {:?}", thread_id);
             Some(page)
@@ -282,34 +365,31 @@ impl Pager {
         }
     }
 
-    pub fn fetch_page_else_restart_at_root(&self, page_id: usize) -> Option<&RwLock<Page>> {
+    pub fn fetch_page_else_restart_at_root(
+        &self,
+        page_id: usize,
+    ) -> Option<RwLockWriteGuard<Page>> {
         let page_table = self.page_table.read();
-        debug!(
-            "--- fetch page --- {:?}: pass through pages.write()",
-            std::thread::current().id()
-        );
-
         if let Some(&frame_id) = page_table.get(&page_id) {
             let page = self.pages.get(frame_id).unwrap();
             let page = page.try_write();
 
             if let Some(mut page) = page {
                 debug!(
-                    "--- fetch page --- {:?}: pass through page.write()",
-                    std::thread::current().id()
+                    "--- fetch page --- {:?}: pass through page {:?} write()",
+                    std::thread::current().id(),
+                    page.page_id
                 );
                 page.pin_count += 1;
                 self.replacer.pin(frame_id);
-                drop(page);
 
-                let page = &self.pages[frame_id];
                 return Some(page);
             } else {
                 drop(page);
                 drop(page_table);
 
                 let mut rng = rand::thread_rng();
-                let duration = std::time::Duration::from_millis(rng.gen_range(1..5));
+                let duration = std::time::Duration::from_millis(rng.gen_range(1..10));
                 std::thread::sleep(duration);
 
                 info!(
@@ -321,7 +401,7 @@ impl Pager {
         }
 
         drop(page_table);
-        self.concurrent_create_or_replace_page(page_id)
+        self.concurrent_create_or_replace_page_v2(page_id)
     }
 
     pub fn fetch_page(&self, page_id: usize) -> Option<&RwLock<Page>> {
@@ -1132,7 +1212,7 @@ impl Pager {
             std::thread::current().id()
         );
         let page = self.fetch_page_else_restart_at_root(page_num).unwrap();
-        let mut page = page.write();
+
         let node = page.node.as_ref().unwrap();
         let num_of_cells = node.num_of_cells as usize;
 
@@ -1160,25 +1240,11 @@ impl Pager {
                 ),
             }
         } else if let Ok(next_page_num) = node.search(key) {
-            // TODO: Implement latching on parent page later.
-            //
-            // Now latching a parent page will caused dead lock of
-            // one thread holding Pages and the other holding Page N
-            // while each thread need each other lock to proceed.
-            //
-            // Typically caused by unpin_page and fetch_page.
-            //
-            // The current way of ensuring it works correctly is we lock the
-            // whole B+ Tree eseentially by locking the whole pages when
-            // there's a split.
-            self.unpin_page_with_write_guard(&mut page, false);
-            drop(page);
-
             info!(
                 "--- search --- {:?}: next page {next_page_num}",
                 std::thread::current().id()
             );
-            self.search_and_then(None, next_page_num, key, func)
+            self.search_and_then(Some(page), next_page_num, key, func)
         } else {
             unreachable!("this shouldn't happen!");
         }
@@ -1194,10 +1260,6 @@ impl Pager {
                 let num_of_cells = node.num_of_cells as usize;
 
                 if num_of_cells >= LEAF_NODE_MAX_CELLS {
-                    info!(
-                        "--- insert --- {:?}: pass through pages.write()",
-                        std::thread::current().id()
-                    );
                     self.concurrent_insert_and_split_node(parent_page, page, &cursor, row);
                     info!(
                         "--- insert (end) --- {:?}: row {}, {:?}",
@@ -1215,14 +1277,19 @@ impl Pager {
 
                     let node = page.node.as_mut().unwrap();
                     node.insert(row, &cursor);
-
-                    self.unpin_page_with_write_guard(&mut page, true);
-                    drop(page);
                     info!(
                         "--- insert (end) --- {:?}: row {}, {:?}",
                         std::thread::current().id(),
                         row.id,
                         cursor
+                    );
+
+                    self.unpin_page_with_write_guard(&mut page, true);
+                    drop(page);
+                    info!(
+                        "--- unpin page with write guard (end) --- {:?}: row {}",
+                        std::thread::current().id(),
+                        row.id,
                     );
                 }
 
