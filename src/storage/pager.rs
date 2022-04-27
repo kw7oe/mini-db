@@ -31,7 +31,7 @@ impl PageMetadata {
     }
 }
 
-// #[derive(Debug)]
+#[derive(Debug)]
 struct LRUReplacer {
     // We are using Vec instead of HashMap as the size
     // of the Vec is limited. Hence, a linear search
@@ -1194,12 +1194,21 @@ impl Pager {
         F: FnOnce(Cursor, Option<RwLockWriteGuard<Page>>, RwLockWriteGuard<Page>) -> Option<T>,
     {
         match self.try_fetch_page(page_num) {
-            Ok(option_page) => {
-                if option_page.is_none() {
-                    info!("--- self.pages ---: {:?}", self.pages);
+            Ok(None) => {
+                info!("oops no page available right no retry later");
+                if let Some(mut page) = parent_page_guard {
+                    self.unpin_page_with_write_guard(&mut page, false);
+                    drop(page);
                 }
-                let page = option_page.unwrap();
 
+                let mut rng = rand::thread_rng();
+                let duration = std::time::Duration::from_millis(rng.gen_range(1..5));
+                std::thread::sleep(duration);
+
+                // Restart at root
+                self.search_and_then(None, 0, key, func)
+            }
+            Ok(Some(page)) => {
                 let node = page.node.as_ref().unwrap();
                 let num_of_cells = node.num_of_cells as usize;
 
@@ -1302,7 +1311,9 @@ impl Pager {
         if left_node.is_root {
             let left_max_key = left_node.get_max_key();
             self.concurrent_create_new_root(parent_page, &mut left_page, right_node, left_max_key);
-            debug!("--- create new root (end) ---");
+
+            self.unpin_page_with_write_guard(&mut left_page, true);
+            drop(left_page);
         } else {
             self.concurrent_split_node_and_update_parent(
                 parent_page,
@@ -1422,7 +1433,6 @@ impl Pager {
         root_node.internal_cells.insert(0, cell);
 
         page.node = Some(root_node);
-
         let left_page_id = self.next_page_id.load(Ordering::Acquire);
         debug!("--- create left page --- ");
         let left_page = self
@@ -1442,6 +1452,11 @@ impl Pager {
         right_page.node = Some(right_node);
         self.unpin_page_with_write_guard(&mut right_page, true);
         drop(right_page);
+
+        if let Some(mut page) = parent_page {
+            self.unpin_page_with_write_guard(&mut page, false);
+            drop(page);
+        }
     }
 
     pub fn concurrent_update_children_parent_offset(&self, page: &mut RwLockWriteGuard<Page>) {
@@ -1492,6 +1507,7 @@ impl Pager {
 
             // Might need to update left page and right page child parent offset
         } else {
+            unimplemented!("split interleave internal node...");
             let parent_offset = left_node.parent_offset as usize;
             let page_num = left_page.page_id.unwrap();
             // drop(left_page);

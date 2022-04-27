@@ -472,6 +472,12 @@ mod test {
         test_concurrent_insert(100, 40)
     }
 
+    #[test]
+    fn insert_concurrently() {
+        env_logger::init();
+        test_concurrent_insert(100, 51)
+    }
+
     fn test_concurrent_insert(frequency: usize, row: usize) {
         for _i in 0..frequency {
             // info!("--- test concurrent insert {i} ---");
