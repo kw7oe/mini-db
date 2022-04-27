@@ -468,8 +468,7 @@ mod test {
     }
 
     #[test]
-    fn insert_concurrently() {
-        env_logger::init();
+    fn concurrent_insert_and_split_root_internal_node() {
         test_concurrent_insert(100, 40)
     }
 

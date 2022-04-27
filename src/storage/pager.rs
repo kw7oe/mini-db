@@ -1301,7 +1301,7 @@ impl Pager {
 
         if left_node.is_root {
             let left_max_key = left_node.get_max_key();
-            self.concurrent_create_new_root(parent_page, left_page, right_node, left_max_key);
+            self.concurrent_create_new_root(parent_page, &mut left_page, right_node, left_max_key);
             debug!("--- create new root (end) ---");
         } else {
             self.concurrent_split_node_and_update_parent(
@@ -1389,8 +1389,9 @@ impl Pager {
         }
 
         if parent_node.num_of_cells > INTERNAL_NODE_MAX_CELLS as u32 {
-            unimplemented!("split internal node");
+            self.concurrent_split_internal_node(&mut parent_page);
         }
+
         self.unpin_page_with_write_guard(&mut parent_page, true);
         drop(parent_page);
     }
@@ -1398,7 +1399,7 @@ impl Pager {
     fn concurrent_create_new_root(
         &self,
         parent_page: Option<RwLockWriteGuard<Page>>,
-        mut page: RwLockWriteGuard<Page>,
+        page: &mut RwLockWriteGuard<Page>,
         mut right_node: Node,
         max_key: u32,
     ) {
@@ -1441,6 +1442,94 @@ impl Pager {
         right_page.node = Some(right_node);
         self.unpin_page_with_write_guard(&mut right_page, true);
         drop(right_page);
+    }
+
+    pub fn concurrent_update_children_parent_offset(&self, page: &mut RwLockWriteGuard<Page>) {
+        let node = page.node.as_ref().unwrap();
+        let parent_page_id = page.page_id.unwrap();
+
+        let mut child_pointers = vec![node.right_child_offset as usize];
+        for cell in &node.internal_cells {
+            child_pointers.push(cell.child_pointer() as usize);
+        }
+
+        for i in child_pointers {
+            let page = self.fetch_page(i).unwrap();
+            let mut page = page.write();
+            let child = page.node.as_mut().unwrap();
+            child.parent_offset = parent_page_id as u32;
+            self.unpin_page_with_write_guard(&mut page, true);
+            drop(page);
+        }
+    }
+
+    pub fn concurrent_split_internal_node(&self, page: &mut RwLockWriteGuard<Page>) {
+        let next_page_id = self.next_page_id.load(Ordering::Acquire);
+        let left_page = page;
+
+        let left_node = left_page.node.as_mut().unwrap();
+        let split_at_index = left_node.num_of_cells as usize / 2;
+
+        let mut right_node = Node::new(false, NodeType::Internal);
+        right_node.right_child_offset = left_node.right_child_offset;
+        right_node.parent_offset = left_node.parent_offset as u32;
+
+        let ic = left_node.internal_cells.remove(split_at_index);
+        left_node.num_of_cells -= 1;
+        left_node.right_child_offset = ic.child_pointer();
+
+        for i in 0..split_at_index - 1 {
+            let ic = left_node.internal_cells.remove(split_at_index);
+            left_node.num_of_cells -= 1;
+            right_node.internal_insert(i, ic);
+            right_node.num_of_cells += 1;
+        }
+
+        let left_node = left_page.node.as_ref().unwrap();
+        if left_node.is_root {
+            debug!("splitting root internal node...");
+            self.concurrent_create_new_root(None, left_page, right_node, ic.key());
+
+            // Might need to update left page and right page child parent offset
+        } else {
+            let parent_offset = left_node.parent_offset as usize;
+            let page_num = left_page.page_id.unwrap();
+            // drop(left_page);
+            // self.unpin_page(page_num, true);
+
+            let parent_page = self.fetch_page(parent_offset).unwrap();
+            let mut parent_page = parent_page.write();
+            let parent = parent_page.node.as_mut().unwrap();
+
+            let index = parent.internal_search_child_pointer(page_num as u32);
+
+            if parent.num_of_cells == index as u32 {
+                debug!("update parent after split most right internal node");
+                parent.right_child_offset = next_page_id as u32;
+                parent.internal_insert(index, InternalCell::new(page_num as u32, ic.key()));
+                parent.num_of_cells += 1;
+            } else {
+                debug!("update parent after split internal node");
+                parent.internal_insert(index, InternalCell::new(page_num as u32, ic.key()));
+
+                let internel_cell = parent.internal_cells.remove(index + 1);
+                parent.internal_insert(
+                    index + 1,
+                    InternalCell::new(next_page_id as u32, internel_cell.key()),
+                );
+                parent.num_of_cells += 1;
+            }
+            self.unpin_page_with_write_guard(&mut parent_page, true);
+            drop(parent_page);
+
+            let right_page = self.fetch_page(next_page_id).unwrap();
+            let mut right_page = right_page.write();
+            right_page.is_dirty = true;
+            right_page.node = Some(right_node);
+            self.concurrent_update_children_parent_offset(&mut right_page);
+            self.unpin_page_with_write_guard(&mut right_page, true);
+            drop(right_page);
+        }
     }
 }
 
