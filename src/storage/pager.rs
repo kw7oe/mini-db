@@ -1195,7 +1195,11 @@ impl Pager {
     {
         match self.try_fetch_page(page_num) {
             Ok(option_page) => {
+                if option_page.is_none() {
+                    info!("--- self.pages ---: {:?}", self.pages);
+                }
                 let page = option_page.unwrap();
+
                 let node = page.node.as_ref().unwrap();
                 let num_of_cells = node.num_of_cells as usize;
 
@@ -1229,7 +1233,8 @@ impl Pager {
                 }
             }
             Err(_) => {
-                if let Some(page) = parent_page_guard {
+                if let Some(mut page) = parent_page_guard {
+                    self.unpin_page_with_write_guard(&mut page, false);
                     drop(page);
                 }
 
@@ -1362,6 +1367,7 @@ impl Pager {
         let right_node = most_right_page.node.as_ref().unwrap();
         let right_max_key = right_node.get_max_key();
         self.unpin_page_with_write_guard(&mut most_right_page, false);
+        drop(most_right_page);
 
         let parent_node = parent_page.node.as_mut().unwrap();
         parent_node.num_of_cells += 1;
@@ -1386,6 +1392,7 @@ impl Pager {
             unimplemented!("split internal node");
         }
         self.unpin_page_with_write_guard(&mut parent_page, true);
+        drop(parent_page);
     }
 
     fn concurrent_create_new_root(
@@ -1422,6 +1429,7 @@ impl Pager {
             .unwrap();
         let mut left_page = left_page.write();
         left_page.node = Some(left_node);
+        self.unpin_page_with_write_guard(&mut left_page, true);
         drop(left_page);
 
         let right_page_id = self.next_page_id.load(Ordering::Acquire);
@@ -1431,6 +1439,7 @@ impl Pager {
             .unwrap();
         let mut right_page = right_page.write();
         right_page.node = Some(right_node);
+        self.unpin_page_with_write_guard(&mut right_page, true);
         drop(right_page);
     }
 }
