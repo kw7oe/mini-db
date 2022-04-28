@@ -475,7 +475,7 @@ mod test {
     #[test]
     fn insert_concurrently() {
         env_logger::init();
-        test_concurrent_insert(100, 51)
+        test_concurrent_insert(100, 56)
     }
 
     fn test_concurrent_insert(frequency: usize, row: usize) {

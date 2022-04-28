@@ -1185,18 +1185,18 @@ impl Pager {
     // ---------------------
     pub fn search_and_then<F, T>(
         &self,
-        parent_page_guard: Option<RwLockWriteGuard<Page>>,
+        parent_page_guards: Vec<RwLockWriteGuard<Page>>,
         page_num: usize,
         key: u32,
         func: F,
     ) -> Option<T>
     where
-        F: FnOnce(Cursor, Option<RwLockWriteGuard<Page>>, RwLockWriteGuard<Page>) -> Option<T>,
+        F: FnOnce(Cursor, Vec<RwLockWriteGuard<Page>>, RwLockWriteGuard<Page>) -> Option<T>,
     {
         match self.try_fetch_page(page_num) {
             Ok(None) => {
                 info!("oops no page available right no retry later");
-                if let Some(mut page) = parent_page_guard {
+                for mut page in parent_page_guards {
                     self.unpin_page_with_write_guard(&mut page, false);
                     drop(page);
                 }
@@ -1206,7 +1206,7 @@ impl Pager {
                 std::thread::sleep(duration);
 
                 // Restart at root
-                self.search_and_then(None, 0, key, func)
+                self.search_and_then(vec![], 0, key, func)
             }
             Ok(Some(page)) => {
                 let node = page.node.as_ref().unwrap();
@@ -1221,7 +1221,7 @@ impl Pager {
                                 key_existed: true,
                                 end_of_table: index == num_of_cells,
                             },
-                            parent_page_guard,
+                            parent_page_guards,
                             page,
                         ),
                         Err(index) => func(
@@ -1231,18 +1231,20 @@ impl Pager {
                                 key_existed: false,
                                 end_of_table: index == num_of_cells,
                             },
-                            parent_page_guard,
+                            parent_page_guards,
                             page,
                         ),
                     }
                 } else if let Ok(next_page_num) = node.search(key) {
-                    self.search_and_then(Some(page), next_page_num, key, func)
+                    let mut parent_page_guards = parent_page_guards;
+                    parent_page_guards.push(page);
+                    self.search_and_then(parent_page_guards, next_page_num, key, func)
                 } else {
                     unreachable!("this shouldn't happen!");
                 }
             }
             Err(_) => {
-                if let Some(mut page) = parent_page_guard {
+                for mut page in parent_page_guards {
                     self.unpin_page_with_write_guard(&mut page, false);
                     drop(page);
                 }
@@ -1252,26 +1254,26 @@ impl Pager {
                 std::thread::sleep(duration);
 
                 // Restart at root
-                self.search_and_then(None, 0, key, func)
+                self.search_and_then(vec![], 0, key, func)
             }
         }
     }
 
     pub fn insert(&self, root_page_num: usize, row: &Row) -> Option<String> {
         self.search_and_then(
-            None,
+            vec![],
             root_page_num,
             row.id,
-            |cursor, parent_page, mut page| {
+            |cursor, parent_page_guards, mut page| {
                 let node = page.node.as_ref().unwrap();
                 let num_of_cells = node.num_of_cells as usize;
 
                 if num_of_cells >= LEAF_NODE_MAX_CELLS {
-                    self.concurrent_insert_and_split_node(parent_page, page, &cursor, row);
+                    self.concurrent_insert_and_split_node(parent_page_guards, page, &cursor, row);
                 } else {
-                    if let Some(mut parent_page) = parent_page {
-                        self.unpin_page_with_write_guard(&mut parent_page, false);
-                        drop(parent_page);
+                    for mut page in parent_page_guards {
+                        self.unpin_page_with_write_guard(&mut page, false);
+                        drop(page);
                     }
 
                     let node = page.node.as_mut().unwrap();
@@ -1290,7 +1292,7 @@ impl Pager {
 
     fn concurrent_insert_and_split_node(
         &self,
-        parent_page: Option<RwLockWriteGuard<Page>>,
+        mut parent_page_guards: Vec<RwLockWriteGuard<Page>>,
         mut left_page: RwLockWriteGuard<Page>,
         cursor: &Cursor,
         row: &Row,
@@ -1310,13 +1312,14 @@ impl Pager {
 
         if left_node.is_root {
             let left_max_key = left_node.get_max_key();
+            let parent_page = parent_page_guards.pop();
             self.concurrent_create_new_root(parent_page, &mut left_page, right_node, left_max_key);
 
             self.unpin_page_with_write_guard(&mut left_page, true);
             drop(left_page);
         } else {
             self.concurrent_split_node_and_update_parent(
-                parent_page,
+                parent_page_guards,
                 left_page,
                 right_node,
                 old_max,
@@ -1326,7 +1329,7 @@ impl Pager {
 
     fn concurrent_split_node_and_update_parent(
         &self,
-        parent_page: Option<RwLockWriteGuard<Page>>,
+        mut parent_page_guards: Vec<RwLockWriteGuard<Page>>,
         mut left_page: RwLockWriteGuard<Page>,
         mut right_node: Node,
         max_key: u32,
@@ -1345,7 +1348,7 @@ impl Pager {
 
         // TODO: will need to fix this when we take a list of parent locks
         // when we navigte from top to bottom.
-        let mut parent_page = parent_page.unwrap();
+        let mut parent_page = parent_page_guards.pop().unwrap();
         let parent_node = parent_page.node.as_mut().unwrap();
         parent_node.update_internal_key(max_key, new_max);
 
@@ -1507,7 +1510,6 @@ impl Pager {
 
             // Might need to update left page and right page child parent offset
         } else {
-            unimplemented!("split interleave internal node...");
             let parent_offset = left_node.parent_offset as usize;
             let page_num = left_page.page_id.unwrap();
             // drop(left_page);
