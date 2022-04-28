@@ -475,12 +475,12 @@ mod test {
     #[test]
     fn insert_concurrently() {
         env_logger::init();
-        test_concurrent_insert(100, 56)
+        test_concurrent_insert(100, 75)
     }
 
     fn test_concurrent_insert(frequency: usize, row: usize) {
-        for _i in 0..frequency {
-            // info!("--- test concurrent insert {i} ---");
+        for i in 0..frequency {
+            info!("--- test concurrent insert {i} ---");
             let table = Arc::new(Table::new("test.db".to_string()));
 
             let mut handles = vec![];
