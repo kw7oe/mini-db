@@ -204,6 +204,59 @@ impl Pager {
         }
     }
 
+    fn new_page(&self) -> Option<RwLockWriteGuard<Page>> {
+        let mut page_table = self.page_table.write();
+
+        // Pop unused page index from free list.
+        let mut free_list = self.free_list.lock();
+        let frame_id = if let Some(frame_id) = free_list.pop() {
+            Some(frame_id)
+        } else {
+            self.replacer.victim().map(|md| md.frame_id)
+        };
+        drop(free_list);
+
+        if let Some(frame_id) = frame_id {
+            let unlock_page = self.pages.get(frame_id).unwrap();
+            let page = unlock_page.read();
+
+            // Check if page is dirty. Flush page to disk
+            // if needed
+            if page.is_dirty {
+                let dirty_page_id = page.page_id.unwrap();
+                self.flush_page(dirty_page_id, &page);
+                drop(page);
+            } else {
+                drop(page)
+            }
+
+            let page = self.pages.get(frame_id).unwrap();
+
+            // Reset page
+            let page_id = self.next_page_id.fetch_add(1, Ordering::Acquire);
+            let mut page = page.write();
+            page.is_dirty = false;
+            page.pin_count = 0;
+            page.page_id = Some(page_id);
+            page.node = None;
+
+            // Update page table
+            page_table.retain(|_, &mut fid| fid != frame_id);
+            page_table.insert(page_id, frame_id);
+            drop(page_table);
+
+            if page_id == 0 {
+                page.node = Some(Node::root());
+            }
+
+            page.pin_count += 1;
+            self.replacer.pin(frame_id);
+            Some(page)
+        } else {
+            None
+        }
+    }
+
     fn concurrent_create_or_replace_page_and_return_guard(
         &self,
         page_id: usize,
@@ -359,27 +412,6 @@ impl Pager {
             );
             None
         }
-    }
-
-    pub fn try_fetch_page(&self, page_id: usize) -> Result<Option<RwLockWriteGuard<Page>>, String> {
-        let page_table = self.page_table.read();
-        if let Some(&frame_id) = page_table.get(&page_id) {
-            let page = self.pages.get(frame_id).unwrap();
-            let page = page.try_write();
-
-            if let Some(mut page) = page {
-                page.pin_count += 1;
-                self.replacer.pin(frame_id);
-
-                return Ok(Some(page));
-            } else {
-                drop(page_table);
-                return Err("failed to acquire write lock on page".to_string());
-            }
-        }
-
-        drop(page_table);
-        Ok(self.concurrent_create_or_replace_page_and_return_guard(page_id))
     }
 
     pub fn fetch_page(&self, page_id: usize) -> Option<&RwLock<Page>> {
@@ -1152,6 +1184,27 @@ impl Pager {
     // ---------------------
     // Concurrent Operations
     // ---------------------
+    pub fn try_fetch_page(&self, page_id: usize) -> Result<Option<RwLockWriteGuard<Page>>, String> {
+        let page_table = self.page_table.read();
+        if let Some(&frame_id) = page_table.get(&page_id) {
+            let page = self.pages.get(frame_id).unwrap();
+            let page = page.try_write();
+
+            if let Some(mut page) = page {
+                page.pin_count += 1;
+                self.replacer.pin(frame_id);
+
+                return Ok(Some(page));
+            } else {
+                drop(page_table);
+                return Err("failed to acquire write lock on page".to_string());
+            }
+        }
+
+        drop(page_table);
+        Ok(self.concurrent_create_or_replace_page_and_return_guard(page_id))
+    }
+
     pub fn search_and_then<F, T>(
         &self,
         parent_page_guards: Vec<RwLockWriteGuard<Page>>,
@@ -1164,7 +1217,6 @@ impl Pager {
     {
         match self.try_fetch_page(page_num) {
             Ok(None) => {
-                // info!("oops no page available when trying to fetch page {page_num}");
                 for mut page in parent_page_guards {
                     self.unpin_page_with_write_guard(&mut page, false);
                     drop(page);
@@ -1208,11 +1260,16 @@ impl Pager {
                         ),
                     }
                 } else if let Ok(next_page_num) = node.search(key) {
+                    // If our internal node might need to split, we'll continue to hold the
+                    // lock.
                     if node.num_of_cells + 1 > INTERNAL_NODE_MAX_CELLS as u32 {
                         let mut parent_page_guards = parent_page_guards;
                         parent_page_guards.push(page);
                         self.search_and_then(parent_page_guards, next_page_num, key, func)
                     } else {
+                        // Else, we drop the parent lock first since we know that any changes
+                        // in our children will not caused a split in this node, and hence
+                        // won't affect our parent node.
                         for mut page in parent_page_guards {
                             self.unpin_page_with_write_guard(&mut page, false);
                             drop(page);
@@ -1230,7 +1287,7 @@ impl Pager {
                 }
 
                 let mut rng = rand::thread_rng();
-                let duration = std::time::Duration::from_millis(rng.gen_range(1..10));
+                let duration = std::time::Duration::from_millis(rng.gen_range(1..5));
                 std::thread::sleep(duration);
 
                 // Restart at root
@@ -1315,14 +1372,22 @@ impl Pager {
         max_key: u32,
     ) {
         let left_node = left_page.node.as_mut().unwrap();
+        let new_max = left_node.get_max_key();
+        let parent_page_num = left_node.parent_offset as usize;
         right_node.next_leaf_offset = left_node.next_leaf_offset;
 
-        let next_page_id = self.next_page_id.load(Ordering::Acquire);
-        left_node.next_leaf_offset = next_page_id as u32;
+        let mut right_page = self.new_page().unwrap();
+        let right_page_id = right_page.page_id.unwrap();
+        left_node.next_leaf_offset = right_page_id as u32;
         right_node.parent_offset = left_node.parent_offset;
 
-        let parent_page_num = left_node.parent_offset as usize;
-        let new_max = left_node.get_max_key();
+        right_page.node = Some(right_node);
+
+        let new_node = right_page.node.as_mut().unwrap();
+        let new_child_max_key = new_node.get_max_key();
+        new_node.parent_offset = parent_page_num as u32;
+        self.unpin_page_with_write_guard(&mut right_page, true);
+        drop(right_page);
 
         let mut parent_page = if let Some(parent_page) = parent_page_guards.pop() {
             parent_page
@@ -1336,31 +1401,11 @@ impl Pager {
         let parent_node = parent_page.node.as_mut().unwrap();
         parent_node.update_internal_key(max_key, new_max);
 
-        let mut right_page = self
-            .concurrent_create_or_replace_page_and_return_guard(
-                self.next_page_id.load(Ordering::Acquire),
-            )
-            .unwrap();
-        let right_page_id = right_page.page_id.unwrap();
-        right_page.node = Some(right_node);
-
-        let new_node = right_page.node.as_mut().unwrap();
-        let new_child_max_key = new_node.get_max_key();
-        new_node.parent_offset = parent_page_num as u32;
-        self.unpin_page_with_write_guard(&mut right_page, true);
-        drop(right_page);
-
         let split_at_page_num = right_page_id;
 
         let parent_node = parent_page.node.as_ref().unwrap();
         let parent_right_child_offset = parent_node.right_child_offset as usize;
 
-        debug!(
-            "--- before most right page --- {:?}: {:?}, {:?}",
-            std::thread::current().id(),
-            self.pages,
-            self.replacer.page_table
-        );
         let most_right_page = self.fetch_page(parent_right_child_offset).unwrap();
 
         // This actually doesn't have to be a write lock.
@@ -1390,6 +1435,10 @@ impl Pager {
         }
 
         if parent_node.num_of_cells > INTERNAL_NODE_MAX_CELLS as u32 {
+            debug!(
+                "--- concurrent split parent internal node --- {:?}",
+                std::thread::current().id()
+            );
             self.concurrent_split_internal_node(parent_page, parent_page_guards);
         } else {
             for mut page in parent_page_guards {
@@ -1409,39 +1458,32 @@ impl Pager {
         max_key: u32,
     ) {
         debug!("--- create_new_root --- {:?}", std::thread::current().id());
-        let next_page_id = self.next_page_id.load(Ordering::Acquire);
+
+        debug!("--- create left page --- ");
+        let mut left_page = self.new_page().unwrap();
+        let left_page_id = left_page.page_id.unwrap() as u32;
+
+        debug!("--- create right page --- ");
+        let mut right_page = self.new_page().unwrap();
+        let right_page_id = right_page.page_id.unwrap() as u32;
 
         let mut root_node = Node::new(true, NodeType::Internal);
         root_node.num_of_cells += 1;
-        root_node.right_child_offset = next_page_id as u32 + 1;
+        root_node.right_child_offset = right_page_id;
 
         right_node.parent_offset = 0;
         right_node.next_leaf_offset = 0;
 
         let mut left_node = page.node.take().unwrap();
         left_node.is_root = false;
-        left_node.next_leaf_offset = next_page_id as u32 + 1;
+        left_node.next_leaf_offset = right_page_id;
         left_node.parent_offset = 0;
 
-        let cell = InternalCell::new(next_page_id as u32, max_key);
+        let cell = InternalCell::new(left_page_id, max_key);
         root_node.internal_cells.insert(0, cell);
 
         page.node = Some(root_node);
-
-        let left_page_id = self.next_page_id.load(Ordering::Acquire);
-        debug!("--- create left page --- ");
-        let left_page = self
-            .concurrent_create_or_replace_page(left_page_id)
-            .unwrap();
-        let mut left_page = left_page.write();
         left_page.node = Some(left_node);
-
-        let right_page_id = self.next_page_id.load(Ordering::Acquire);
-        debug!("--- create right page --- ");
-        let right_page = self
-            .concurrent_create_or_replace_page(right_page_id)
-            .unwrap();
-        let mut right_page = right_page.write();
         right_page.node = Some(right_node);
 
         self.unpin_page_with_write_guard(&mut page, true);
@@ -1482,8 +1524,6 @@ impl Pager {
         mut left_page: RwLockWriteGuard<Page>,
         mut parent_page_guards: Vec<RwLockWriteGuard<Page>>,
     ) {
-        let next_page_id = self.next_page_id.load(Ordering::Acquire);
-
         let left_node = left_page.node.as_mut().unwrap();
         let split_at_index = left_node.num_of_cells as usize / 2;
 
@@ -1503,12 +1543,13 @@ impl Pager {
         }
 
         let left_node = left_page.node.as_ref().unwrap();
+        let thread_id = std::thread::current().id();
+
         if left_node.is_root {
-            debug!("splitting root internal node...");
+            debug!("--- splitting root internal node --- {:?}", thread_id);
             assert_eq!(parent_page_guards.len(), 0);
             self.concurrent_create_new_root(left_page, right_node, ic.key());
         } else {
-            let thread_id = std::thread::current().id();
             debug!("--- splitting internal node --- {:?}", thread_id);
 
             let parent_offset = left_node.parent_offset as usize;
@@ -1524,9 +1565,14 @@ impl Pager {
             let parent = parent_page.node.as_mut().unwrap();
             let index = parent.internal_search_child_pointer(page_num as u32);
 
+            let mut right_page = self.new_page().unwrap();
+            let right_page_id = right_page.page_id.unwrap() as u32;
+            right_page.is_dirty = true;
+            right_page.node = Some(right_node);
+
             if parent.num_of_cells == index as u32 {
                 debug!("update parent after split most right internal node");
-                parent.right_child_offset = next_page_id as u32;
+                parent.right_child_offset = right_page_id;
                 parent.internal_insert(index, InternalCell::new(page_num as u32, ic.key()));
                 parent.num_of_cells += 1;
             } else {
@@ -1539,16 +1585,10 @@ impl Pager {
                 let internel_cell = parent.internal_cells.remove(index + 1);
                 parent.internal_insert(
                     index + 1,
-                    InternalCell::new(next_page_id as u32, internel_cell.key()),
+                    InternalCell::new(right_page_id, internel_cell.key()),
                 );
                 parent.num_of_cells += 1;
             }
-
-            let mut right_page = self
-                .concurrent_create_or_replace_page_and_return_guard(next_page_id)
-                .unwrap();
-            right_page.is_dirty = true;
-            right_page.node = Some(right_node);
 
             for mut page in parent_page_guards {
                 self.unpin_page_with_write_guard(&mut page, false);
