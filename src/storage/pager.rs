@@ -1371,21 +1371,19 @@ impl Pager {
         mut right_node: Node,
         max_key: u32,
     ) {
+        let mut right_page = self.new_page().unwrap();
+        let right_page_id = right_page.page_id.unwrap();
         let left_node = left_page.node.as_mut().unwrap();
         let new_max = left_node.get_max_key();
         let parent_page_num = left_node.parent_offset as usize;
+
         right_node.next_leaf_offset = left_node.next_leaf_offset;
-
-        let mut right_page = self.new_page().unwrap();
-        let right_page_id = right_page.page_id.unwrap();
         left_node.next_leaf_offset = right_page_id as u32;
-        right_node.parent_offset = left_node.parent_offset;
 
+        let new_child_max_key = right_node.get_max_key();
+        right_node.parent_offset = left_node.parent_offset;
         right_page.node = Some(right_node);
 
-        let new_node = right_page.node.as_mut().unwrap();
-        let new_child_max_key = new_node.get_max_key();
-        new_node.parent_offset = parent_page_num as u32;
         self.unpin_page_with_write_guard(&mut right_page, true);
         drop(right_page);
 
@@ -1407,13 +1405,11 @@ impl Pager {
         let parent_right_child_offset = parent_node.right_child_offset as usize;
 
         let most_right_page = self.fetch_page(parent_right_child_offset).unwrap();
-
-        // This actually doesn't have to be a write lock.
-        let mut most_right_page = most_right_page.write();
+        let most_right_page = most_right_page.read();
         let right_node = most_right_page.node.as_ref().unwrap();
         let right_max_key = right_node.get_max_key();
-        self.unpin_page_with_write_guard(&mut most_right_page, false);
         drop(most_right_page);
+        self.unpin_page(parent_right_child_offset, false);
 
         let parent_node = parent_page.node.as_mut().unwrap();
         parent_node.num_of_cells += 1;
@@ -1439,16 +1435,16 @@ impl Pager {
                 "--- concurrent split parent internal node --- {:?}",
                 std::thread::current().id()
             );
-            self.concurrent_split_internal_node(parent_page, parent_page_guards);
-        } else {
-            for mut page in parent_page_guards {
-                self.unpin_page_with_write_guard(&mut page, false);
-                drop(page);
-            }
-
-            self.unpin_page_with_write_guard(&mut parent_page, true);
-            drop(parent_page);
+            return self.concurrent_split_internal_node(parent_page, parent_page_guards);
         }
+
+        for mut page in parent_page_guards {
+            self.unpin_page_with_write_guard(&mut page, false);
+            drop(page);
+        }
+
+        self.unpin_page_with_write_guard(&mut parent_page, true);
+        drop(parent_page);
     }
 
     fn concurrent_create_new_root(
@@ -1695,13 +1691,17 @@ mod test {
         setup_test_db_file();
         let pager = Pager::new("test.db");
 
-        // Since our pool size is hardcoded to 4,
-        // we just need to fetch 4 pages to fill
+        // Since our pool size is hardcoded to 8,
+        // we just need to fetch 8 pages to fill
         // up the page cache.
         pager.fetch_page(0);
         pager.fetch_page(4);
         pager.fetch_page(2);
         pager.fetch_page(5);
+        pager.fetch_page(6);
+        pager.fetch_page(8);
+        pager.fetch_page(9);
+        pager.fetch_page(10);
 
         // Unpin some of the pages so there's
         // victim from our replacer.
@@ -1716,7 +1716,7 @@ mod test {
         // in our pages
         let page_table = pager.page_table.read();
         assert_eq!(page_table.get(&2), None);
-        assert_eq!(page_table.len(), 4);
+        assert_eq!(page_table.len(), 8);
         drop(page_table);
 
         // TODO: test it flush dirty page
@@ -1737,13 +1737,17 @@ mod test {
         setup_test_db_file();
         let pager = Pager::new("test.db");
 
-        // Since our pool size is hardcoded to 4,
-        // we just need to fetch 4 pages to fill
+        // Since our pool size is hardcoded to 8,
+        // we just need to fetch 8 pages to fill
         // up the page cache.
         pager.fetch_page(0);
         pager.fetch_page(4);
         pager.fetch_page(2);
         pager.fetch_page(5);
+        pager.fetch_page(6);
+        pager.fetch_page(8);
+        pager.fetch_page(9);
+        pager.fetch_page(10);
 
         let frame_id = pager.create_or_replace_page(7);
         assert!(frame_id.is_none());
