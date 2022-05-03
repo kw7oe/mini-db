@@ -176,11 +176,10 @@ impl std::string::ToString for Table {
 
 #[cfg(test)]
 mod test {
-    use std::thread;
-
-    use crate::query::prepare_statement;
-
     use super::*;
+    use crate::query::prepare_statement;
+    use pretty_assertions::assert_eq;
+    use std::thread;
 
     #[test]
     fn select_with_new_buffer_pool_impl() {
@@ -472,10 +471,24 @@ mod test {
         test_concurrent_insert(100, 40)
     }
 
+    use std::io::Write;
     #[test]
     fn insert_concurrently() {
-        env_logger::init();
-        test_concurrent_insert(1000, 75)
+        env_logger::builder()
+            .format(|buf, record| {
+                let ts = buf.timestamp_micros();
+                writeln!(
+                    buf,
+                    "{}: {:?}: {}: {}",
+                    ts,
+                    std::thread::current().id(),
+                    buf.default_level_style(record.level())
+                        .value(record.level()),
+                    record.args()
+                )
+            })
+            .init();
+        test_concurrent_insert(10000, 75)
     }
 
     fn test_concurrent_insert(frequency: usize, row: usize) {
