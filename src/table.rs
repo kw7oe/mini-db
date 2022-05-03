@@ -474,21 +474,33 @@ mod test {
     use std::io::Write;
     #[test]
     fn concurrent_insert_and_split_internal_node() {
-        env_logger::builder()
-            .format(|buf, record| {
-                let ts = buf.timestamp_micros();
-                writeln!(
-                    buf,
-                    "{}: {:?}: {}: {}",
-                    ts,
-                    std::thread::current().id(),
-                    buf.default_level_style(record.level())
-                        .value(record.level()),
-                    record.args()
-                )
-            })
-            .init();
         test_concurrent_insert(100, 75)
+    }
+
+    #[test]
+    fn concurrent_insert_lots_of_records() {
+        // env_logger::builder()
+        //     .format(|buf, record| {
+        //         let ts = buf.timestamp_micros();
+        //         writeln!(
+        //             buf,
+        //             "{}: {:?}: {}: {}",
+        //             ts,
+        //             std::thread::current().id(),
+        //             buf.default_level_style(record.level())
+        //                 .value(record.level()),
+        //             record.args()
+        //         )
+        //     })
+        //     .init();
+
+        // This might failed occasionally due to insufficient buffer pool
+        // page. Since our test is spawning 1 thread per record. We are
+        // essentially spawning 150 threads to be executed concurrently.
+        //
+        // Hence, it might potentially caused our buffer pool not having
+        // enough pages to hold those page and caused a panic.
+        test_concurrent_insert(100, 150)
     }
 
     fn test_concurrent_insert(frequency: usize, row: usize) {

@@ -52,6 +52,9 @@ quick breakdown on what I'm going to implement next:
   - [ ] Make buffer pool page size configurable. Currently is hardcoded to 4.
 - [ ] Implement concurrency for our database.
   - [ ] Multi threaded index concurrency control. _([Reference][2], [Reference, see Task 4][3])_
+    - [x] Support concurrent insert to B+ Tree.
+    - [ ] Support concurrent delete to B+ Tree.
+    - [ ] Support concurrent get/scan to B+ Tree.
   - [ ] Implement concurrency control at row/tuple level. _([Reference][4])_
     - [ ] Implement lock manager.
     - [ ] Implement dead lock detection.
