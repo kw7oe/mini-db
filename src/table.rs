@@ -473,7 +473,7 @@ mod test {
 
     use std::io::Write;
     #[test]
-    fn insert_concurrently() {
+    fn concurrent_insert_and_split_internal_node() {
         env_logger::builder()
             .format(|buf, record| {
                 let ts = buf.timestamp_micros();
@@ -488,7 +488,7 @@ mod test {
                 )
             })
             .init();
-        test_concurrent_insert(10000, 75)
+        test_concurrent_insert(100, 75)
     }
 
     fn test_concurrent_insert(frequency: usize, row: usize) {
