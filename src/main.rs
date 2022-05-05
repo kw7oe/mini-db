@@ -20,8 +20,6 @@ mod storage;
 mod table;
 
 fn main() -> std::io::Result<()> {
-    env_logger::init();
-
     let mut table = Table::new("data.db".to_string());
     let mut buffer = String::new();
 

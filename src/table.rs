@@ -478,6 +478,12 @@ mod test {
 
     #[test]
     fn concurrent_insert_lots_of_records() {
+        // With tracing lib
+        // let format = tracing_subscriber::fmt::format().with_thread_ids(true);
+        // tracing_subscriber::fmt().event_format(format).init();
+
+        // Create a `fmt` subscriber that uses our custom event format, and set it
+        // as the default.
         // use std::io::Write;
         // env_logger::builder()
         //     .format(|buf, record| {
