@@ -1670,7 +1670,7 @@ mod test {
     #[test]
     fn pager_create_or_replace_page_when_page_cache_is_not_full() {
         setup_test_db_file();
-        let pager = Pager::new("test.db");
+        let pager = setup_test_pager();
 
         let frame_id = pager.create_or_replace_page(0);
         assert!(frame_id.is_some());
@@ -1689,7 +1689,7 @@ mod test {
     #[test]
     fn pager_create_or_replace_page_when_page_cache_is_full_with_victims_in_replacer() {
         setup_test_db_file();
-        let pager = Pager::new("test.db");
+        let pager = setup_test_pager();
 
         // Since our pool size is hardcoded to 8,
         // we just need to fetch 8 pages to fill
@@ -1735,7 +1735,7 @@ mod test {
     #[test]
     fn pager_create_or_replace_page_when_no_pages_can_be_freed() {
         setup_test_db_file();
-        let pager = Pager::new("test.db");
+        let pager = setup_test_pager();
 
         // Since our pool size is hardcoded to 8,
         // we just need to fetch 8 pages to fill
@@ -1763,7 +1763,7 @@ mod test {
     #[test]
     fn pager_unpin_page() {
         setup_test_db_file();
-        let pager = Pager::new("test.db");
+        let pager = setup_test_pager();
 
         pager.fetch_page(0);
         pager.fetch_page(0);
@@ -1811,7 +1811,7 @@ mod test {
     fn pager_get_record() {
         setup_test_db_file();
 
-        let pager = Pager::new("test.db");
+        let pager = setup_test_pager();
         let cursor = Cursor {
             page_num: 1,
             cell_num: 0,
@@ -1846,8 +1846,16 @@ mod test {
         cleanup_test_db_file();
     }
 
+    fn setup_test_table() -> Table {
+        return Table::new(format!("test-{:?}.db", std::thread::current().id()));
+    }
+
+    fn setup_test_pager() -> Pager {
+        return Pager::new(format!("test-{:?}.db", std::thread::current().id()));
+    }
+
     fn setup_test_db_file() {
-        let table = Table::new("test.db");
+        let table = setup_test_table();
 
         for i in 1..50 {
             let row =
@@ -1859,7 +1867,7 @@ mod test {
     }
 
     fn cleanup_test_db_file() {
-        let _ = std::fs::remove_file("test.db");
+        let _ = std::fs::remove_file(format!("test-{:?}.db", std::thread::current().id()));
     }
 
     fn sleep(duration_in_ms: u64) {

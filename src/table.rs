@@ -186,7 +186,7 @@ mod test {
     #[test]
     fn select_with_new_buffer_pool_impl() {
         setup_test_db_file();
-        let table = Table::new("test.db");
+        let table = setup_test_table();
         let statement = prepare_statement("select").unwrap();
         let result = table.select(&statement);
 
@@ -279,7 +279,7 @@ mod test {
     }
 
     fn insert_and_select_prop(mut ids: UniqueIDs) {
-        let table = Table::new("test.db");
+        let table = setup_test_table();
         for i in &ids.0 {
             let query = format!("insert {i} user{i} user{i}@email.com");
             let statement = prepare_statement(&query).unwrap();
@@ -298,7 +298,7 @@ mod test {
         //
         // So this make sure that our code work as expected
         // even reading from a file that we have just wrote to.
-        let table = Table::new("test.db");
+        let table = setup_test_table();
         let statement = prepare_statement("select").unwrap();
         let result = table.select(&statement);
         assert_eq!(result, expected_output);
@@ -307,7 +307,7 @@ mod test {
     }
 
     fn insertion_test(row_count: usize) {
-        let table = Table::new("test.db");
+        let table = setup_test_table();
         for i in 1..row_count {
             let query = format!("insert {i} user{i} user{i}@email.com");
             let statement = prepare_statement(&query).unwrap();
@@ -325,7 +325,7 @@ mod test {
         //
         // So this make sure that our code work as expected
         // even reading from a file that we have just wrote to.
-        let table = Table::new("test.db");
+        let table = setup_test_table();
         let statement = prepare_statement("select").unwrap();
         let result = table.select(&statement);
         assert_eq!(result, expected_output);
@@ -365,7 +365,7 @@ mod test {
     }
 
     fn deletion_test(row_count: usize) {
-        let table = Table::new("test.db");
+        let table = setup_test_table();
         for i in 1..row_count {
             let query = format!("insert {i} user{i} user{i}@email.com");
             let statement = prepare_statement(&query).unwrap();
@@ -424,7 +424,7 @@ mod test {
     }
 
     fn insert_delete_and_select_prop(delete_input: DeleteInputs) {
-        let table = Table::new("test.db".to_string());
+        let table = setup_test_table();
 
         for i in &delete_input.insertion_ids {
             let query = format!("insert {i} user{i} user{i}@email.com");
@@ -518,7 +518,7 @@ mod test {
 
         for i in 0..frequency {
             info!("--- test concurrent insert {i} ---");
-            let table = Arc::new(Table::new("test.db".to_string()));
+            let table = Arc::new(setup_test_table());
             let (tx, rx) = std::sync::mpsc::channel();
 
             for i in 1..row {
@@ -554,7 +554,7 @@ mod test {
 
         for i in 0..frequency {
             info!("--- test concurrent insert {i} ---");
-            let table = Arc::new(Table::new("test.db".to_string()));
+            let table = Arc::new(setup_test_table());
 
             let mut handles = vec![];
             for i in 1..row {
@@ -590,8 +590,12 @@ mod test {
             .join("")
     }
 
+    fn setup_test_table() -> Table {
+        return Table::new(format!("test-{:?}.db", std::thread::current().id()));
+    }
+
     fn setup_test_db_file() {
-        let table = Table::new("test.db");
+        let table = setup_test_table();
 
         for i in 1..50 {
             let row =
@@ -603,6 +607,6 @@ mod test {
     }
 
     fn cleanup_test_db_file() {
-        let _ = std::fs::remove_file("test.db");
+        let _ = std::fs::remove_file(format!("test-{:?}.db", std::thread::current().id()));
     }
 }

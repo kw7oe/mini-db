@@ -73,7 +73,7 @@ mod test {
 
     #[test]
     fn exit_command() {
-        let mut table = Table::new("test.db".to_string());
+        let mut table = setup_test_table();
         let output = handle_input(&mut table, ".exit");
         assert_eq!(output, "Exit");
 
@@ -82,7 +82,7 @@ mod test {
 
     #[test]
     fn unrecognized_command() {
-        let mut table = Table::new("test.db".to_string());
+        let mut table = setup_test_table();
         let output = handle_input(&mut table, ".dfaskfd");
         assert_eq!(output, "Unrecognized command '.dfaskfd'.");
 
@@ -91,7 +91,7 @@ mod test {
 
     #[test]
     fn invalid_statement() {
-        let mut table = Table::new("test.db".to_string());
+        let mut table = setup_test_table();
         let output = handle_input(&mut table, "insert 1 apple apple apple");
         assert_eq!(
             output,
@@ -103,7 +103,7 @@ mod test {
 
     #[test]
     fn select_statement() {
-        let mut table = Table::new("test.db".to_string());
+        let mut table = setup_test_table();
 
         let output = handle_input(&mut table, "select");
         assert_eq!(output, "");
@@ -122,7 +122,7 @@ mod test {
 
     #[test]
     fn select_by_id_statement() {
-        let mut table = Table::new("test.db".to_string());
+        let mut table = setup_test_table();
 
         let output = handle_input(&mut table, "select 1");
         assert_eq!(output, "");
@@ -141,7 +141,7 @@ mod test {
 
     #[test]
     fn insert_statement() {
-        let mut table = Table::new("test.db".to_string());
+        let mut table = setup_test_table();
 
         let output = handle_input(&mut table, "insert 2 john john@email.com");
         assert_eq!(output, "inserting into page: 0, cell: 0...\n");
@@ -157,7 +157,7 @@ mod test {
 
     #[test]
     fn insert_up_to_3_leaf_node() {
-        let mut table = Table::new("test.db".to_string());
+        let mut table = setup_test_table();
 
         for i in 1..15 {
             handle_input(&mut table, &format!("insert {i} user{i} user{i}@email.com"));
@@ -193,7 +193,7 @@ mod test {
 
     #[test]
     fn insert_up_to_4_leaf_node_split_when_child_max_key_larger_than_right_max_key() {
-        let mut table = Table::new("test.db".to_string());
+        let mut table = setup_test_table();
         let inputs = [
             "insert 18 user18 person18@example.com",
             "insert 7 user7 person7@example.com",
@@ -278,7 +278,7 @@ mod test {
 
     #[test]
     fn insert_up_to_4_leaf_node_split_when_child_max_key_not_larger_than_right_max_key() {
-        let mut table = Table::new("test.db".to_string());
+        let mut table = setup_test_table();
         let inputs = [
             "insert 1 user18 person18@example.com",
             "insert 4 user7 person7@example.com",
@@ -371,7 +371,7 @@ mod test {
 
     #[test]
     fn insert_and_split_internal_node() {
-        let mut table = Table::new("test.db".to_string());
+        let mut table = setup_test_table();
 
         for i in 1..36 {
             handle_input(&mut table, &format!("insert {i} user{i} user{i}@email.com"));
@@ -433,7 +433,7 @@ mod test {
 
     #[test]
     fn insert_string_at_max_length() {
-        let mut table = Table::new("test.db".to_string());
+        let mut table = setup_test_table();
         let mut username = String::new();
         for _ in 0..32 {
             username.push('a');
@@ -455,7 +455,7 @@ mod test {
 
     #[test]
     fn error_when_duplicate_key() {
-        let mut table = Table::new("test.db".to_string());
+        let mut table = setup_test_table();
 
         let output = handle_input(&mut table, "insert 1 john john@email.com");
         assert_eq!(output, "inserting into page: 0, cell: 0...\n");
@@ -468,7 +468,7 @@ mod test {
 
     #[test]
     fn error_when_id_is_negative() {
-        let mut table = Table::new("test.db".to_string());
+        let mut table = setup_test_table();
         let output = handle_input(&mut table, "insert -1 john john@email.com");
         assert_eq!(output, "ID must be positive.");
 
@@ -477,7 +477,7 @@ mod test {
 
     #[test]
     fn error_when_string_are_too_long() {
-        let mut table = Table::new("test.db".to_string());
+        let mut table = setup_test_table();
         let mut username = String::new();
         for _ in 0..33 {
             username.push_str("a");
@@ -499,7 +499,7 @@ mod test {
 
     #[test]
     fn persist_data_to_file() {
-        let mut table = Table::new("test.db".to_string());
+        let mut table = setup_test_table();
 
         handle_input(&mut table, "insert 2 john john@email.com");
         handle_input(&mut table, "insert 1 wick wick@email.com");
@@ -510,7 +510,7 @@ mod test {
         );
         table.flush();
 
-        let mut reopen_table = Table::new("test.db".to_string());
+        let mut reopen_table = setup_test_table();
         let output = handle_input(&mut reopen_table, "select");
         assert_eq!(
             output,
@@ -522,7 +522,7 @@ mod test {
 
     #[test]
     fn persist_leaf_and_internal_node_to_file() {
-        let mut table = Table::new("test.db".to_string());
+        let mut table = setup_test_table();
         let row_count = 1000;
 
         for i in 1..row_count {
@@ -540,7 +540,7 @@ mod test {
         // table.to_string();
         table.flush();
 
-        let mut reopen_table = Table::new("test.db".to_string());
+        let mut reopen_table = setup_test_table();
         let output = handle_input(&mut reopen_table, "select");
         assert_eq!(output, expected_output.join(""));
 
@@ -690,7 +690,7 @@ mod test {
     }
 
     fn test_insertion<T: std::fmt::Display + Ord>(mut ids: Vec<T>) {
-        let mut table = Table::new("test.db".to_string());
+        let mut table = setup_test_table();
         for i in &ids {
             handle_input(&mut table, &format!("insert {i} user{i} user{i}@email.com"));
         }
@@ -749,7 +749,7 @@ mod test {
 
     quickcheck! {
         fn insert_and_select_prop(ids: UniqueIDs) -> bool {
-            let mut table = Table::new("test.db".to_string());
+            let mut table = setup_test_table();
 
             for i in &ids.0 {
                 handle_input(&mut table, &format!("insert {i} user{i} user{i}@email.com"));
@@ -772,7 +772,7 @@ mod test {
 
     #[test]
     fn delete_row_from_tree_with_only_root_node() {
-        let mut table = Table::new("test.db".to_string());
+        let mut table = setup_test_table();
 
         for i in 1..10 {
             handle_input(&mut table, &format!("insert {i} user{i} user{i}@email.com"));
@@ -798,7 +798,7 @@ mod test {
 
     #[test]
     fn delete_row_from_tree_with_2_level_internal_and_leaf_node() {
-        let mut table = Table::new("test.db".to_string());
+        let mut table = setup_test_table();
 
         for i in 1..20 {
             handle_input(&mut table, &format!("insert {i} user{i} user{i}@email.com"));
@@ -826,7 +826,7 @@ mod test {
 
     #[test]
     fn delete_row_from_tree_with_3_level_internal_and_leaf_node() {
-        let mut table = Table::new("test.db".to_string());
+        let mut table = setup_test_table();
 
         for i in 1..100 {
             handle_input(&mut table, &format!("insert {i} user{i} user{i}@email.com"));
@@ -857,7 +857,7 @@ mod test {
 
     #[test]
     fn delete_row_with_id_in_internal_node() {
-        let mut table = Table::new("test.db".to_string());
+        let mut table = setup_test_table();
 
         for i in 1..100 {
             handle_input(&mut table, &format!("insert {i} user{i} user{i}@email.com"));
@@ -885,7 +885,7 @@ mod test {
 
     #[test]
     fn delete_everything() {
-        let mut table = Table::new("test.db".to_string());
+        let mut table = setup_test_table();
 
         for i in [1, 100] {
             handle_input(&mut table, &format!("insert {i} user{i} user{i}@email.com"));
@@ -1136,7 +1136,7 @@ mod test {
     }
 
     fn test_deletion(delete_input: DeleteInputs) {
-        let mut table = Table::new("test.db".to_string());
+        let mut table = setup_test_table();
 
         for i in &delete_input.insertion_ids {
             handle_input(&mut table, &format!("insert {i} user{i} user{i}@email.com"));
@@ -1187,7 +1187,7 @@ mod test {
     }
 
     fn insert_delete_and_select_prop(delete_input: DeleteInputs) -> bool {
-        let mut table = Table::new("test.db".to_string());
+        let mut table = setup_test_table();
 
         for i in &delete_input.insertion_ids {
             handle_input(&mut table, &format!("insert {i} user{i} user{i}@email.com"));
@@ -1231,7 +1231,11 @@ mod test {
         true
     }
 
+    fn setup_test_table() -> Table {
+        return Table::new(format!("test-{:?}.db", std::thread::current().id()));
+    }
+
     fn clean_test() {
-        let _ = std::fs::remove_file("test.db");
+        let _ = std::fs::remove_file(format!("test-{:?}.db", std::thread::current().id()));
     }
 }
