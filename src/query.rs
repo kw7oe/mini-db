@@ -7,6 +7,7 @@ pub enum MetaCommand {
     Unrecognized,
     Exit,
     PrintTree,
+    PrintPages,
 }
 
 #[derive(Debug, PartialEq)]
@@ -27,6 +28,8 @@ pub fn handle_meta_command(command: &str) -> MetaCommand {
         MetaCommand::Exit
     } else if command.eq(".tree") {
         MetaCommand::PrintTree
+    } else if command.eq(".pages") {
+        MetaCommand::PrintPages
     } else {
         MetaCommand::Unrecognized
     }

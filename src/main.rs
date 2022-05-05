@@ -51,6 +51,7 @@ fn handle_input(table: &mut Table, input: &str) -> String {
         match handle_meta_command(input) {
             MetaCommand::Exit => return "Exit".to_string(),
             MetaCommand::PrintTree => return table.to_string(),
+            MetaCommand::PrintPages => return table.pages(),
             MetaCommand::Unrecognized => return format!("Unrecognized command '{input}'."),
         }
     }

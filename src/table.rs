@@ -166,6 +166,10 @@ impl Table {
             format!("item not found with id {}", row.id)
         }
     }
+
+    pub fn pages(&self) -> String {
+        self.pager.debug_pages()
+    }
 }
 
 impl std::string::ToString for Table {

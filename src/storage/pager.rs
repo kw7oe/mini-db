@@ -1602,6 +1602,17 @@ impl Pager {
             // debug!("--- done splitting parent internal node---");
         }
     }
+
+    pub fn debug_pages(&self) -> String {
+        use std::fmt::Write;
+        let mut result = String::new();
+        for i in 0..self.next_page_id.load(Ordering::Relaxed) {
+            let bytes = self.disk_manager.read_page(i).unwrap();
+            writeln!(&mut result, "--- Page {} ---", i).unwrap();
+            writeln!(&mut result, "{:?}", Node::new_from_bytes(&bytes)).unwrap();
+        }
+        result
+    }
 }
 
 #[cfg(test)]
