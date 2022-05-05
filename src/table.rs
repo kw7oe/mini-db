@@ -179,6 +179,7 @@ mod test {
     use super::*;
     use crate::query::prepare_statement;
     use pretty_assertions::assert_eq;
+    use std::sync::Arc;
     use std::thread;
 
     #[test]
@@ -449,8 +450,6 @@ mod test {
         cleanup_test_db_file();
     }
 
-    use std::sync::Arc;
-
     #[test]
     fn concurrent_insert_into_root_leaf_node() {
         test_concurrent_insert(100, 12)
@@ -471,7 +470,6 @@ mod test {
         test_concurrent_insert(100, 40)
     }
 
-    use std::io::Write;
     #[test]
     fn concurrent_insert_and_split_internal_node() {
         test_concurrent_insert(100, 75)
@@ -479,6 +477,7 @@ mod test {
 
     #[test]
     fn concurrent_insert_lots_of_records() {
+        // use std::io::Write;
         // env_logger::builder()
         //     .format(|buf, record| {
         //         let ts = buf.timestamp_micros();
@@ -504,6 +503,11 @@ mod test {
     }
 
     fn test_concurrent_insert(frequency: usize, row: usize) {
+        std::panic::set_hook(Box::new(|p| {
+            cleanup_test_db_file();
+            println!("{p}");
+        }));
+
         for i in 0..frequency {
             info!("--- test concurrent insert {i} ---");
             let table = Arc::new(Table::new("test.db".to_string()));
