@@ -181,6 +181,7 @@ mod test {
     use pretty_assertions::assert_eq;
     use std::sync::Arc;
     use std::thread;
+    use threadpool::ThreadPool;
 
     #[test]
     fn select_with_new_buffer_pool_impl() {
@@ -493,13 +494,56 @@ mod test {
         //     })
         //     .init();
 
-        // This might failed occasionally due to insufficient buffer pool
-        // page. Since our test is spawning 1 thread per record. We are
-        // essentially spawning 150 threads to be executed concurrently.
-        //
-        // Hence, it might potentially caused our buffer pool not having
+        // The reason we need to use a thread pool is because it might failed
+        // occasionally due to insufficient buffer pool page if we spawn 1 thread
+        // per record.  We are essentially  spawning 1000 threads to be
+        // executed concurrently and it will caused our buffer pool not having
         // enough pages to hold those page and caused a panic.
-        test_concurrent_insert(100, 150)
+        //
+        // And having more threads != better performance.
+        test_concurrent_insert_with_thread_pool(16, 10, 1000)
+    }
+
+    fn test_concurrent_insert_with_thread_pool(
+        thread_pool_size: usize,
+        frequency: usize,
+        row: usize,
+    ) {
+        std::panic::set_hook(Box::new(|p| {
+            cleanup_test_db_file();
+            println!("{p}");
+        }));
+
+        let pool = ThreadPool::new(thread_pool_size);
+
+        for i in 0..frequency {
+            info!("--- test concurrent insert {i} ---");
+            let table = Arc::new(Table::new("test.db".to_string()));
+            let (tx, rx) = std::sync::mpsc::channel();
+
+            for i in 1..row {
+                let table = Arc::clone(&table);
+                let tx = tx.clone();
+                pool.execute(move || {
+                    let row = Row::from_statement(&format!("insert {i} user{i} user{i}@email.com"))
+                        .unwrap();
+                    table.insert_concurrently(&row);
+                    tx.send(1)
+                        .expect("channel will be there waiting for the pool");
+                });
+            }
+
+            // Wait for rx, similar to calling handle.join()
+            for _ in 1..row {
+                rx.recv().unwrap();
+            }
+
+            let statement = prepare_statement("select").unwrap();
+            let result = table.select(&statement);
+            assert_eq!(result, expected_output(1..row));
+
+            cleanup_test_db_file();
+        }
     }
 
     fn test_concurrent_insert(frequency: usize, row: usize) {

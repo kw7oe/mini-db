@@ -13,6 +13,7 @@ log = "0.4.0"
 env_logger = "0.8.4"
 parking_lot = "0.12"
 rand = "0.8.5"
+threadpool = "1.8.1"
 
 [dev-dependencies]
 quickcheck = "1"
