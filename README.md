@@ -55,6 +55,8 @@ quick breakdown on what I'm going to implement next:
     - [x] Support concurrent insert to B+ Tree.
     - [ ] Support concurrent delete to B+ Tree.
     - [ ] Support concurrent get/scan to B+ Tree.
+    - [ ] Optimize latch crabbing by holding read lock and only swap to write
+      lock when there's a split/merge.
   - [ ] Implement concurrency control at row/tuple level. _([Reference][4])_
     - [ ] Implement lock manager.
     - [ ] Implement dead lock detection.
