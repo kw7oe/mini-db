@@ -480,8 +480,8 @@ mod test {
     #[test]
     fn concurrent_insert_lots_of_records() {
         // With tracing lib
-        let format = tracing_subscriber::fmt::format().with_thread_ids(true);
-        tracing_subscriber::fmt().event_format(format).init();
+        // let format = tracing_subscriber::fmt::format().with_thread_ids(true);
+        // tracing_subscriber::fmt().event_format(format).init();
 
         // Create a `fmt` subscriber that uses our custom event format, and set it
         // as the default.
@@ -587,9 +587,6 @@ mod test {
 
     #[test]
     fn concurrent_select() {
-        let format = tracing_subscriber::fmt::format().with_thread_ids(true);
-        tracing_subscriber::fmt().event_format(format).init();
-
         let thread_pool_size = 16;
         let request_count = 24;
         let frequency = 50;

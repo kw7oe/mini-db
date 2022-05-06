@@ -357,8 +357,20 @@ impl Pager {
             page.is_dirty = false;
             page.pin_count = 0;
             page.page_id = Some(page_id);
-            let bytes = self.disk_manager.read_page(page_id).unwrap();
-            page.node = Some(Node::new_from_bytes(&bytes));
+            match self.disk_manager.read_page(page_id) {
+                Ok(bytes) => {
+                    page.node = Some(Node::new_from_bytes(&bytes));
+                }
+                Err(_err) => {
+                    // This either mean the file is corrupted or is a partial page
+                    // or it's just a new file.
+                    if page_id == 0 {
+                        page.node = Some(Node::root());
+                    }
+
+                    self.next_page_id.fetch_add(1, Ordering::SeqCst);
+                }
+            };
             page.pin_count += 1;
             self.replacer.pin(frame_id);
 
@@ -1229,9 +1241,20 @@ impl Pager {
             page.pin_count = 1;
             page.page_id = Some(page_id);
 
-            let bytes = self.disk_manager.read_page(page_id).unwrap();
-            page.node = Some(Node::new_from_bytes(&bytes));
+            match self.disk_manager.read_page(page_id) {
+                Ok(bytes) => {
+                    page.node = Some(Node::new_from_bytes(&bytes));
+                }
+                Err(_err) => {
+                    // This either mean the file is corrupted or is a partial page
+                    // or it's just a new file.
+                    if page_id == 0 {
+                        page.node = Some(Node::root());
+                    }
 
+                    self.next_page_id.fetch_add(1, Ordering::SeqCst);
+                }
+            };
             self.replacer.pin(frame_id);
 
             Some(page)
