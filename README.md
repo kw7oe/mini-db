@@ -53,8 +53,12 @@ quick breakdown on what I'm going to implement next:
 - [ ] Implement concurrency for our database.
   - [ ] Multi threaded index concurrency control. _([Reference][2], [Reference, see Task 4][3])_
     - [x] Support concurrent insert to B+ Tree.
+    - [x] Support concurrent select to B+ Tree.
     - [ ] Support concurrent delete to B+ Tree.
-    - [ ] Support concurrent get/scan to B+ Tree.
+    - [ ] Test concurrent insert + select;
+    - [ ] Test concurrent insert + delete;
+    - [ ] Test concurrent delete + select;
+    - [ ] Test concurrent insert + select + delete;
     - [ ] Optimize latch crabbing by holding read lock and only swap to write
       lock when there's a split/merge.
   - [ ] Implement concurrency control at row/tuple level. _([Reference][4])_
