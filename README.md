@@ -83,19 +83,6 @@ as our execution engine.
 We would just write a simple enough query and execution engine
 so we can test out our database.
 
-## Testing
-
-Since we are creating and removing file of the same name in our tests,
-there might be race condition when we run our test concurrently that
-cause our tests failed.
-
-For the time being, we can avoid that by limiting the concurrency
-in `cargo test`:
-
-```sh
-cargo test -- --test-threads=1
-```
-
 ## References
 
 - [Let's Build a Simple Database][0]
