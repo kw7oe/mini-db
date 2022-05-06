@@ -18,8 +18,7 @@ impl Cursor {
     pub fn table_start(table: &Table) -> Self {
         let page_num = table.root_page_num;
         if let Ok(mut cursor) = Self::table_find(table, page_num, 0) {
-            let page = table.pager.fetch_page(cursor.page_num).unwrap();
-            let page = page.read();
+            let page = table.pager.fetch_read_page_guard(cursor.page_num).unwrap();
             let num_of_cells = page.node.as_ref().unwrap().num_of_cells as usize;
 
             drop(page);
@@ -32,8 +31,7 @@ impl Cursor {
     }
 
     pub fn table_find(table: &Table, page_num: usize, key: u32) -> Result<Self, String> {
-        let page = table.pager.fetch_page(page_num).unwrap();
-        let page = page.read();
+        let page = table.pager.fetch_read_page_guard(page_num).unwrap();
         let node = page.node.as_ref().unwrap();
         let num_of_cells = node.num_of_cells as usize;
 
@@ -74,8 +72,7 @@ impl Cursor {
     fn advance(&mut self, table: &Table) {
         self.cell_num += 1;
         let old_page_num = self.page_num;
-        let page = table.pager.fetch_page(self.page_num).unwrap();
-        let page = page.read();
+        let page = table.pager.fetch_read_page_guard(self.page_num).unwrap();
         let node = page.node.as_ref().unwrap();
         let num_of_cells = node.num_of_cells as usize;
 
@@ -483,8 +480,8 @@ mod test {
     #[test]
     fn concurrent_insert_lots_of_records() {
         // With tracing lib
-        // let format = tracing_subscriber::fmt::format().with_thread_ids(true);
-        // tracing_subscriber::fmt().event_format(format).init();
+        let format = tracing_subscriber::fmt::format().with_thread_ids(true);
+        tracing_subscriber::fmt().event_format(format).init();
 
         // Create a `fmt` subscriber that uses our custom event format, and set it
         // as the default.
@@ -586,6 +583,43 @@ mod test {
 
             cleanup_test_db_file();
         }
+    }
+
+    #[test]
+    fn concurrent_select() {
+        let format = tracing_subscriber::fmt::format().with_thread_ids(true);
+        tracing_subscriber::fmt().event_format(format).init();
+
+        let thread_pool_size = 16;
+        let request_count = 24;
+        let frequency = 50;
+        let row = 250;
+
+        let pool = ThreadPool::new(thread_pool_size);
+        let table = Arc::new(setup_test_table());
+
+        for i in 1..row {
+            let row =
+                Row::from_statement(&format!("insert {i} user{i} user{i}@email.com")).unwrap();
+            table.insert_concurrently(&row);
+        }
+
+        for i in 0..frequency {
+            info!("--- concurrent select: {i} ---");
+            for _ in 1..request_count {
+                let table = Arc::clone(&table);
+                pool.execute(move || {
+                    let statement = prepare_statement("select").unwrap();
+                    let result = table.select(&statement);
+                    assert_eq!(result, expected_output(1..row));
+                });
+            }
+
+            pool.join();
+            assert_eq!(pool.panic_count(), 0);
+        }
+
+        cleanup_test_db_file();
     }
 
     fn expected_output<I>(range: I) -> String

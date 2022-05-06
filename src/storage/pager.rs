@@ -1,4 +1,4 @@
-use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockUpgradableReadGuard, RwLockWriteGuard};
 use rand::Rng;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -331,6 +331,7 @@ impl Pager {
     }
 
     fn concurrent_create_or_replace_page(&self, page_id: usize) -> Option<&RwLock<Page>> {
+        let mut page_table = self.page_table.write();
         let mut free_list = self.free_list.lock();
         let frame_id = free_list
             .pop()
@@ -348,51 +349,38 @@ impl Pager {
                 self.flush_write_page(dirty_page_id, &page);
             }
 
+            // Update page table
+            page_table.retain(|_, &mut fid| fid != frame_id);
+            page_table.insert(page_id, frame_id);
+
             // Reset page
             page.is_dirty = false;
             page.pin_count = 0;
             page.page_id = Some(page_id);
-            page.node = None;
-
-            // Update page table
-            let mut page_table = self.page_table.write();
-            page_table.retain(|_, &mut fid| fid != frame_id);
-            page_table.insert(page_id, frame_id);
-            drop(page_table);
-
-            match self.disk_manager.read_page(page_id) {
-                Ok(bytes) => {
-                    page.node = Some(Node::new_from_bytes(&bytes));
-                }
-                Err(_err) => {
-                    // This either mean the file is corrupted or is a partial page
-                    // or it's just a new file.
-                    if page_id == 0 {
-                        page.node = Some(Node::root());
-                    }
-
-                    self.next_page_id.fetch_add(1, Ordering::SeqCst);
-                }
-            }
-
+            let bytes = self.disk_manager.read_page(page_id).unwrap();
+            page.node = Some(Node::new_from_bytes(&bytes));
             page.pin_count += 1;
             self.replacer.pin(frame_id);
+
+            drop(page_table);
             drop(page);
 
             let page = &self.pages[frame_id];
             Some(page)
         } else {
-            None
+            drop(page_table);
+            let mut rng = rand::thread_rng();
+            let duration = std::time::Duration::from_millis(rng.gen_range(1..5));
+            std::thread::sleep(duration);
+            self.concurrent_create_or_replace_page(page_id)
         }
     }
 
     pub fn fetch_page_guard(&self, page_id: usize) -> Option<RwLockWriteGuard<Page>> {
         let page_table = self.page_table.read();
-        debug!("--- fetch page ---: page {page_id}");
         if let Some(&frame_id) = page_table.get(&page_id) {
             let page = self.pages.get(frame_id).unwrap();
             let mut page = page.write();
-            debug!("--- fetch page ---: acquire page {page_id} lock");
             page.pin_count += 1;
             self.replacer.pin(frame_id);
 
@@ -412,8 +400,9 @@ impl Pager {
             page.pin_count += 1;
             self.replacer.pin(frame_id);
 
-            drop(page);
             drop(page_table);
+            drop(page);
+
             let page = &self.pages[frame_id];
             return Some(page);
         }
@@ -498,9 +487,10 @@ impl Pager {
     pub fn unpin_page(&self, page_id: usize, is_dirty: bool) {
         let page_table = self.page_table.read();
         if let Some(&frame_id) = page_table.get(&page_id) {
-            drop(page_table);
             let page = &self.pages[frame_id];
             let mut page = page.write();
+            drop(page_table);
+
             if !page.is_dirty {
                 page.is_dirty = is_dirty;
             }
@@ -509,6 +499,7 @@ impl Pager {
             if page.pin_count == 0 {
                 self.replacer.unpin(frame_id);
             };
+
             drop(page);
         } else {
             drop(page_table);
@@ -792,16 +783,13 @@ impl Pager {
     }
 
     pub fn get_record(&self, cursor: &Cursor) -> Row {
-        if let Some(page) = self.fetch_page(cursor.page_num) {
-            let page = page.read();
-            let node = page.node.as_ref().unwrap();
-            let row = node.get(cursor.cell_num);
-            drop(page);
-            self.unpin_page(cursor.page_num, false);
-            return row;
-        }
+        let page = self.fetch_read_page_guard(cursor.page_num).unwrap();
+        let node = page.node.as_ref().unwrap();
+        let row = node.get(cursor.cell_num);
 
-        panic!("row not found...");
+        drop(page);
+        self.unpin_page(cursor.page_num, false);
+        row
     }
 
     pub fn delete_record(&self, cursor: &Cursor) {
@@ -1190,6 +1178,71 @@ impl Pager {
     // ---------------------
     // Concurrent Operations
     // ---------------------
+    pub fn fetch_read_page_guard(&self, page_id: usize) -> Option<RwLockReadGuard<Page>> {
+        let page_table = self.page_table.upgradable_read();
+        if let Some(&frame_id) = page_table.get(&page_id) {
+            let page = self.pages.get(frame_id).unwrap();
+            let mut page = page.write();
+            page.pin_count += 1;
+            self.replacer.pin(frame_id);
+            drop(page_table);
+
+            let page = RwLockWriteGuard::downgrade(page);
+            return Some(page);
+        }
+
+        self.replace_page(page_table, page_id)
+            .map(RwLockWriteGuard::downgrade)
+    }
+
+    fn replace_page(
+        &self,
+        page_table: RwLockUpgradableReadGuard<HashMap<usize, usize>>,
+        page_id: usize,
+    ) -> Option<RwLockWriteGuard<Page>> {
+        let mut page_table = RwLockUpgradableReadGuard::upgrade(page_table);
+
+        let mut free_list = self.free_list.lock();
+        let frame_id = free_list
+            .pop()
+            .or_else(|| self.replacer.victim().map(|md| md.frame_id));
+        drop(free_list);
+
+        if let Some(frame_id) = frame_id {
+            let unlock_page = self.pages.get(frame_id).unwrap();
+            let mut page = unlock_page.write();
+
+            // Check if page is dirty. Flush page to disk
+            // if needed
+            if page.is_dirty {
+                let dirty_page_id = page.page_id.unwrap();
+                self.flush_write_page(dirty_page_id, &page);
+            }
+
+            // Update page table
+            page_table.retain(|_, &mut fid| fid != frame_id);
+            page_table.insert(page_id, frame_id);
+            drop(page_table);
+
+            // Reset page
+            page.is_dirty = false;
+            page.pin_count = 1;
+            page.page_id = Some(page_id);
+
+            let bytes = self.disk_manager.read_page(page_id).unwrap();
+            page.node = Some(Node::new_from_bytes(&bytes));
+
+            self.replacer.pin(frame_id);
+
+            Some(page)
+        } else {
+            let page_table = RwLockWriteGuard::downgrade_to_upgradable(page_table);
+            let mut rng = rand::thread_rng();
+            let duration = std::time::Duration::from_millis(rng.gen_range(1..5));
+            std::thread::sleep(duration);
+            self.replace_page(page_table, page_id)
+        }
+    }
     pub fn try_fetch_page(&self, page_id: usize) -> Result<Option<RwLockWriteGuard<Page>>, String> {
         let page_table = self.page_table.read();
         if let Some(&frame_id) = page_table.get(&page_id) {
