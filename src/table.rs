@@ -130,27 +130,9 @@ impl Table {
         output
     }
 
-    pub fn insert_concurrently(&self, row: &Row) -> String {
-        let page_num = self.root_page_num;
-        self.pager.insert(page_num, row).unwrap()
-    }
-
     pub fn insert(&self, row: &Row) -> String {
         let page_num = self.root_page_num;
-        match Cursor::table_find(self, page_num, row.id) {
-            Ok(cursor) => {
-                if cursor.key_existed {
-                    return "duplicate key\n".to_string();
-                }
-                self.pager.insert_record(row, &cursor);
-
-                format!(
-                    "inserting into page: {}, cell: {}...\n",
-                    cursor.page_num, cursor.cell_num
-                )
-            }
-            Err(message) => message,
-        }
+        self.pager.insert(page_num, row).unwrap()
     }
 
     pub fn delete(&self, row: &Row) -> String {
@@ -534,7 +516,7 @@ mod test {
                 pool.execute(move || {
                     let row = Row::from_statement(&format!("insert {i} user{i} user{i}@email.com"))
                         .unwrap();
-                    table.insert_concurrently(&row);
+                    table.insert(&row);
                     tx.send(1)
                         .expect("channel will be there waiting for the pool");
                 });
@@ -569,7 +551,7 @@ mod test {
                 let handle = thread::spawn(move || {
                     let row = Row::from_statement(&format!("insert {i} user{i} user{i}@email.com"))
                         .unwrap();
-                    table.insert_concurrently(&row);
+                    table.insert(&row);
                 });
                 handles.push(handle);
             }
@@ -598,7 +580,7 @@ mod test {
         for i in 1..row {
             let row =
                 Row::from_statement(&format!("insert {i} user{i} user{i}@email.com")).unwrap();
-            table.insert_concurrently(&row);
+            table.insert(&row);
         }
 
         for i in 0..frequency {
