@@ -502,11 +502,6 @@ impl Pager {
     }
 
     pub fn delete_record(&self, cursor: &Cursor) {
-        debug!(
-            "--- delete_record at page {}, cell {}",
-            cursor.page_num, cursor.cell_num
-        );
-
         let page = self.fetch_page(cursor.page_num).unwrap();
         let mut page = page.write();
         let node = page.node.as_mut().unwrap();
@@ -1378,6 +1373,41 @@ impl Pager {
             drop(right_page);
             // debug!("--- done splitting parent internal node---");
         }
+    }
+
+    pub fn delete(&self, root_page_num: usize, row: &Row) -> Option<String> {
+        self.search_and_then(
+            vec![],
+            root_page_num,
+            row.id,
+            |cursor, parent_page_guards, mut page| {
+                if cursor.key_existed {
+                    let node = page.node.as_mut().unwrap();
+                    node.delete(cursor.cell_num);
+
+                    self.unpin_page_with_write_guard(&mut page, true);
+                    drop(page);
+
+                    self.concurrent_maybe_merge_nodes(&cursor, parent_page_guards);
+                    Some(format!("deleted {}", row.id))
+                } else {
+                    Some(format!("item not found with id {}", row.id))
+                }
+            },
+        )
+    }
+
+    fn concurrent_maybe_merge_nodes(
+        &self,
+        cursor: &Cursor,
+        parent_page_guards: Vec<RwLockWriteGuard<Page>>,
+    ) {
+        for mut page in parent_page_guards {
+            self.unpin_page_with_write_guard(&mut page, false);
+            drop(page);
+        }
+
+        unimplemented!("merge node concurrently");
     }
 
     pub fn debug_pages(&self) -> String {

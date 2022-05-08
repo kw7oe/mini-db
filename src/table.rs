@@ -146,6 +146,11 @@ impl Table {
         }
     }
 
+    pub fn concurrent_delete(&self, row: &Row) -> String {
+        let page_num = self.root_page_num;
+        self.pager.delete(page_num, row).unwrap()
+    }
+
     pub fn pages(&self) -> String {
         self.pager.debug_pages()
     }
@@ -578,6 +583,53 @@ mod test {
 
             pool.join();
             assert_eq!(pool.panic_count(), 0);
+        }
+
+        cleanup_test_db_file();
+    }
+
+    #[test]
+    fn concurrent_delete_on_root_leaf_node() {
+        test_concurrent_delete(100, 13);
+    }
+
+    #[test]
+    // fn concurrent_delete_from_level_2() {
+    fn delete_concurrently() {
+        let format = tracing_subscriber::fmt::format().with_thread_ids(true);
+        tracing_subscriber::fmt().event_format(format).init();
+        test_concurrent_delete(1, 20);
+    }
+
+    fn test_concurrent_delete(frequency: usize, row: usize) {
+        let table = Arc::new(setup_test_table());
+
+        for i in 0..frequency {
+            info!("--- concurrent delete: {i} ---");
+            for i in 1..row {
+                let row =
+                    Row::from_statement(&format!("insert {i} user{i} user{i}@email.com")).unwrap();
+                table.insert(&row);
+            }
+
+            let mut handles = vec![];
+            for i in 1..row {
+                let table = Arc::clone(&table);
+                let handle = std::thread::spawn(move || {
+                    let statement = prepare_statement(&format!("delete {i}")).unwrap();
+                    let result = table.concurrent_delete(&statement.row.unwrap());
+                    assert_eq!(result, format!("deleted {i}"));
+                });
+                handles.push(handle);
+            }
+
+            for handle in handles {
+                handle.join().unwrap();
+            }
+
+            let statement = prepare_statement("select").unwrap();
+            let result = table.select(&statement);
+            assert_eq!(result, "");
         }
 
         cleanup_test_db_file();
