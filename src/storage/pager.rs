@@ -429,6 +429,32 @@ impl Pager {
         }
     }
 
+    pub fn delete_page_with_write_guard(&self, mut page: RwLockWriteGuard<Page>) -> bool {
+        let page_id = page.page_id.unwrap();
+        info!("delete page {page_id}");
+
+        let mut page_table = self.page_table.write();
+        if let Some(&frame_id) = page_table.get(&page_id) {
+            if page.pin_count == 0 {
+                debug!("--- page {page_id} found, deleting it...");
+                page.deallocate();
+                page_table.remove(&page_id);
+                self.free_list.lock().push(frame_id);
+                drop(page_table);
+
+                true
+            } else {
+                drop(page_table);
+                info!("--- page is being used, can't be deleted");
+                false
+            }
+        } else {
+            drop(page_table);
+            info!("--- page {page_id} not found");
+            true
+        }
+    }
+
     pub fn unpin_page_with_write_guard(&self, page: &mut RwLockWriteGuard<Page>, is_dirty: bool) {
         let page_table = self.page_table.read();
         if let Some(&frame_id) = page_table.get(&page.page_id.unwrap()) {
@@ -1384,11 +1410,7 @@ impl Pager {
                 if cursor.key_existed {
                     let node = page.node.as_mut().unwrap();
                     node.delete(cursor.cell_num);
-
-                    self.unpin_page_with_write_guard(&mut page, true);
-                    drop(page);
-
-                    self.concurrent_maybe_merge_nodes(&cursor, parent_page_guards);
+                    self.concurrent_maybe_merge_nodes(page, parent_page_guards);
                     Some(format!("deleted {}", row.id))
                 } else {
                     Some(format!("item not found with id {}", row.id))
@@ -1399,15 +1421,122 @@ impl Pager {
 
     fn concurrent_maybe_merge_nodes(
         &self,
-        cursor: &Cursor,
+        mut page: RwLockWriteGuard<Page>,
         parent_page_guards: Vec<RwLockWriteGuard<Page>>,
     ) {
+        let node = page.node.as_ref().unwrap();
+
+        if node.node_type == NodeType::Leaf
+            && node.num_of_cells < LEAF_NODE_MAX_CELLS as u32 / 2
+            && !node.is_root
+        {
+            self.concurrent_merge_leaf_nodes(page, parent_page_guards);
+        } else {
+            for mut page in parent_page_guards {
+                self.unpin_page_with_write_guard(&mut page, false);
+                drop(page);
+            }
+
+            self.unpin_page_with_write_guard(&mut page, true);
+            drop(page);
+        }
+    }
+
+    fn concurrent_merge_leaf_nodes(
+        &self,
+        page: RwLockWriteGuard<Page>,
+        mut parent_page_guards: Vec<RwLockWriteGuard<Page>>,
+    ) {
+        let page_id = page.page_id.unwrap();
+        let node = page.node.as_ref().unwrap();
+        let node_cells_len = node.cells.len();
+
+        assert!(!parent_page_guards.is_empty());
+        let parent_page = parent_page_guards.pop().unwrap();
+
+        let parent = parent_page.node.as_ref().unwrap();
+        let (left_child_pointer, right_child_pointer) = parent.siblings(page_id as u32);
+
+        if let Some(cp) = left_child_pointer {
+            let mut left_page = self.fetch_page_guard(cp).unwrap();
+            let left_nb = left_page.node.as_ref().unwrap();
+
+            if cp != page_id && left_nb.cells.len() + node_cells_len < LEAF_NODE_MAX_CELLS {
+                debug!("Merging node {} with its left neighbour...", page_id);
+                self.concurrent_do_merge_leaf_nodes(parent_page, left_page, page);
+
+                // Drop parent guards lock
+                for mut page in parent_page_guards {
+                    self.unpin_page_with_write_guard(&mut page, false);
+                    drop(page);
+                }
+                return;
+            } else {
+                self.unpin_page_with_write_guard(&mut left_page, false);
+                drop(left_page);
+            }
+        }
+
+        if let Some(cp) = right_child_pointer {
+            let mut right_page = self.fetch_page_guard(cp).unwrap();
+            let right_nb = right_page.node.as_ref().unwrap();
+
+            if cp != page_id && right_nb.cells.len() + node_cells_len < LEAF_NODE_MAX_CELLS {
+                debug!("Merging node {} with its right neighbour...", page_id);
+                self.concurrent_do_merge_leaf_nodes(parent_page, page, right_page);
+            } else {
+                self.unpin_page_with_write_guard(&mut right_page, false);
+                drop(right_page);
+            }
+        }
+
+        // Drop parent guards lock
         for mut page in parent_page_guards {
             self.unpin_page_with_write_guard(&mut page, false);
             drop(page);
         }
+    }
 
-        unimplemented!("merge node concurrently");
+    fn concurrent_do_merge_leaf_nodes(
+        &self,
+        mut parent_page: RwLockWriteGuard<Page>,
+        mut left_page: RwLockWriteGuard<Page>,
+        mut right_page: RwLockWriteGuard<Page>,
+    ) {
+        // Take the node of right page and left page out of page.
+        //
+        // Free up the pages as we don't need it anymore.
+        let mut left_node = left_page.node.take().unwrap();
+        let right_node = right_page.node.take().unwrap();
+        self.delete_page_with_write_guard(left_page);
+        self.delete_page_with_write_guard(right_page);
+
+        // Merge the leaf nodes cells
+        for c in right_node.cells {
+            left_node.cells.push(c);
+            left_node.num_of_cells += 1;
+        }
+        left_node.next_leaf_offset = right_node.next_leaf_offset;
+
+        let parent = parent_page.node.as_mut().unwrap();
+
+        if parent.num_of_cells == 1 && parent.is_root {
+            info!("promote last leaf node to root");
+
+            // Replace the parent.node with our new combined left node
+            left_node.is_root = true;
+            left_node.next_leaf_offset = 0;
+            parent_page.node = Some(left_node);
+
+            self.unpin_page_with_write_guard(&mut parent_page, true);
+            drop(parent_page);
+        } else {
+            // let parent_offset = left_node.parent_offset as usize;
+            // let max_key = left_node.get_max_key();
+            // let min_key_length = self.min_key(INTERNAL_NODE_MAX_CELLS) as u32;
+
+            unimplemented!("merge and update parent");
+        }
     }
 
     pub fn debug_pages(&self) -> String {

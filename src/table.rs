@@ -598,14 +598,14 @@ mod test {
     fn delete_concurrently() {
         let format = tracing_subscriber::fmt::format().with_thread_ids(true);
         tracing_subscriber::fmt().event_format(format).init();
-        test_concurrent_delete(1, 20);
+        test_concurrent_delete(100, 20);
     }
 
     fn test_concurrent_delete(frequency: usize, row: usize) {
-        let table = Arc::new(setup_test_table());
-
         for i in 0..frequency {
             info!("--- concurrent delete: {i} ---");
+            let table = Arc::new(setup_test_table());
+
             for i in 1..row {
                 let row =
                     Row::from_statement(&format!("insert {i} user{i} user{i}@email.com")).unwrap();
