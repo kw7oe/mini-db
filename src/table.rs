@@ -465,24 +465,6 @@ mod test {
         // let format = tracing_subscriber::fmt::format().with_thread_ids(true);
         // tracing_subscriber::fmt().event_format(format).init();
 
-        // Create a `fmt` subscriber that uses our custom event format, and set it
-        // as the default.
-        // use std::io::Write;
-        // env_logger::builder()
-        //     .format(|buf, record| {
-        //         let ts = buf.timestamp_micros();
-        //         writeln!(
-        //             buf,
-        //             "{}: {:?}: {}: {}",
-        //             ts,
-        //             std::thread::current().id(),
-        //             buf.default_level_style(record.level())
-        //                 .value(record.level()),
-        //             record.args()
-        //         )
-        //     })
-        //     .init();
-
         // The reason we need to use a thread pool is because it might failed
         // occasionally due to insufficient buffer pool page if we spawn 1 thread
         // per record.  We are essentially  spawning 1000 threads to be
