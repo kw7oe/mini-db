@@ -445,7 +445,7 @@ impl Pager {
             }
         } else {
             drop(page_table);
-            info!("--- page {page_id} not found");
+            debug!("--- page {page_id} not found");
             true
         }
     }
@@ -1440,12 +1440,12 @@ impl Pager {
             |cursor, parent_page_guards, mut page| {
                 if cursor.key_existed {
                     let page_id = page.page_id.unwrap();
-                    info!("delete {} from page {:?}", row.id, page_id);
+                    debug!("delete {} from page {:?}", row.id, page_id);
                     let node = page.node.as_mut().unwrap();
                     node.delete(cursor.cell_num);
                     self.concurrent_maybe_merge_nodes(page, parent_page_guards);
 
-                    info!("deleted {} from page {:?}", row.id, page_id);
+                    debug!("deleted {} from page {:?}", row.id, page_id);
                     Some(format!("deleted {}", row.id))
                 } else {
                     for mut page in parent_page_guards {
@@ -1573,7 +1573,7 @@ impl Pager {
         let parent = parent_page.node.as_mut().unwrap();
 
         if parent.num_of_cells == 1 && parent.is_root {
-            info!("promote last leaf node to root");
+            debug!("promote last leaf node to root");
             self.concurrent_promote_node_to_root(parent_page, left_page, right_page);
         } else {
             self.unpin_page_with_write_guard(&mut right_page, true);
@@ -1608,10 +1608,9 @@ impl Pager {
                 }
             }
 
-            info!("finish merging leaf nodes");
+            debug!("finish merging leaf nodes");
 
             if parent.num_of_cells <= min_key_length && !parent.is_root {
-                info!("parent dont have enough cell, merge parent internal nodes!");
                 return self.concurrent_merge_internal_nodes(parent_page, parent_page_guards);
             }
 
@@ -1668,10 +1667,6 @@ impl Pager {
 
         let (left_child_pointer, right_child_pointer) = parent.siblings(page_id as u32);
 
-        info!(
-            "checking left {:?} and right {:?}",
-            left_child_pointer, right_child_pointer
-        );
         if let Some(cp) = left_child_pointer {
             let mut left_page = self.fetch_page_guard(cp).unwrap();
             let left_nb = left_page.node.as_ref().unwrap();

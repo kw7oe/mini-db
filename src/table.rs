@@ -613,14 +613,62 @@ mod test {
         test_concurrent_delete(100, 75);
     }
 
-    // #[test]
-    // fn concurrent_delete_lots_of_records() {
-    //     // tracing_subscriber::fmt()
-    //     //     .with_max_level(tracing::Level::DEBUG)
-    //     //     .with_thread_ids(true)
-    //     //     .init();
-    //     test_concurrent_delete(10, 1000);
-    // }
+    #[test]
+    fn concurrent_delete_lots_of_records() {
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::INFO)
+            .with_thread_ids(true)
+            .init();
+        test_concurrent_delete_with_thread_pool(16, 10, 1000);
+    }
+
+    fn test_concurrent_delete_with_thread_pool(
+        thread_pool_size: usize,
+        frequency: usize,
+        row: usize,
+    ) {
+        std::panic::set_hook(Box::new(|p| {
+            cleanup_test_db_file();
+            println!("{p}");
+        }));
+
+        let pool = ThreadPool::new(thread_pool_size);
+
+        for i in 0..frequency {
+            info!("--- test concurrent delete {i} ---");
+            let table = Arc::new(setup_test_table());
+            let (tx, rx) = std::sync::mpsc::channel();
+
+            for i in 1..row {
+                let row =
+                    Row::from_statement(&format!("insert {i} user{i} user{i}@email.com")).unwrap();
+                table.insert(&row);
+            }
+
+            for i in 1..row {
+                let table = Arc::clone(&table);
+                let tx = tx.clone();
+                pool.execute(move || {
+                    let statement = prepare_statement(&format!("delete {i}")).unwrap();
+                    let result = table.concurrent_delete(&statement.row.unwrap());
+                    assert_eq!(result, format!("deleted {i}"));
+                    tx.send(1)
+                        .expect("channel will be there waiting for the pool");
+                });
+            }
+
+            // Wait for rx, similar to calling handle.join()
+            for _ in 1..row {
+                rx.recv().unwrap();
+            }
+
+            let statement = prepare_statement("select").unwrap();
+            let result = table.select(&statement);
+            assert_eq!(result, "");
+
+            cleanup_test_db_file();
+        }
+    }
 
     fn test_concurrent_delete(frequency: usize, row: usize) {
         for i in 0..frequency {
