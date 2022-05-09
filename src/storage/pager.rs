@@ -1503,12 +1503,14 @@ impl Pager {
         mut left_page: RwLockWriteGuard<Page>,
         mut right_page: RwLockWriteGuard<Page>,
     ) {
+        let right_page_id = right_page.page_id.unwrap();
+        let left_page_id = left_page.page_id.unwrap();
+
         // Take the node of right page and left page out of page.
         //
         // Free up the pages as we don't need it anymore.
-        let mut left_node = left_page.node.take().unwrap();
+        let left_node = left_page.node.as_mut().unwrap();
         let right_node = right_page.node.take().unwrap();
-        self.delete_page_with_write_guard(left_page);
         self.delete_page_with_write_guard(right_page);
 
         // Merge the leaf nodes cells
@@ -1522,6 +1524,10 @@ impl Pager {
 
         if parent.num_of_cells == 1 && parent.is_root {
             info!("promote last leaf node to root");
+            // Take left node out of left page as it will be used to replace
+            // the node in our parent.
+            let mut left_node = left_page.node.take().unwrap();
+            self.delete_page_with_write_guard(left_page);
 
             // Replace the parent.node with our new combined left node
             left_node.is_root = true;
@@ -1531,11 +1537,37 @@ impl Pager {
             self.unpin_page_with_write_guard(&mut parent_page, true);
             drop(parent_page);
         } else {
-            // let parent_offset = left_node.parent_offset as usize;
-            // let max_key = left_node.get_max_key();
-            // let min_key_length = self.min_key(INTERNAL_NODE_MAX_CELLS) as u32;
+            let max_key = left_node.get_max_key();
+            let min_key_length = self.min_key(INTERNAL_NODE_MAX_CELLS) as u32;
 
-            unimplemented!("merge and update parent");
+            let index = parent.internal_search_child_pointer(right_page_id as u32);
+            if index == parent.num_of_cells as usize {
+                // The right_cp is our right child offset
+
+                // Move last internal cell to become the right child offset
+                let internal_cell = parent.internal_cells.remove(index - 1);
+                parent.num_of_cells -= 1;
+                parent.right_child_offset = internal_cell.child_pointer();
+            } else {
+                // Remove extra key, pointers cell as we now have one less child
+                // after merge
+                parent.num_of_cells -= 1;
+                parent.internal_cells.remove(index);
+
+                // Update the key for our existing child pointer pointing to our merged node
+                // to use the new max key.
+                if index != 0 {
+                    parent.internal_cells[index - 1] =
+                        InternalCell::new(left_page_id as u32, max_key);
+                }
+            }
+
+            if parent.num_of_cells <= min_key_length && !parent.is_root {
+                unimplemented!("recursive merge internal nodes");
+            }
+
+            self.unpin_page_with_write_guard(&mut parent_page, true);
+            drop(parent_page);
         }
     }
 

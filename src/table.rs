@@ -594,11 +594,18 @@ mod test {
     }
 
     #[test]
-    // fn concurrent_delete_from_level_2() {
-    fn delete_concurrently() {
-        let format = tracing_subscriber::fmt::format().with_thread_ids(true);
-        tracing_subscriber::fmt().event_format(format).init();
+    fn concurrent_delete_from_level_2() {
         test_concurrent_delete(100, 20);
+    }
+
+    #[test]
+    fn concurrent_delete_and_merge_leaf_node_and_update_parent_from_level_2() {
+        test_concurrent_delete(100, 30);
+    }
+
+    fn delete_concurrently() {
+        // fn concurrent_delete_and_merge_root_internal_node() {
+        test_concurrent_delete(100, 40);
     }
 
     fn test_concurrent_delete(frequency: usize, row: usize) {
