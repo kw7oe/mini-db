@@ -136,7 +136,6 @@ impl Table {
     }
 
     pub fn delete(&self, row: &Row) -> String {
-        debug!("deleting row with id {}", row.id);
         let cursor = Cursor::table_find(self, self.root_page_num, row.id).unwrap();
         if cursor.key_existed {
             self.pager.delete_record(&cursor);
@@ -170,6 +169,7 @@ mod test {
     use std::sync::Arc;
     use std::thread;
     use threadpool::ThreadPool;
+    use tracing::info;
 
     #[test]
     fn select_with_new_buffer_pool_impl() {
@@ -603,9 +603,18 @@ mod test {
         test_concurrent_delete(100, 30);
     }
 
-    fn delete_concurrently() {
-        // fn concurrent_delete_and_merge_root_internal_node() {
+    #[test]
+    fn concurrent_delete_and_merge_root_internal_node() {
         test_concurrent_delete(100, 40);
+    }
+
+    // #[test]
+    fn concurrent_delete_and_merge_internal_node() {
+        // tracing_subscriber::fmt()
+        //     .with_max_level(tracing::Level::INFO)
+        //     .with_thread_ids(true)
+        //     .init();
+        test_concurrent_delete(100, 75);
     }
 
     fn test_concurrent_delete(frequency: usize, row: usize) {

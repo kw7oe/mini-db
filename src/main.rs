@@ -11,9 +11,6 @@ big_array! {
     32, 255, LEAF_NODE_CELL_SIZE
 }
 
-#[macro_use]
-extern crate log;
-
 mod query;
 mod row;
 mod storage;
