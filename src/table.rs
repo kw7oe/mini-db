@@ -556,7 +556,7 @@ mod test {
 
     #[test]
     fn concurrent_select() {
-        let thread_pool_size = 16;
+        let thread_pool_size = 4;
         let request_count = 24;
         let frequency = 50;
         let row = 250;
@@ -608,14 +608,19 @@ mod test {
         test_concurrent_delete(100, 40);
     }
 
-    // #[test]
+    #[test]
     fn concurrent_delete_and_merge_internal_node() {
-        // tracing_subscriber::fmt()
-        //     .with_max_level(tracing::Level::INFO)
-        //     .with_thread_ids(true)
-        //     .init();
         test_concurrent_delete(100, 75);
     }
+
+    // #[test]
+    // fn concurrent_delete_lots_of_records() {
+    //     // tracing_subscriber::fmt()
+    //     //     .with_max_level(tracing::Level::DEBUG)
+    //     //     .with_thread_ids(true)
+    //     //     .init();
+    //     test_concurrent_delete(10, 1000);
+    // }
 
     fn test_concurrent_delete(frequency: usize, row: usize) {
         for i in 0..frequency {
@@ -646,9 +651,9 @@ mod test {
             let statement = prepare_statement("select").unwrap();
             let result = table.select(&statement);
             assert_eq!(result, "");
-        }
 
-        cleanup_test_db_file();
+            cleanup_test_db_file();
+        }
     }
 
     fn expected_output<I>(range: I) -> String
