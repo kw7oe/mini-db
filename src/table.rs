@@ -136,16 +136,6 @@ impl Table {
     }
 
     pub fn delete(&self, row: &Row) -> String {
-        let cursor = Cursor::table_find(self, self.root_page_num, row.id).unwrap();
-        if cursor.key_existed {
-            self.pager.delete_record(&cursor);
-            format!("deleted {}", row.id)
-        } else {
-            format!("item not found with id {}", row.id)
-        }
-    }
-
-    pub fn concurrent_delete(&self, row: &Row) -> String {
         let page_num = self.root_page_num;
         self.pager.delete(page_num, row).unwrap()
     }
@@ -615,10 +605,10 @@ mod test {
 
     #[test]
     fn concurrent_delete_lots_of_records() {
-        tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::INFO)
-            .with_thread_ids(true)
-            .init();
+        // tracing_subscriber::fmt()
+        // .with_max_level(tracing::Level::INFO)
+        // .with_thread_ids(true)
+        // .init();
         test_concurrent_delete_with_thread_pool(16, 10, 1000);
     }
 
@@ -650,7 +640,7 @@ mod test {
                 let tx = tx.clone();
                 pool.execute(move || {
                     let statement = prepare_statement(&format!("delete {i}")).unwrap();
-                    let result = table.concurrent_delete(&statement.row.unwrap());
+                    let result = table.delete(&statement.row.unwrap());
                     assert_eq!(result, format!("deleted {i}"));
                     tx.send(1)
                         .expect("channel will be there waiting for the pool");
@@ -686,7 +676,7 @@ mod test {
                 let table = Arc::clone(&table);
                 let handle = std::thread::spawn(move || {
                     let statement = prepare_statement(&format!("delete {i}")).unwrap();
-                    let result = table.concurrent_delete(&statement.row.unwrap());
+                    let result = table.delete(&statement.row.unwrap());
                     assert_eq!(result, format!("deleted {i}"));
                 });
                 handles.push(handle);
