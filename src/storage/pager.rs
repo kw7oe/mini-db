@@ -348,10 +348,15 @@ impl Pager {
     }
 
     pub fn fetch_page_guard(&self, page_id: usize) -> Option<RwLockWriteGuard<Page>> {
+        debug!("--- fetch_page_guard ---: page {page_id}");
         let page_table = self.page_table.upgradable_read();
+        debug!("--- fetch_page_guard ---: page {page_id} pass through page_table.read()");
+
         if let Some(&frame_id) = page_table.get(&page_id) {
             let page = self.pages.get(frame_id).unwrap();
+            debug!("--- acquiring page {page_id} ---");
             let mut page = page.write();
+            debug!("--- acquire page {page_id} ---");
             page.pin_count += 1;
             self.replacer.pin(frame_id);
 
@@ -467,14 +472,89 @@ impl Pager {
         }
     }
 
-    pub fn get_record(&self, cursor: &Cursor) -> Row {
-        let page = self.fetch_read_page_guard(cursor.page_num).unwrap();
-        let node = page.node.as_ref().unwrap();
-        let row = node.get(cursor.cell_num);
+    pub fn select(&self, root_page_num: usize) -> String {
+        let mut output = String::new();
 
+        let mut page = self.search_page(root_page_num, 0);
+        let mut page_num = page.page_id.unwrap();
+        let mut node = page.node.as_ref().unwrap();
+        assert_eq!(node.node_type, NodeType::Leaf);
+
+        if node.num_of_cells == 0 {
+            drop(page);
+            self.unpin_page(page_num, false);
+
+            return output;
+        };
+
+        loop {
+            for i in 0..node.num_of_cells as usize {
+                let row = node.get(i);
+                output.push_str(&row.to_string());
+                output.push('\n');
+            }
+
+            if node.next_leaf_offset == 0 {
+                drop(page);
+                self.unpin_page(page_num, false);
+
+                break;
+            } else {
+                let old_page_num = page_num;
+                page_num = node.next_leaf_offset as usize;
+
+                drop(page);
+                self.unpin_page(old_page_num, false);
+
+                page = self.fetch_read_page_guard(page_num).unwrap();
+                node = page.node.as_ref().unwrap();
+            }
+        }
+
+        output
+    }
+
+    fn search_page(&self, page_num: usize, key: u32) -> RwLockReadGuard<Page> {
+        let page = self.fetch_read_page_guard(page_num).unwrap();
+        let node = page.node.as_ref().unwrap();
+
+        if node.node_type == NodeType::Leaf {
+            return page;
+        }
+
+        let next_page_num = node.search(key).unwrap();
         drop(page);
-        self.unpin_page(cursor.page_num, false);
-        row
+        self.unpin_page(page_num, false);
+        self.search_page(next_page_num, key)
+    }
+
+    pub fn find(&self, page_num: usize, key: u32) -> String {
+        let page = self.fetch_read_page_guard(page_num).unwrap();
+        let page_id = page.page_id.unwrap();
+        let node = page.node.as_ref().unwrap();
+
+        if node.node_type == NodeType::Leaf {
+            match node.search(key) {
+                Ok(index) => {
+                    let row = node.get(index);
+                    drop(page);
+                    self.unpin_page(page_id, false);
+                    format!("{}\n", row.to_string())
+                }
+                Err(_index) => {
+                    info!("can't find {key} in {:?}", page);
+                    drop(page);
+                    self.unpin_page(page_id, false);
+                    "".to_string()
+                }
+            }
+        } else if let Ok(next_page_num) = node.search(key) {
+            drop(page);
+            self.unpin_page(page_id, false);
+            self.find(next_page_num, key)
+        } else {
+            unreachable!("this shouldn't happen!");
+        }
     }
 
     fn min_key(&self, max_degree: usize) -> usize {
@@ -629,12 +709,16 @@ impl Pager {
     }
 
     pub fn try_fetch_page(&self, page_id: usize) -> Result<Option<RwLockWriteGuard<Page>>, String> {
+        debug!("--- try_fetch_page ---: page {page_id}");
         let page_table = self.page_table.read();
+        debug!("--- try_fetch_page ---: page {page_id} pass through page_table.read()");
         if let Some(&frame_id) = page_table.get(&page_id) {
             let page = self.pages.get(frame_id).unwrap();
+            debug!("--- acquiring page {page_id} ---");
             let page = page.try_write();
 
             if let Some(mut page) = page {
+                debug!("--- acquire page {page_id} ---");
                 page.pin_count += 1;
                 self.replacer.pin(frame_id);
 
@@ -671,6 +755,8 @@ impl Pager {
                 let mut rng = rand::thread_rng();
                 let duration = std::time::Duration::from_millis(rng.gen_range(1..5));
                 std::thread::sleep(duration);
+
+                info!("no page available, restart at root");
 
                 // Restart at root
                 self.search_and_then(vec![], 0, key, operation, func)
@@ -772,8 +858,10 @@ impl Pager {
                 }
 
                 let mut rng = rand::thread_rng();
-                let duration = std::time::Duration::from_millis(rng.gen_range(1..5));
+                let duration = std::time::Duration::from_millis(rng.gen_range(1..100));
                 std::thread::sleep(duration);
+
+                info!("error fetchnig, restart at root");
 
                 // Restart at root
                 self.search_and_then(vec![], 0, key, operation, func)
@@ -1657,44 +1745,44 @@ mod test {
         cleanup_test_db_file();
     }
 
-    #[test]
-    fn pager_get_record() {
-        setup_test_db_file();
+    // #[test]
+    // fn pager_get_record() {
+    //     setup_test_db_file();
 
-        let pager = setup_test_pager();
-        let cursor = Cursor {
-            page_num: 1,
-            cell_num: 0,
-            key_existed: false,
-            end_of_table: false,
-        };
+    //     let pager = setup_test_pager();
+    //     let cursor = Cursor {
+    //         page_num: 1,
+    //         cell_num: 0,
+    //         key_existed: false,
+    //         end_of_table: false,
+    //     };
 
-        let row = pager.get_record(&cursor);
-        assert_eq!(row.id, 1);
-        assert_eq!(row.username(), "user1");
-        assert_eq!(row.email(), "user1@email.com");
-        let page = pager.fetch_page(cursor.page_num).unwrap();
-        let page = page.read();
-        assert_eq!(page.pin_count, 1);
-        drop(page);
+    //     let row = pager.get_record(&cursor);
+    //     assert_eq!(row.id, 1);
+    //     assert_eq!(row.username(), "user1");
+    //     assert_eq!(row.email(), "user1@email.com");
+    //     let page = pager.fetch_page(cursor.page_num).unwrap();
+    //     let page = page.read();
+    //     assert_eq!(page.pin_count, 1);
+    //     drop(page);
 
-        let cursor = Cursor {
-            page_num: 2,
-            cell_num: 1,
-            key_existed: false,
-            end_of_table: false,
-        };
+    //     let cursor = Cursor {
+    //         page_num: 2,
+    //         cell_num: 1,
+    //         key_existed: false,
+    //         end_of_table: false,
+    //     };
 
-        let row = pager.get_record(&cursor);
-        assert_eq!(row.id, 9);
-        assert_eq!(row.username(), "user9");
-        assert_eq!(row.email(), "user9@email.com");
-        let page = pager.fetch_page(cursor.page_num).unwrap();
-        let page = page.read();
-        assert_eq!(page.pin_count, 1);
+    //     let row = pager.get_record(&cursor);
+    //     assert_eq!(row.id, 9);
+    //     assert_eq!(row.username(), "user9");
+    //     assert_eq!(row.email(), "user9@email.com");
+    //     let page = pager.fetch_page(cursor.page_num).unwrap();
+    //     let page = page.read();
+    //     assert_eq!(page.pin_count, 1);
 
-        cleanup_test_db_file();
-    }
+    //     cleanup_test_db_file();
+    // }
 
     fn setup_test_table() -> Table {
         return Table::new(format!("test-{:?}.db", std::thread::current().id()));

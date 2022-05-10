@@ -1,8 +1,5 @@
 use crate::query::Statement;
 use crate::row::Row;
-// Ideally this mod shouldn't need to know about NodeType.
-// TODO: remove this couping by restructuring the code.
-use crate::storage::NodeType;
 use crate::storage::Pager;
 use std::path::PathBuf;
 
@@ -12,82 +9,6 @@ pub struct Cursor {
     pub cell_num: usize,
     pub key_existed: bool,
     pub end_of_table: bool,
-}
-
-impl Cursor {
-    pub fn table_start(table: &Table) -> Self {
-        let page_num = table.root_page_num;
-        if let Ok(mut cursor) = Self::table_find(table, page_num, 0) {
-            let page = table.pager.fetch_read_page_guard(cursor.page_num).unwrap();
-            let num_of_cells = page.node.as_ref().unwrap().num_of_cells as usize;
-
-            drop(page);
-            table.pager.unpin_page(cursor.page_num, false);
-            cursor.end_of_table = num_of_cells == 0;
-            cursor
-        } else {
-            panic!("Oops, I'm a bug!");
-        }
-    }
-
-    pub fn table_find(table: &Table, page_num: usize, key: u32) -> Result<Self, String> {
-        let page = table.pager.fetch_read_page_guard(page_num).unwrap();
-        let node = page.node.as_ref().unwrap();
-        let num_of_cells = node.num_of_cells as usize;
-
-        if node.node_type == NodeType::Leaf {
-            match node.search(key) {
-                Ok(index) => {
-                    drop(page);
-                    table.pager.unpin_page(page_num, false);
-                    Ok(Cursor {
-                        page_num,
-                        cell_num: index,
-                        key_existed: true,
-                        end_of_table: index == num_of_cells,
-                    })
-                }
-                Err(index) => {
-                    drop(page);
-                    table.pager.unpin_page(page_num, false);
-                    Ok(Cursor {
-                        page_num,
-                        cell_num: index,
-                        key_existed: false,
-                        end_of_table: index == num_of_cells,
-                    })
-                }
-            }
-        } else if let Ok(next_page_num) = node.search(key) {
-            drop(page);
-            table.pager.unpin_page(page_num, false);
-            Self::table_find(table, next_page_num, key)
-        } else {
-            drop(page);
-            table.pager.unpin_page(page_num, false);
-            Err("something went wrong".to_string())
-        }
-    }
-
-    fn advance(&mut self, table: &Table) {
-        self.cell_num += 1;
-        let old_page_num = self.page_num;
-        let page = table.pager.fetch_read_page_guard(self.page_num).unwrap();
-        let node = page.node.as_ref().unwrap();
-        let num_of_cells = node.num_of_cells as usize;
-
-        if self.cell_num >= num_of_cells {
-            if node.next_leaf_offset == 0 {
-                self.end_of_table = true;
-            } else {
-                self.page_num = node.next_leaf_offset as usize;
-                self.cell_num = 0;
-            }
-        }
-
-        drop(page);
-        table.pager.unpin_page(old_page_num, false);
-    }
 }
 
 pub struct Table {
@@ -109,25 +30,12 @@ impl Table {
     }
 
     pub fn select(&self, statement: &Statement) -> String {
-        let mut cursor: Cursor;
-        let mut output = String::new();
-
+        let page_num = self.root_page_num;
         if let Some(row) = &statement.row {
-            cursor = Cursor::table_find(self, self.root_page_num, row.id).unwrap();
-            if cursor.key_existed {
-                let row = self.pager.get_record(&cursor);
-                output.push_str(&format!("{:?}\n", row));
-            }
+            self.pager.find(page_num, row.id)
         } else {
-            cursor = Cursor::table_start(self);
-            while !cursor.end_of_table {
-                let row = self.pager.get_record(&cursor);
-                output.push_str(&format!("{:?}\n", row));
-                cursor.advance(self);
-            }
+            self.pager.select(page_num)
         }
-
-        output
     }
 
     pub fn insert(&self, row: &Row) -> String {
@@ -545,8 +453,8 @@ mod test {
     }
 
     #[test]
-    fn concurrent_select() {
-        let thread_pool_size = 4;
+    fn concurrent_select_all() {
+        let thread_pool_size = 8;
         let request_count = 24;
         let frequency = 50;
         let row = 250;
@@ -568,6 +476,40 @@ mod test {
                     let statement = prepare_statement("select").unwrap();
                     let result = table.select(&statement);
                     assert_eq!(result, expected_output(1..row));
+                });
+            }
+
+            pool.join();
+            assert_eq!(pool.panic_count(), 0);
+        }
+
+        cleanup_test_db_file();
+    }
+
+    #[test]
+    fn concurrent_select_single() {
+        let thread_pool_size = 4;
+        let frequency = 50;
+        let row = 250;
+
+        let pool = ThreadPool::new(thread_pool_size);
+        let table = Arc::new(setup_test_table());
+
+        for i in 1..row {
+            let row =
+                Row::from_statement(&format!("insert {i} user{i} user{i}@email.com")).unwrap();
+            table.insert(&row);
+        }
+
+        for i in 0..frequency {
+            info!("--- concurrent select: {i} ---");
+            for i in 1..row {
+                let table = Arc::clone(&table);
+                pool.execute(move || {
+                    let statement = prepare_statement(&format!("select {i}")).unwrap();
+                    let result = table.select(&statement);
+                    let expected = expected_output(i..i + 1);
+                    assert_eq!(result, expected);
                 });
             }
 
@@ -605,10 +547,6 @@ mod test {
 
     #[test]
     fn concurrent_delete_lots_of_records() {
-        // tracing_subscriber::fmt()
-        // .with_max_level(tracing::Level::INFO)
-        // .with_thread_ids(true)
-        // .init();
         test_concurrent_delete_with_thread_pool(16, 10, 1000);
     }
 
@@ -689,6 +627,64 @@ mod test {
             let statement = prepare_statement("select").unwrap();
             let result = table.select(&statement);
             assert_eq!(result, "");
+
+            cleanup_test_db_file();
+        }
+    }
+
+    #[test]
+    #[ignore]
+    // test still fail sometime or deadlock
+    fn concurrent_insert_and_select() {
+        let thread_pool_size = 8;
+        let frequency = 10;
+        std::panic::set_hook(Box::new(|p| {
+            cleanup_test_db_file();
+            println!("{p}");
+        }));
+
+        let pool = ThreadPool::new(thread_pool_size);
+
+        for i in 0..frequency {
+            info!("--- test concurrent insert and select {i} ---");
+            let table = Arc::new(setup_test_table());
+
+            for i in 0..100 {
+                let row =
+                    Row::from_statement(&format!("insert {i} user{i} user{i}@email.com")).unwrap();
+                table.insert(&row);
+            }
+
+            for i in 100..200 {
+                let table = Arc::clone(&table);
+                pool.execute(move || {
+                    let statement = prepare_statement(&format!("select {}", i / 2)).unwrap();
+                    let result = table.select(&statement);
+                    println!("{result}");
+                    assert_eq!(result, expected_output(i / 2..i / 2 + 1));
+
+                    let row = Row::from_statement(&format!("insert {i} user{i} user{i}@email.com"))
+                        .unwrap();
+                    table.insert(&row);
+
+                    // let statement = prepare_statement(&format!("delete {}", i / 2)).unwrap();
+                    // let result = table.delete(&statement.row.unwrap());
+                    // assert_eq!(result, format!("deleted {}", i / 2));
+
+                    let statement = prepare_statement(&format!("select {i}")).unwrap();
+                    let result = table.select(&statement);
+                    println!("{result}");
+                    assert_eq!(result, expected_output(i..i + 1));
+                });
+            }
+
+            pool.join();
+            assert_eq!(pool.panic_count(), 0);
+
+            let statement = prepare_statement("select").unwrap();
+            let result = table.select(&statement);
+            assert_eq!(result, expected_output(0..200));
+            // assert_eq!(result, expected_output(100..200));
 
             cleanup_test_db_file();
         }

@@ -80,8 +80,14 @@ impl Row {
     }
 }
 
+impl std::string::ToString for Row {
+    fn to_string(&self) -> String {
+        format!("({}, {}, {})", self.id, self.username(), self.email())
+    }
+}
+
 impl std::fmt::Debug for Row {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "({}, {}, {})", self.id, self.username(), self.email())
+        write!(f, "{}", self.to_string())
     }
 }
