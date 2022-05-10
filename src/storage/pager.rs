@@ -529,6 +529,7 @@ impl Pager {
     }
 
     pub fn find(&self, page_num: usize, key: u32) -> String {
+        info!("--- find {key} ---");
         let page = self.fetch_read_page_guard(page_num).unwrap();
         let page_id = page.page_id.unwrap();
         let node = page.node.as_ref().unwrap();
@@ -539,10 +540,10 @@ impl Pager {
                     let row = node.get(index);
                     drop(page);
                     self.unpin_page(page_id, false);
+                    info!("--- find {key} (end) ---");
                     format!("{}\n", row.to_string())
                 }
                 Err(_index) => {
-                    info!("can't find {key} in {:?}", page);
                     drop(page);
                     self.unpin_page(page_id, false);
                     "".to_string()
@@ -756,8 +757,6 @@ impl Pager {
                 let duration = std::time::Duration::from_millis(rng.gen_range(1..5));
                 std::thread::sleep(duration);
 
-                info!("no page available, restart at root");
-
                 // Restart at root
                 self.search_and_then(vec![], 0, key, operation, func)
             }
@@ -858,10 +857,8 @@ impl Pager {
                 }
 
                 let mut rng = rand::thread_rng();
-                let duration = std::time::Duration::from_millis(rng.gen_range(1..100));
+                let duration = std::time::Duration::from_millis(rng.gen_range(1..5));
                 std::thread::sleep(duration);
-
-                info!("error fetchnig, restart at root");
 
                 // Restart at root
                 self.search_and_then(vec![], 0, key, operation, func)
@@ -870,6 +867,7 @@ impl Pager {
     }
 
     pub fn insert(&self, root_page_num: usize, row: &Row) -> Option<String> {
+        info!("--- insert {} ---", row.id);
         self.search_and_then(
             vec![],
             root_page_num,
@@ -897,6 +895,7 @@ impl Pager {
                     }
                 }
 
+                info!("--- insert {} (end) ---", row.id);
                 Some(format!(
                     "inserting into page: {}, cell: {}...\n",
                     cursor.page_num, cursor.cell_num
