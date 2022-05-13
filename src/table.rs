@@ -3,14 +3,6 @@ use crate::row::Row;
 use crate::storage::Pager;
 use std::path::PathBuf;
 
-#[derive(Debug)]
-pub struct Cursor {
-    pub page_num: usize,
-    pub cell_num: usize,
-    pub key_existed: bool,
-    pub end_of_table: bool,
-}
-
 pub struct Table {
     root_page_num: usize,
     pager: Pager,

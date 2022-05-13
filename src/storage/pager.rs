@@ -12,10 +12,17 @@ use super::node::{
 };
 use crate::row::Row;
 use crate::storage::{DiskManager, NodeType};
-use crate::table::Cursor;
 use std::time::Instant;
 
 pub const PAGE_SIZE: usize = 4096;
+
+#[derive(Debug)]
+pub struct Cursor {
+    pub page_num: usize,
+    pub cell_num: usize,
+    pub key_existed: bool,
+    pub end_of_table: bool,
+}
 
 #[derive(Debug)]
 struct PageMetadata {
