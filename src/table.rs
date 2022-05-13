@@ -1,7 +1,7 @@
 use crate::query::Statement;
 use crate::row::Row;
 use crate::storage::Pager;
-use std::path::PathBuf;
+use std::path::Path;
 
 pub struct Table {
     root_page_num: usize,
@@ -9,7 +9,7 @@ pub struct Table {
 }
 
 impl Table {
-    pub fn new(path: impl Into<PathBuf>) -> Table {
+    pub fn new(path: impl AsRef<Path>) -> Table {
         let pager = Pager::new(path);
         Table {
             root_page_num: 0,

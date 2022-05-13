@@ -1,7 +1,7 @@
 use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockUpgradableReadGuard, RwLockWriteGuard};
 use rand::Rng;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tracing::{debug, info};
@@ -132,7 +132,7 @@ pub struct Pager {
 }
 
 impl Pager {
-    pub fn new(path: impl Into<PathBuf>) -> Pager {
+    pub fn new(path: impl AsRef<Path>) -> Pager {
         let pool_size = 8;
 
         // Initialize free list.

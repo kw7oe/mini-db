@@ -3,7 +3,7 @@ use std::{
     fs::{File, OpenOptions},
     io::SeekFrom,
     io::{Read, Seek, Write},
-    path::PathBuf,
+    path::Path,
     sync::Mutex,
 };
 
@@ -15,9 +15,7 @@ pub struct DiskManager {
 }
 
 impl DiskManager {
-    pub fn new(path: impl Into<PathBuf>) -> Self {
-        let path = path.into();
-
+    pub fn new(path: impl AsRef<Path>) -> Self {
         let write_file = OpenOptions::new()
             .write(true)
             .create(true)
