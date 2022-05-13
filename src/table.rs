@@ -24,7 +24,7 @@ impl Table {
     pub fn select(&self, statement: &Statement) -> String {
         let page_num = self.root_page_num;
         if let Some(row) = &statement.row {
-            self.pager.find(page_num, row.id)
+            self.pager.find(page_num, None, row.id)
         } else {
             self.pager.select(page_num)
         }
@@ -619,14 +619,13 @@ mod test {
     }
 
     #[test]
-    #[ignore]
     fn concurrent_insert_and_select() {
         tracing_subscriber::fmt()
             .with_thread_ids(true)
             .with_max_level(tracing::Level::DEBUG)
             .init();
 
-        let thread_pool_size = 8;
+        let thread_pool_size = 4;
         let frequency = 100;
         std::panic::set_hook(Box::new(|p| {
             cleanup_test_db_file();
@@ -639,24 +638,24 @@ mod test {
             info!("--- test concurrent insert and select {i} ---");
             let table = Arc::new(setup_test_table());
 
-            // for i in 0..100 {
-            //     let row =
-            //         Row::from_statement(&format!("insert {i} user{i} user{i}@email.com")).unwrap();
-            //     table.insert(&row);
-            // }
+            for i in 0..100 {
+                let row =
+                    Row::from_statement(&format!("insert {i} user{i} user{i}@email.com")).unwrap();
+                table.insert(&row);
+            }
 
             for i in 0..100 {
                 let table = Arc::clone(&table);
                 pool.execute(move || {
-                    // let j = i + 100;
+                    let j = i + 100;
 
-                    let row = Row::from_statement(&format!("insert {i} user{i} user{i}@email.com"))
+                    let row = Row::from_statement(&format!("insert {j} user{j} user{j}@email.com"))
                         .unwrap();
                     table.insert(&row);
 
-                    let statement = prepare_statement(&format!("select {}", i)).unwrap();
+                    let statement = prepare_statement(&format!("select {}", j)).unwrap();
                     let result = table.select(&statement);
-                    assert_eq!(result, expected_output(i..i + 1));
+                    assert_eq!(result, expected_output(j..j + 1));
 
                     // let statement = prepare_statement(&format!("delete {}", i)).unwrap();
                     // let result = table.delete(&statement.row.unwrap());
@@ -664,7 +663,6 @@ mod test {
 
                     // let statement = prepare_statement(&format!("select {i}")).unwrap();
                     // let result = table.select(&statement);
-                    // println!("{result}");
                     // assert_eq!(result, expected_output(i..i + 1));
                 });
             }
@@ -672,10 +670,9 @@ mod test {
             pool.join();
             assert_eq!(pool.panic_count(), 0);
 
-            // let statement = prepare_statement("select").unwrap();
-            // let result = table.select(&statement);
-            // assert_eq!(result, expected_output(0..200));
-            // assert_eq!(result, expected_output(100..200));
+            let statement = prepare_statement("select").unwrap();
+            let result = table.select(&statement);
+            assert_eq!(result, expected_output(0..200));
 
             cleanup_test_db_file();
         }

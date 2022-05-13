@@ -370,21 +370,25 @@ impl Pager {
         let page_table = self.page_table.read();
         if let Some(&frame_id) = page_table.get(&page_id) {
             let page = &self.pages[frame_id];
-            let mut page = page.write();
-            drop(page_table);
+            if let Some(mut page) = page.try_write() {
+                if !page.is_dirty {
+                    page.is_dirty = is_dirty;
+                }
+                page.pin_count -= 1;
 
-            if !page.is_dirty {
-                page.is_dirty = is_dirty;
+                if page.pin_count == 0 {
+                    self.replacer.unpin(frame_id);
+                };
+                drop(page_table);
+
+                drop(page);
+            } else {
+                drop(page_table);
+                let duration = std::time::Duration::from_millis(SLEEP_MS);
+                std::thread::sleep(duration);
+
+                self.unpin_page(page_id, is_dirty);
             }
-            page.pin_count -= 1;
-
-            if page.pin_count == 0 {
-                self.replacer.unpin(frame_id);
-            };
-
-            drop(page);
-        } else {
-            drop(page_table);
         }
     }
 
@@ -454,19 +458,32 @@ impl Pager {
         }
     }
 
-    pub fn find(&self, page_num: usize, key: u32) -> String {
+    pub fn find(
+        &self,
+        page_num: usize,
+        parent_page_guard: Option<RwLockReadGuard<Page>>,
+        key: u32,
+    ) -> String {
         match self.fetch_read_page_guard(page_num) {
             Err(_) => {
+                if let Some(page) = parent_page_guard {
+                    drop(page);
+                }
+
                 let duration = std::time::Duration::from_millis(SLEEP_MS);
                 std::thread::sleep(duration);
 
-                self.find(0, key)
+                self.find(0, None, key)
             }
             Ok(page) => {
                 let page_id = page.page_id.unwrap();
                 let node = page.node.as_ref().unwrap();
 
                 if node.node_type == NodeType::Leaf {
+                    if let Some(page) = parent_page_guard {
+                        drop(page);
+                    }
+
                     match node.search(key) {
                         Ok(index) => {
                             let row = node.get(index);
@@ -481,9 +498,11 @@ impl Pager {
                         }
                     }
                 } else if let Ok(next_page_num) = node.search(key) {
-                    drop(page);
-                    self.unpin_page(page_id, false);
-                    self.find(next_page_num, key)
+                    if let Some(page) = parent_page_guard {
+                        drop(page);
+                    }
+
+                    self.find(next_page_num, Some(page), key)
                 } else {
                     unreachable!("this shouldn't happen!");
                 }
