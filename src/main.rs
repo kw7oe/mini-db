@@ -17,7 +17,7 @@ mod storage;
 mod table;
 
 fn main() -> std::io::Result<()> {
-    let mut table = Table::new("data.db".to_string());
+    let mut table = Table::new("data.db");
     let mut buffer = String::new();
 
     loop {
