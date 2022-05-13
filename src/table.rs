@@ -534,7 +534,7 @@ mod test {
 
     #[test]
     fn concurrent_delete_and_merge_internal_node() {
-        test_concurrent_delete(100, 75);
+        test_concurrent_delete_with_thread_pool(16, 100, 75);
     }
 
     #[test]
@@ -557,7 +557,6 @@ mod test {
         for i in 0..frequency {
             info!("--- test concurrent delete {i} ---");
             let table = Arc::new(setup_test_table());
-            let (tx, rx) = std::sync::mpsc::channel();
 
             for i in 1..row {
                 let row =
@@ -567,20 +566,15 @@ mod test {
 
             for i in 1..row {
                 let table = Arc::clone(&table);
-                let tx = tx.clone();
                 pool.execute(move || {
                     let statement = prepare_statement(&format!("delete {i}")).unwrap();
                     let result = table.delete(&statement.row.unwrap());
                     assert_eq!(result, format!("deleted {i}"));
-                    tx.send(1)
-                        .expect("channel will be there waiting for the pool");
                 });
             }
 
-            // Wait for rx, similar to calling handle.join()
-            for _ in 1..row {
-                rx.recv().unwrap();
-            }
+            pool.join();
+            assert_eq!(pool.panic_count(), 0);
 
             let statement = prepare_statement("select").unwrap();
             let result = table.select(&statement);
@@ -625,6 +619,7 @@ mod test {
     }
 
     #[test]
+    #[ignore]
     fn concurrent_insert_and_select() {
         // tracing_subscriber::fmt()
         //     .with_thread_ids(true)
