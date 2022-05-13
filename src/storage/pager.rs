@@ -196,17 +196,17 @@ impl Pager {
                 self.flush_write_page(dirty_page_id, &page);
             }
 
-            // Reset page
             let page_id = self.next_page_id.fetch_add(1, Ordering::Acquire);
-            page.is_dirty = false;
-            page.pin_count = 0;
-            page.page_id = Some(page_id);
-            page.node = None;
 
             // Update page table
             page_table.retain(|_, &mut fid| fid != frame_id);
             page_table.insert(page_id, frame_id);
-            drop(page_table);
+
+            // Reset page
+            page.is_dirty = false;
+            page.pin_count = 0;
+            page.page_id = Some(page_id);
+            page.node = None;
 
             if page_id == 0 {
                 page.node = Some(Node::root());
@@ -214,11 +214,13 @@ impl Pager {
 
             page.pin_count += 1;
             self.replacer.pin(frame_id);
+            drop(page_table);
+
             Some(page)
         } else {
             drop(page_table);
 
-            let duration = std::time::Duration::from_millis(10);
+            let duration = std::time::Duration::from_millis(SLEEP_MS);
             std::thread::sleep(duration);
 
             self.new_page()
@@ -277,7 +279,7 @@ impl Pager {
         } else {
             drop(page_table);
 
-            let duration = std::time::Duration::from_millis(10);
+            let duration = std::time::Duration::from_millis(SLEEP_MS);
             std::thread::sleep(duration);
 
             self.concurrent_create_or_replace_page(page_id)
@@ -432,7 +434,7 @@ impl Pager {
     fn search_page(&self, page_num: usize, key: u32) -> RwLockReadGuard<Page> {
         match self.fetch_read_page_guard(page_num) {
             Err(_) => {
-                let duration = std::time::Duration::from_millis(10);
+                let duration = std::time::Duration::from_millis(SLEEP_MS);
                 std::thread::sleep(duration);
 
                 self.search_page(0, key)
@@ -455,7 +457,7 @@ impl Pager {
     pub fn find(&self, page_num: usize, key: u32) -> String {
         match self.fetch_read_page_guard(page_num) {
             Err(_) => {
-                let duration = std::time::Duration::from_millis(10);
+                let duration = std::time::Duration::from_millis(SLEEP_MS);
                 std::thread::sleep(duration);
 
                 self.find(0, key)
@@ -643,16 +645,6 @@ impl Pager {
         page_id: usize,
     ) -> Result<RwLockWriteGuard<Page>, PagerError> {
         let mut page_table = RwLockUpgradableReadGuard::upgrade(page_table);
-        if let Some(&frame_id) = page_table.get(&page_id) {
-            let page = &self.pages[frame_id];
-            let mut page = page.write();
-            page.pin_count += 1;
-            self.replacer.pin(frame_id);
-            drop(page_table);
-
-            return Ok(page);
-        }
-
         let mut free_list = self.free_list.lock();
         let frame_id = free_list
             .pop()
@@ -663,17 +655,16 @@ impl Pager {
             let unlock_page = self.pages.get(frame_id).unwrap();
             let mut page = unlock_page.write();
 
+            // Update page table
+            page_table.retain(|_, &mut fid| fid != frame_id);
+            page_table.insert(page_id, frame_id);
+
             // Check if page is dirty. Flush page to disk
             // if needed
             if page.is_dirty {
                 let dirty_page_id = page.page_id.unwrap();
                 self.flush_write_page(dirty_page_id, &page);
             }
-
-            // Update page table
-            page_table.retain(|_, &mut fid| fid != frame_id);
-            page_table.insert(page_id, frame_id);
-            drop(page_table);
 
             // Reset page
             page.is_dirty = false;
@@ -695,6 +686,7 @@ impl Pager {
                 }
             };
             self.replacer.pin(frame_id);
+            drop(page_table);
 
             Ok(page)
         } else {
@@ -811,7 +803,7 @@ impl Pager {
                     drop(page);
                 }
 
-                let duration = std::time::Duration::from_millis(10);
+                let duration = std::time::Duration::from_millis(SLEEP_MS);
                 std::thread::sleep(duration);
 
                 // Restart at root
@@ -839,13 +831,14 @@ impl Pager {
                 } else {
                     let node = page.node.as_mut().unwrap();
                     node.insert(row, &cursor);
-                    self.unpin_page_with_write_guard(&mut page, true);
-                    drop(page);
 
                     for mut page in parent_page_guards {
                         self.unpin_page_with_write_guard(&mut page, false);
                         drop(page);
                     }
+
+                    self.unpin_page_with_write_guard(&mut page, true);
+                    drop(page);
                 }
 
                 Some(format!(
@@ -904,7 +897,6 @@ impl Pager {
         let right_page_id = right_page.page_id.unwrap();
         let left_node = left_page.node.as_mut().unwrap();
         let new_max = left_node.get_max_key();
-        let parent_page_num = left_node.parent_offset as usize;
 
         right_node.next_leaf_offset = left_node.next_leaf_offset;
         left_node.next_leaf_offset = right_page_id as u32;
@@ -920,12 +912,7 @@ impl Pager {
         drop(right_page);
 
         assert!(!parent_page_guards.is_empty());
-        let mut parent_page = if let Some(parent_page) = parent_page_guards.pop() {
-            parent_page
-        } else {
-            self.fetch_write_page_guard_with_retry(parent_page_num)
-        };
-
+        let mut parent_page = parent_page_guards.pop().unwrap();
         let parent_node = parent_page.node.as_mut().unwrap();
         parent_node.update_internal_key(max_key, new_max);
 
@@ -1061,16 +1048,10 @@ impl Pager {
             assert_eq!(parent_page_guards.len(), 0);
             self.concurrent_create_new_root(left_page, right_node, ic.key());
         } else {
-            let parent_offset = left_node.parent_offset as usize;
             let page_num = left_page.page_id.unwrap();
 
             assert!(!parent_page_guards.is_empty());
-            let mut parent_page = if let Some(parent_page) = parent_page_guards.pop() {
-                parent_page
-            } else {
-                self.fetch_write_page_guard_with_retry(parent_offset)
-            };
-
+            let mut parent_page = parent_page_guards.pop().unwrap();
             let parent = parent_page.node.as_mut().unwrap();
             let index = parent.internal_search_child_pointer(page_num as u32);
 

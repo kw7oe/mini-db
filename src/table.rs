@@ -621,10 +621,10 @@ mod test {
     #[test]
     #[ignore]
     fn concurrent_insert_and_select() {
-        // tracing_subscriber::fmt()
-        //     .with_thread_ids(true)
-        //     .with_max_level(tracing::Level::DEBUG)
-        //     .init();
+        tracing_subscriber::fmt()
+            .with_thread_ids(true)
+            .with_max_level(tracing::Level::DEBUG)
+            .init();
 
         let thread_pool_size = 8;
         let frequency = 100;
@@ -636,7 +636,7 @@ mod test {
         let pool = ThreadPool::new(thread_pool_size);
 
         for i in 0..frequency {
-            println!("--- test concurrent insert and select {i} ---");
+            info!("--- test concurrent insert and select {i} ---");
             let table = Arc::new(setup_test_table());
 
             // for i in 0..100 {
