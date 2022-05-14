@@ -17,7 +17,7 @@ mod storage;
 mod table;
 
 fn main() -> std::io::Result<()> {
-    let mut table = Table::new("data.db");
+    let mut table = Table::new("data.db", 8);
     let mut buffer = String::new();
 
     loop {
@@ -1228,7 +1228,7 @@ mod test {
     }
 
     fn setup_test_table() -> Table {
-        return Table::new(format!("test-{:?}.db", std::thread::current().id()));
+        return Table::new(format!("test-{:?}.db", std::thread::current().id()), 8);
     }
 
     fn clean_test() {
