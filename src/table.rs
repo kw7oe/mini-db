@@ -620,7 +620,6 @@ mod test {
 
     #[test]
     fn concurrent_insert_and_select() {
-        tracing_subscriber::fmt::init();
         let thread_pool_size = 32;
         let frequency = 100;
 
@@ -668,15 +667,15 @@ mod test {
     }
 
     #[test]
-    #[ignore]
-    fn concurrent_insert_and_delete() {
-        tracing_subscriber::fmt()
-            .with_thread_ids(true)
-            .with_max_level(tracing::Level::INFO)
-            .init();
+    fn concurrent_delete_and_select() {
+        // tracing_subscriber::fmt()
+        //     .with_thread_ids(true)
+        //     .with_max_level(tracing::Level::INFO)
+        //     .init();
 
-        let thread_pool_size = 8;
+        let thread_pool_size = 32;
         let frequency = 100;
+
         std::panic::set_hook(Box::new(|p| {
             cleanup_test_db_file();
             println!("{p}");
@@ -685,10 +684,10 @@ mod test {
         let pool = ThreadPool::new(thread_pool_size);
 
         for i in 0..frequency {
-            info!("--- test concurrent insert and select {i} ---");
+            info!("--- test concurrent select and delete {i} ---");
             let table = Arc::new(setup_test_table());
 
-            for i in 0..100 {
+            for i in 0..200 {
                 let row =
                     Row::from_statement(&format!("insert {i} user{i} user{i}@email.com")).unwrap();
                 table.insert(&row);
@@ -697,15 +696,18 @@ mod test {
             for i in 0..100 {
                 let table = Arc::clone(&table);
                 pool.execute(move || {
-                    let j = i + 100;
-
-                    let row = Row::from_statement(&format!("insert {j} user{j} user{j}@email.com"))
-                        .unwrap();
-                    table.insert(&row);
+                    let statement = prepare_statement(&format!("select {i}")).unwrap();
+                    let result = table.select(&statement);
+                    assert_eq!(result, expected_output(i..i + 1));
 
                     let statement = prepare_statement(&format!("delete {}", i)).unwrap();
                     let result = table.delete(&statement.row.unwrap());
                     assert_eq!(result, format!("deleted {}", i));
+
+                    let j = i + 100;
+                    let statement = prepare_statement(&format!("select {j}")).unwrap();
+                    let result = table.select(&statement);
+                    assert_eq!(result, expected_output(j..j + 1));
                 });
             }
 

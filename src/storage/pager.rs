@@ -15,7 +15,7 @@ use std::time::Instant;
 
 pub const PAGE_SIZE: usize = 4096;
 const SLEEP_MS: u64 = 10;
-const MAX_RETRY: usize = 2000 / SLEEP_MS as usize;
+const MAX_RETRY: usize = 3000 / SLEEP_MS as usize;
 
 #[derive(Debug)]
 pub struct Cursor {
@@ -666,8 +666,7 @@ impl Pager {
                     // If our internal node might need to split, we'll continue to hold the
                     // lock.
                     let predicate = if operation == "insert" {
-                        // node.num_of_cells + 1 > INTERNAL_NODE_MAX_CELLS as u32
-                        true
+                        node.num_of_cells + 1 > INTERNAL_NODE_MAX_CELLS as u32
                     } else {
                         // Okay, initially, we are planning to drop any parent lock if we find that
                         // a merge won't occur in my current node.

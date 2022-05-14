@@ -55,9 +55,9 @@ quick breakdown on what I'm going to implement next:
     - [x] Support concurrent insert to B+ Tree.
     - [x] Support concurrent select to B+ Tree.
     - [x] Support concurrent delete to B+ Tree.
-    - [ ] Test concurrent insert + select;
+    - [x] Test concurrent insert + select;
+    - [x] Test concurrent delete + select;
     - [ ] Test concurrent insert + delete;
-    - [ ] Test concurrent delete + select;
     - [ ] Test concurrent insert + select + delete;
     - [ ] Optimize latch crabbing by holding read lock and only swap to write
       lock when there's a split/merge.
