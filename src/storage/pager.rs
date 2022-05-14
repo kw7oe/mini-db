@@ -227,84 +227,6 @@ impl Pager {
         }
     }
 
-    fn concurrent_create_or_replace_page(&self, page_id: usize) -> Option<&RwLock<Page>> {
-        let mut page_table = self.page_table.write();
-        let mut free_list = self.free_list.lock();
-        let frame_id = free_list
-            .pop()
-            .or_else(|| self.replacer.victim().map(|md| md.frame_id));
-        drop(free_list);
-
-        if let Some(frame_id) = frame_id {
-            let unlock_page = self.pages.get(frame_id).unwrap();
-            let mut page = unlock_page.write();
-
-            // Check if page is dirty. Flush page to disk
-            // if needed
-            if page.is_dirty {
-                let dirty_page_id = page.page_id.unwrap();
-                self.flush_write_page(dirty_page_id, &page);
-            }
-
-            // Update page table
-            page_table.retain(|_, &mut fid| fid != frame_id);
-            page_table.insert(page_id, frame_id);
-
-            // Reset page
-            page.is_dirty = false;
-            page.pin_count = 0;
-            page.page_id = Some(page_id);
-            match self.disk_manager.read_page(page_id) {
-                Ok(bytes) => {
-                    page.node = Some(Node::new_from_bytes(&bytes));
-                }
-                Err(_err) => {
-                    // This either mean the file is corrupted or is a partial page
-                    // or it's just a new file.
-                    if page_id == 0 {
-                        page.node = Some(Node::root());
-                    }
-
-                    self.next_page_id.fetch_add(1, Ordering::SeqCst);
-                }
-            };
-            page.pin_count += 1;
-            self.replacer.pin(frame_id);
-
-            drop(page_table);
-            drop(page);
-
-            let page = &self.pages[frame_id];
-            Some(page)
-        } else {
-            drop(page_table);
-
-            let duration = std::time::Duration::from_millis(SLEEP_MS);
-            std::thread::sleep(duration);
-
-            self.concurrent_create_or_replace_page(page_id)
-        }
-    }
-
-    pub fn fetch_page(&self, page_id: usize) -> Option<&RwLock<Page>> {
-        let page_table = self.page_table.read();
-        if let Some(&frame_id) = page_table.get(&page_id) {
-            let page = self.pages.get(frame_id).unwrap();
-            let mut page = page.write();
-            page.pin_count += 1;
-            self.replacer.pin(frame_id);
-
-            drop(page_table);
-            drop(page);
-
-            let page = &self.pages[frame_id];
-            return Some(page);
-        }
-
-        drop(page_table);
-        self.concurrent_create_or_replace_page(page_id)
-    }
-
     pub fn flush_write_page(&self, page_id: usize, page: &RwLockWriteGuard<Page>) {
         let node = page.node.as_ref().unwrap();
         let bytes = node.to_bytes();
@@ -521,8 +443,7 @@ impl Pager {
     }
 
     pub fn node_to_string(&self, node_index: usize, indent_level: usize) -> String {
-        let page = self.fetch_page(node_index).unwrap();
-        let page = page.read();
+        let page = self.fetch_read_page_guard(node_index).unwrap();
         let node = page.node.as_ref().unwrap();
         let mut result = String::new();
 
@@ -756,7 +677,8 @@ impl Pager {
                     // If our internal node might need to split, we'll continue to hold the
                     // lock.
                     let predicate = if operation == "insert" {
-                        node.num_of_cells + 1 > INTERNAL_NODE_MAX_CELLS as u32
+                        // node.num_of_cells + 1 > INTERNAL_NODE_MAX_CELLS as u32
+                        true
                     } else {
                         // Okay, initially, we are planning to drop any parent lock if we find that
                         // a merge won't occur in my current node.
@@ -1565,75 +1487,73 @@ mod test {
         cleanup_test_db_file();
     }
 
-    #[test]
-    #[ignore]
-    fn pager_create_or_replace_page_when_page_cache_is_full_with_victims_in_replacer() {
-        setup_test_db_file();
-        let pager = setup_test_pager();
+    // #[test]
+    // fn pager_create_or_replace_page_when_page_cache_is_full_with_victims_in_replacer() {
+    //     setup_test_db_file();
+    //     let pager = setup_test_pager();
 
-        // Since our pool size is hardcoded to 8,
-        // we just need to fetch 8 pages to fill
-        // up the page cache.
-        pager.fetch_page(0);
-        pager.fetch_page(4);
-        pager.fetch_page(2);
-        pager.fetch_page(5);
-        pager.fetch_page(6);
-        pager.fetch_page(8);
-        pager.fetch_page(9);
-        pager.fetch_page(10);
+    //     // Since our pool size is hardcoded to 8,
+    //     // we just need to fetch 8 pages to fill
+    //     // up the page cache.
+    //     pager.fetch_page(0);
+    //     pager.fetch_page(4);
+    //     pager.fetch_page(2);
+    //     pager.fetch_page(5);
+    //     pager.fetch_page(6);
+    //     pager.fetch_page(8);
+    //     pager.fetch_page(9);
+    //     pager.fetch_page(10);
 
-        // Unpin some of the pages so there's
-        // victim from our replacer.
-        pager.unpin_page(2, false);
-        sleep(5);
-        pager.unpin_page(5, false);
+    //     // Unpin some of the pages so there's
+    //     // victim from our replacer.
+    //     pager.unpin_page(2, false);
+    //     sleep(5);
+    //     pager.unpin_page(5, false);
 
-        // let frame_id = pager.create_or_replace_page(7);
-        // assert!(frame_id.is_some());
+    //     // let frame_id = pager.create_or_replace_page(7);
+    //     // assert!(frame_id.is_some());
 
-        // Ensure that page table only record page metadata
-        // in our pages
-        // let page_table = pager.page_table.read();
-        // assert_eq!(page_table.get(&2), None);
-        // assert_eq!(page_table.len(), 8);
-        // drop(page_table);
+    //     // Ensure that page table only record page metadata
+    //     // in our pages
+    //     // let page_table = pager.page_table.read();
+    //     // assert_eq!(page_table.get(&2), None);
+    //     // assert_eq!(page_table.len(), 8);
+    //     // drop(page_table);
 
-        // TODO: test it flush dirty page
+    //     // TODO: test it flush dirty page
 
-        // let frame_id = frame_id.unwrap();
-        // let page = &pager.pages[frame_id];
-        // let page = page.read();
-        // assert_eq!(page.page_id, Some(7));
-        // assert!(!page.is_dirty);
-        // assert_eq!(page.pin_count, 0);
-        // assert!(page.node.is_none());
-        // drop(page);
-        cleanup_test_db_file();
-    }
+    //     // let frame_id = frame_id.unwrap();
+    //     // let page = &pager.pages[frame_id];
+    //     // let page = page.read();
+    //     // assert_eq!(page.page_id, Some(7));
+    //     // assert!(!page.is_dirty);
+    //     // assert_eq!(page.pin_count, 0);
+    //     // assert!(page.node.is_none());
+    //     // drop(page);
+    //     cleanup_test_db_file();
+    // }
 
-    #[test]
-    #[ignore]
-    fn pager_create_or_replace_page_when_no_pages_can_be_freed() {
-        setup_test_db_file();
-        let pager = setup_test_pager();
+    // #[test]
+    // fn pager_create_or_replace_page_when_no_pages_can_be_freed() {
+    //     setup_test_db_file();
+    //     let pager = setup_test_pager();
 
-        // Since our pool size is hardcoded to 8,
-        // we just need to fetch 8 pages to fill
-        // up the page cache.
-        pager.fetch_page(0);
-        pager.fetch_page(4);
-        pager.fetch_page(2);
-        pager.fetch_page(5);
-        pager.fetch_page(6);
-        pager.fetch_page(8);
-        pager.fetch_page(9);
-        pager.fetch_page(10);
+    //     // Since our pool size is hardcoded to 8,
+    //     // we just need to fetch 8 pages to fill
+    //     // up the page cache.
+    //     pager.fetch_page(0);
+    //     pager.fetch_page(4);
+    //     pager.fetch_page(2);
+    //     pager.fetch_page(5);
+    //     pager.fetch_page(6);
+    //     pager.fetch_page(8);
+    //     pager.fetch_page(9);
+    //     pager.fetch_page(10);
 
-        // let frame_id = pager.create_or_replace_page(7);
-        // assert!(frame_id.is_none());
-        cleanup_test_db_file();
-    }
+    //     // let frame_id = pager.create_or_replace_page(7);
+    //     // assert!(frame_id.is_none());
+    //     cleanup_test_db_file();
+    // }
 
     #[test]
     fn pager_fetch_page() {}
@@ -1646,8 +1566,10 @@ mod test {
         setup_test_db_file();
         let pager = setup_test_pager();
 
-        pager.fetch_page(0);
-        pager.fetch_page(0);
+        let page = pager.fetch_read_page_with_retry(0);
+        drop(page);
+        let page = pager.fetch_read_page_with_retry(0);
+        drop(page);
 
         pager.unpin_page(0, true);
         assert_eq!(pager.replacer.size(), 0);
