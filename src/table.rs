@@ -667,12 +667,67 @@ mod test {
     }
 
     #[test]
-    fn concurrent_delete_and_select() {
-        // tracing_subscriber::fmt()
-        //     .with_thread_ids(true)
-        //     .with_max_level(tracing::Level::INFO)
-        //     .init();
+    #[ignore]
+    fn concurrent_insert_and_delete() {
+        tracing_subscriber::fmt()
+            .with_thread_ids(true)
+            .with_max_level(tracing::Level::INFO)
+            .init();
 
+        let thread_pool_size = 32;
+        let frequency = 100;
+
+        std::panic::set_hook(Box::new(|p| {
+            cleanup_test_db_file();
+            println!("{p}");
+        }));
+
+        let pool = ThreadPool::new(thread_pool_size);
+
+        for i in 0..frequency {
+            info!("--- test concurrent insert and select {i} ---");
+            let table = Arc::new(setup_test_table());
+
+            for i in 0..100 {
+                let row =
+                    Row::from_statement(&format!("insert {i} user{i} user{i}@email.com")).unwrap();
+                table.insert(&row);
+            }
+
+            for i in 0..100 {
+                let table = Arc::clone(&table);
+                pool.execute(move || {
+                    let j = i + 100;
+
+                    let row = Row::from_statement(&format!("insert {j} user{j} user{j}@email.com"))
+                        .unwrap();
+                    table.insert(&row);
+
+                    let statement = prepare_statement(&format!("delete {i}")).unwrap();
+                    let result = table.delete(&statement.row.unwrap());
+                    assert_eq!(result, format!("deleted {}", i));
+                });
+            }
+
+            pool.join();
+            assert_eq!(pool.panic_count(), 0);
+
+            let statement = prepare_statement("select").unwrap();
+            let result = table.select(&statement);
+            let expected_result = expected_output(100..200);
+
+            if result != expected_result {
+                println!("oops");
+            }
+
+            assert_eq!(result, expected_result);
+
+            cleanup_test_db_file();
+        }
+    }
+
+    #[test]
+    fn concurrent_delete_and_select() {
         let thread_pool_size = 32;
         let frequency = 100;
 
