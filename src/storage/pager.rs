@@ -692,6 +692,8 @@ impl Pager {
                     while let Some(page) = parent_page_guards.pop() {
                         self.unpin_page_with_write_guard(page, false);
                     }
+                } else {
+                    tracing::info!("it might be split/merge: {}", page_num);
                 }
 
                 if node.node_type == NodeType::Leaf {
@@ -828,7 +830,6 @@ impl Pager {
 
         let new_child_max_key = right_node.get_max_key();
         right_node.parent_offset = left_node.parent_offset;
-
         self.unpin_page_with_write_guard(left_page, true);
 
         right_page.node = Some(right_node);
@@ -950,7 +951,8 @@ impl Pager {
         left_node.num_of_cells -= 1;
         left_node.right_child_offset = ic.child_pointer();
 
-        for i in 0..split_at_index - 1 {
+        let remaining_len = left_node.num_of_cells as usize - split_at_index;
+        for i in 0..remaining_len {
             let ic = left_node.internal_cells.remove(split_at_index);
             left_node.num_of_cells -= 1;
             right_node.internal_insert(i, ic);
@@ -1014,6 +1016,7 @@ impl Pager {
                     node.delete(cursor.cell_num);
                     self.concurrent_maybe_merge_nodes(page, parent_page_guards);
 
+                    tracing::info!("delete {} end", row.id);
                     Some(format!("deleted {}", row.id))
                 } else {
                     for page in parent_page_guards {
@@ -1039,6 +1042,11 @@ impl Pager {
             && node.num_of_cells < LEAF_NODE_MAX_CELLS as u32 / 2
             && !node.is_root
         {
+            tracing::info!(
+                "merge at page {:?} occurring: {:?}",
+                page,
+                parent_page_guards
+            );
             return self.concurrent_merge_leaf_nodes(page, parent_page_guards);
         }
 
@@ -1190,6 +1198,8 @@ impl Pager {
         left_node.next_leaf_offset = 0;
         parent_page.node = Some(left_node);
 
+        // tracing::info!("parent_page: {:?}", parent_page);
+
         self.delete_page_with_write_guard(left_page);
         self.delete_page_with_write_guard(right_page);
 
@@ -1257,7 +1267,6 @@ impl Pager {
         }
 
         self.unpin_page_with_write_guard(page, true);
-
         self.unpin_page_with_write_guard(parent_page, false);
     }
 
