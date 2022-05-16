@@ -288,7 +288,7 @@ impl Pager {
         }
     }
 
-    pub fn unpin_page_with_write_guard(&self, page: &mut RwLockWriteGuard<Page>, is_dirty: bool) {
+    pub fn unpin_page_with_write_guard(&self, mut page: RwLockWriteGuard<Page>, is_dirty: bool) {
         let page_table = self.page_table.read();
         if let Some(&frame_id) = page_table.get(&page.page_id.unwrap()) {
             if !page.is_dirty {
@@ -301,8 +301,10 @@ impl Pager {
             };
 
             drop(page_table);
+            drop(page);
         } else {
             drop(page_table);
+            drop(page);
         }
     }
 
@@ -687,9 +689,8 @@ impl Pager {
                 };
 
                 if is_safe {
-                    while let Some(mut page) = parent_page_guards.pop() {
-                        self.unpin_page_with_write_guard(&mut page, false);
-                        drop(page);
+                    while let Some(page) = parent_page_guards.pop() {
+                        self.unpin_page_with_write_guard(page, false);
                     }
                 }
 
@@ -725,9 +726,8 @@ impl Pager {
                 }
             }
             Err(_) => {
-                for mut page in parent_page_guards {
-                    self.unpin_page_with_write_guard(&mut page, false);
-                    drop(page);
+                for page in parent_page_guards {
+                    self.unpin_page_with_write_guard(page, false);
                 }
 
                 let duration = std::time::Duration::from_millis(SLEEP_MS);
@@ -759,13 +759,11 @@ impl Pager {
                     let node = page.node.as_mut().unwrap();
                     node.insert(row, &cursor);
 
-                    for mut page in parent_page_guards {
-                        self.unpin_page_with_write_guard(&mut page, false);
-                        drop(page);
+                    for page in parent_page_guards {
+                        self.unpin_page_with_write_guard(page, false);
                     }
 
-                    self.unpin_page_with_write_guard(&mut page, true);
-                    drop(page);
+                    self.unpin_page_with_write_guard(page, true);
                 }
 
                 Some(format!(
@@ -831,12 +829,10 @@ impl Pager {
         let new_child_max_key = right_node.get_max_key();
         right_node.parent_offset = left_node.parent_offset;
 
-        self.unpin_page_with_write_guard(&mut left_page, true);
-        drop(left_page);
+        self.unpin_page_with_write_guard(left_page, true);
 
         right_page.node = Some(right_node);
-        self.unpin_page_with_write_guard(&mut right_page, true);
-        drop(right_page);
+        self.unpin_page_with_write_guard(right_page, true);
 
         assert!(!parent_page_guards.is_empty());
         let mut parent_page = parent_page_guards.pop().unwrap();
@@ -848,11 +844,10 @@ impl Pager {
         let parent_node = parent_page.node.as_ref().unwrap();
         let parent_right_child_offset = parent_node.right_child_offset as usize;
 
-        let mut most_right_page = self.fetch_write_page_guard_with_retry(parent_right_child_offset);
+        let most_right_page = self.fetch_write_page_guard_with_retry(parent_right_child_offset);
         let right_node = most_right_page.node.as_ref().unwrap();
         let right_max_key = right_node.get_max_key();
-        self.unpin_page_with_write_guard(&mut most_right_page, false);
-        drop(most_right_page);
+        self.unpin_page_with_write_guard(most_right_page, false);
 
         let parent_node = parent_page.node.as_mut().unwrap();
         parent_node.num_of_cells += 1;
@@ -875,13 +870,11 @@ impl Pager {
             return self.concurrent_split_internal_node(parent_page, parent_page_guards);
         }
 
-        for mut page in parent_page_guards {
-            self.unpin_page_with_write_guard(&mut page, false);
-            drop(page);
+        for page in parent_page_guards {
+            self.unpin_page_with_write_guard(page, false);
         }
 
-        self.unpin_page_with_write_guard(&mut parent_page, true);
-        drop(parent_page);
+        self.unpin_page_with_write_guard(parent_page, true);
     }
 
     fn concurrent_create_new_root(
@@ -916,15 +909,11 @@ impl Pager {
         right_page.node = Some(right_node);
 
         self.concurrent_update_children_parent_offset(&mut left_page);
-        self.unpin_page_with_write_guard(&mut left_page, true);
-        drop(left_page);
+        self.unpin_page_with_write_guard(left_page, true);
 
         self.concurrent_update_children_parent_offset(&mut right_page);
-        self.unpin_page_with_write_guard(&mut right_page, true);
-        drop(right_page);
-
-        self.unpin_page_with_write_guard(&mut page, true);
-        drop(page);
+        self.unpin_page_with_write_guard(right_page, true);
+        self.unpin_page_with_write_guard(page, true);
     }
 
     pub fn concurrent_update_children_parent_offset(&self, page: &mut RwLockWriteGuard<Page>) {
@@ -941,8 +930,7 @@ impl Pager {
             let mut page = self.fetch_write_page_guard_with_retry(i);
             let child = page.node.as_mut().unwrap();
             child.parent_offset = parent_page_id as u32;
-            self.unpin_page_with_write_guard(&mut page, true);
-            drop(page);
+            self.unpin_page_with_write_guard(page, true);
         }
     }
 
@@ -1002,20 +990,15 @@ impl Pager {
                 parent.num_of_cells += 1;
             }
 
-            for mut page in parent_page_guards {
-                self.unpin_page_with_write_guard(&mut page, false);
-                drop(page);
+            for page in parent_page_guards {
+                self.unpin_page_with_write_guard(page, false);
             }
 
-            self.unpin_page_with_write_guard(&mut left_page, true);
-            drop(left_page);
+            self.unpin_page_with_write_guard(left_page, true);
 
             self.concurrent_update_children_parent_offset(&mut right_page);
-            self.unpin_page_with_write_guard(&mut right_page, true);
-            drop(right_page);
-
-            self.unpin_page_with_write_guard(&mut parent_page, true);
-            drop(parent_page);
+            self.unpin_page_with_write_guard(right_page, true);
+            self.unpin_page_with_write_guard(parent_page, true);
         }
     }
 
@@ -1033,13 +1016,11 @@ impl Pager {
 
                     Some(format!("deleted {}", row.id))
                 } else {
-                    for mut page in parent_page_guards {
-                        self.unpin_page_with_write_guard(&mut page, false);
-                        drop(page);
+                    for page in parent_page_guards {
+                        self.unpin_page_with_write_guard(page, false);
                     }
 
-                    self.unpin_page_with_write_guard(&mut page, false);
-                    drop(page);
+                    self.unpin_page_with_write_guard(page, false);
 
                     Some(format!("item not found with id {}", row.id))
                 }
@@ -1049,7 +1030,7 @@ impl Pager {
 
     fn concurrent_maybe_merge_nodes(
         &self,
-        mut page: RwLockWriteGuard<Page>,
+        page: RwLockWriteGuard<Page>,
         parent_page_guards: Vec<RwLockWriteGuard<Page>>,
     ) {
         let node = page.node.as_ref().unwrap();
@@ -1061,30 +1042,28 @@ impl Pager {
             return self.concurrent_merge_leaf_nodes(page, parent_page_guards);
         }
 
-        for mut page in parent_page_guards {
-            self.unpin_page_with_write_guard(&mut page, false);
-            drop(page);
+        for page in parent_page_guards {
+            self.unpin_page_with_write_guard(page, false);
         }
 
-        self.unpin_page_with_write_guard(&mut page, true);
-        drop(page);
+        self.unpin_page_with_write_guard(page, true);
     }
 
     fn concurrent_merge_leaf_nodes(
         &self,
-        mut page: RwLockWriteGuard<Page>,
+        page: RwLockWriteGuard<Page>,
         mut parent_page_guards: Vec<RwLockWriteGuard<Page>>,
     ) {
         let page_id = page.page_id.unwrap();
         let node = page.node.as_ref().unwrap();
         let node_cells_len = node.cells.len();
 
-        let mut parent_page = parent_page_guards.pop().unwrap();
+        let parent_page = parent_page_guards.pop().unwrap();
         let parent = parent_page.node.as_ref().unwrap();
         let (left_child_pointer, right_child_pointer) = parent.siblings(page_id as u32);
 
         if let Some(cp) = left_child_pointer {
-            let mut left_page = self.fetch_write_page_guard_with_retry(cp);
+            let left_page = self.fetch_write_page_guard_with_retry(cp);
             let left_nb = left_page.node.as_ref().unwrap();
 
             if cp != page_id && left_nb.cells.len() + node_cells_len < LEAF_NODE_MAX_CELLS {
@@ -1097,12 +1076,11 @@ impl Pager {
                 );
             }
 
-            self.unpin_page_with_write_guard(&mut left_page, false);
-            drop(left_page);
+            self.unpin_page_with_write_guard(left_page, false);
         }
 
         if let Some(cp) = right_child_pointer {
-            let mut right_page = self.fetch_write_page_guard_with_retry(cp);
+            let right_page = self.fetch_write_page_guard_with_retry(cp);
             let right_nb = right_page.node.as_ref().unwrap();
 
             if cp != page_id && right_nb.cells.len() + node_cells_len < LEAF_NODE_MAX_CELLS {
@@ -1115,21 +1093,16 @@ impl Pager {
                 );
             }
 
-            self.unpin_page_with_write_guard(&mut right_page, false);
-            drop(right_page);
+            self.unpin_page_with_write_guard(right_page, false);
         }
 
         // Drop parent guards lock
-        for mut page in parent_page_guards {
-            self.unpin_page_with_write_guard(&mut page, false);
-            drop(page);
+        for page in parent_page_guards {
+            self.unpin_page_with_write_guard(page, false);
         }
 
-        self.unpin_page_with_write_guard(&mut parent_page, false);
-        drop(parent_page);
-
-        self.unpin_page_with_write_guard(&mut page, true);
-        drop(page);
+        self.unpin_page_with_write_guard(parent_page, false);
+        self.unpin_page_with_write_guard(page, true);
     }
 
     fn concurrent_do_merge_leaf_nodes(
@@ -1163,8 +1136,7 @@ impl Pager {
             self.delete_page_with_write_guard(right_page);
 
             let max_key = left_node.get_max_key();
-            self.unpin_page_with_write_guard(&mut left_page, true);
-            drop(left_page);
+            self.unpin_page_with_write_guard(left_page, true);
 
             let min_key_length = self.min_key(INTERNAL_NODE_MAX_CELLS) as u32;
 
@@ -1195,13 +1167,11 @@ impl Pager {
             }
 
             // Drop parent guards lock
-            for mut page in parent_page_guards {
-                self.unpin_page_with_write_guard(&mut page, false);
-                drop(page);
+            for page in parent_page_guards {
+                self.unpin_page_with_write_guard(page, false);
             }
 
-            self.unpin_page_with_write_guard(&mut parent_page, true);
-            drop(parent_page);
+            self.unpin_page_with_write_guard(parent_page, true);
         }
     }
 
@@ -1224,26 +1194,25 @@ impl Pager {
         self.delete_page_with_write_guard(right_page);
 
         self.concurrent_update_children_parent_offset(&mut parent_page);
-        self.unpin_page_with_write_guard(&mut parent_page, true);
-        drop(parent_page);
+        self.unpin_page_with_write_guard(parent_page, true);
     }
 
     fn concurrent_merge_internal_nodes(
         &self,
-        mut page: RwLockWriteGuard<Page>,
+        page: RwLockWriteGuard<Page>,
         mut parent_page_guards: Vec<RwLockWriteGuard<Page>>,
     ) {
         let page_id = page.page_id.unwrap();
         let node = page.node.as_ref().unwrap();
         let node_num_of_cells = node.num_of_cells as usize;
 
-        let mut parent_page = parent_page_guards.pop().unwrap();
+        let parent_page = parent_page_guards.pop().unwrap();
         let parent = parent_page.node.as_ref().unwrap();
 
         let (left_child_pointer, right_child_pointer) = parent.siblings(page_id as u32);
 
         if let Some(cp) = left_child_pointer {
-            let mut left_page = self.fetch_write_page_guard_with_retry(cp);
+            let left_page = self.fetch_write_page_guard_with_retry(cp);
             let left_nb = left_page.node.as_ref().unwrap();
 
             if cp != page_id
@@ -1259,12 +1228,11 @@ impl Pager {
                 return;
             }
 
-            self.unpin_page_with_write_guard(&mut left_page, false);
-            drop(left_page);
+            self.unpin_page_with_write_guard(left_page, false);
         }
 
         if let Some(cp) = right_child_pointer {
-            let mut right_page = self.fetch_write_page_guard_with_retry(cp);
+            let right_page = self.fetch_write_page_guard_with_retry(cp);
             let right_nb = right_page.node.as_ref().unwrap();
 
             if cp != page_id
@@ -1280,21 +1248,17 @@ impl Pager {
                 return;
             }
 
-            self.unpin_page_with_write_guard(&mut right_page, false);
-            drop(right_page);
+            self.unpin_page_with_write_guard(right_page, false);
         }
 
         // Drop parent guards lock
-        for mut page in parent_page_guards {
-            self.unpin_page_with_write_guard(&mut page, false);
-            drop(page);
+        for page in parent_page_guards {
+            self.unpin_page_with_write_guard(page, false);
         }
 
-        self.unpin_page_with_write_guard(&mut page, true);
-        drop(page);
+        self.unpin_page_with_write_guard(page, true);
 
-        self.unpin_page_with_write_guard(&mut parent_page, false);
-        drop(parent_page);
+        self.unpin_page_with_write_guard(parent_page, false);
     }
 
     fn concurrent_do_merge_internal_nodes(
@@ -1310,12 +1274,11 @@ impl Pager {
         let left_node = left_page.node.as_ref().unwrap();
         let left_node_right_child_offset = left_node.right_child_offset as usize;
 
-        let mut left_most_right_child_page =
+        let left_most_right_child_page =
             self.fetch_write_page_guard_with_retry(left_node_right_child_offset);
         let left_most_right_child_node = left_most_right_child_page.node.as_ref().unwrap();
         let new_left_max_key = left_most_right_child_node.get_max_key();
-        self.unpin_page_with_write_guard(&mut left_most_right_child_page, false);
-        drop(left_most_right_child_page);
+        self.unpin_page_with_write_guard(left_most_right_child_page, false);
 
         let right_node = right_page.node.take().unwrap();
 
@@ -1353,19 +1316,16 @@ impl Pager {
                 parent.internal_cells[index].write_child_pointer(left_page_id as u32);
             }
 
-            for mut page in parent_page_guards {
-                self.unpin_page_with_write_guard(&mut page, false);
-                drop(page);
+            for page in parent_page_guards {
+                self.unpin_page_with_write_guard(page, false);
             }
 
             self.delete_page_with_write_guard(right_page);
 
             self.concurrent_update_children_parent_offset(&mut left_page);
-            self.unpin_page_with_write_guard(&mut left_page, true);
-            drop(left_page);
+            self.unpin_page_with_write_guard(left_page, true);
 
-            self.unpin_page_with_write_guard(&mut parent_page, true);
-            drop(parent_page);
+            self.unpin_page_with_write_guard(parent_page, true);
         }
     }
 
