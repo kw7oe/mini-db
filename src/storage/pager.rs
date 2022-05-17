@@ -1000,8 +1000,6 @@ impl Pager {
     }
 
     pub fn delete(&self, root_page_num: usize, row: &Row) -> Option<String> {
-        debug!("--- delete {}", row.id);
-
         self.search_and_then(
             vec![],
             root_page_num,
@@ -1009,12 +1007,9 @@ impl Pager {
             Operation::Delete,
             |cursor, parent_page_guards, mut page| {
                 if cursor.key_existed {
-                    let page_id = page.page_id.unwrap();
                     let node = page.node.as_mut().unwrap();
                     node.delete(cursor.cell_num);
-                    debug!("delete {} from page {} {:?}", row.id, page_id, node.cells);
                     self.concurrent_maybe_merge_nodes(page, parent_page_guards);
-                    debug!("--- delete {} end", row.id);
 
                     Some(format!("deleted {}", row.id))
                 } else {
@@ -1119,7 +1114,6 @@ impl Pager {
     ) {
         let right_page_id = right_page.page_id.unwrap();
         let left_page_id = left_page.page_id.unwrap();
-
         // Take the node of right page and left page out of page.
         //
         // Free up the pages as we don't need it anymore.
@@ -1148,24 +1142,21 @@ impl Pager {
 
                 // Move last internal cell to become the right child offset
                 if parent.num_of_cells >= 1 {
-                    tracing::debug!("update to right child pointer");
+                    debug!("update to right child pointer");
                     let internal_cell = parent.internal_cells.remove(index - 1);
                     parent.num_of_cells -= 1;
                     parent.right_child_offset = internal_cell.child_pointer();
                 } else {
-                    tracing::debug!("-- mark parent as single child internal node");
+                    debug!("-- mark parent as single child internal node");
                     // Else we are the only children left, so we will need to have our parent node
                     // merge with it's sibling later.
-                    parent.num_of_cells -= 1;
-
                     // Indicate that there's no right child anymore:
                     parent.right_child_offset = 0;
                     parent.internal_cells[index - 1] =
                         InternalCell::new(left_page_id as u32, max_key);
-                    tracing::debug!("  parent: {parent:?}");
                 }
             } else {
-                tracing::debug!("remove index");
+                debug!("remove index");
                 // Remove extra key, pointers cell as we now have one less child
                 // after merge
                 parent.num_of_cells -= 1;
@@ -1174,7 +1165,7 @@ impl Pager {
                 // Update the key for our existing child pointer pointing to our merged node
                 // to use the new max key.
                 if index != 0 {
-                    tracing::debug!("update {} to max key: {max_key}", index - 1);
+                    debug!("update {} to max key: {max_key}", index - 1);
                     parent.internal_cells[index - 1] =
                         InternalCell::new(left_page_id as u32, max_key);
                 }
@@ -1230,10 +1221,10 @@ impl Pager {
         let parent = parent_page.node.as_ref().unwrap();
 
         let (left_child_pointer, right_child_pointer) = parent.siblings(page_id as u32);
-        debug!("--- merge internal page {}", page.page_id.unwrap());
+        debug!("-- merge internal page {}", page.page_id.unwrap());
 
         if let Some(cp) = left_child_pointer {
-            if cp != page_id {
+            if cp != page_id && cp != 0 {
                 let left_page = self.fetch_write_page_guard_with_retry(cp);
                 let left_nb = left_page.node.as_ref().unwrap();
 
@@ -1253,7 +1244,7 @@ impl Pager {
         }
 
         if let Some(cp) = right_child_pointer {
-            if cp != page_id {
+            if cp != page_id && cp != 0 {
                 let right_page = self.fetch_write_page_guard_with_retry(cp);
                 let right_nb = right_page.node.as_ref().unwrap();
 
@@ -1293,34 +1284,29 @@ impl Pager {
         let left_page_id = left_page.page_id.unwrap();
 
         let left_node = left_page.node.as_ref().unwrap();
-        let left_node_right_child_offset = left_node.right_child_offset as usize;
 
-        let left_most_right_child_page =
-            self.fetch_write_page_guard_with_retry(left_node_right_child_offset);
-        let left_most_right_child_node = left_most_right_child_page.node.as_ref().unwrap();
-        let left_max_key = left_most_right_child_node.get_max_key();
-        self.unpin_page_with_write_guard(left_most_right_child_page, false);
+        if left_node.right_child_offset != 0 {
+            let left_max_key = self.get_node_max_key(left_node.right_child_offset as usize);
+            let left_node = left_page.node.as_mut().unwrap();
+            left_node.internal_cells.push(InternalCell::new(
+                left_node.right_child_offset,
+                left_max_key,
+            ));
+            left_node.num_of_cells += 1;
+        } else {
+            tracing::info!("right_child offset is not 0: {left_node:?}");
+        }
 
         let right_node = right_page.node.take().unwrap();
-
         let left_node = left_page.node.as_mut().unwrap();
-        left_node.internal_cells.push(InternalCell::new(
-            left_node.right_child_offset,
-            left_max_key,
-        ));
-        left_node.num_of_cells += 1;
 
         for c in right_node.internal_cells {
             left_node.internal_cells.push(c);
             left_node.num_of_cells += 1;
         }
-
         left_node.right_child_offset = right_node.right_child_offset;
-        let left_most_right_child_page =
-            self.fetch_write_page_guard_with_retry(left_node.right_child_offset as usize);
-        let left_most_right_child_node = left_most_right_child_page.node.as_ref().unwrap();
-        let new_left_max_key = left_most_right_child_node.get_max_key();
-        self.unpin_page_with_write_guard(left_most_right_child_page, false);
+
+        let new_left_max_key = self.get_node_max_key(left_node.right_child_offset as usize);
 
         // Update parent metadata
         let parent = parent_page.node.as_ref().unwrap();
@@ -1354,8 +1340,6 @@ impl Pager {
                 parent.right_child_offset = 0;
                 parent.internal_cells[index].write_child_pointer(left_page_id as u32);
                 parent.internal_cells[index].write_key(new_left_max_key as u32);
-                debug!("  left: {:?}", left_page);
-                debug!("  parent: {:?}", parent);
             }
 
             self.delete_page_with_write_guard(right_page);
@@ -1371,6 +1355,22 @@ impl Pager {
                 }
 
                 self.unpin_page_with_write_guard(parent_page, true);
+            }
+        }
+    }
+
+    pub fn get_node_max_key(&self, mut page_id: usize) -> u32 {
+        loop {
+            let page = self.fetch_write_page_guard_with_retry(page_id);
+            let node = page.node.as_ref().unwrap();
+
+            if node.node_type == NodeType::Leaf {
+                let new_left_max_key = node.get_max_key();
+                self.unpin_page_with_write_guard(page, false);
+                return new_left_max_key;
+            } else {
+                page_id = node.right_child_offset as usize;
+                self.unpin_page_with_write_guard(page, false);
             }
         }
     }

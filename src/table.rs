@@ -539,13 +539,7 @@ mod test {
     }
 
     #[test]
-    #[ignore]
     fn concurrent_delete_lots_of_records() {
-        tracing_subscriber::fmt()
-            .with_thread_ids(true)
-            .with_max_level(tracing::Level::DEBUG)
-            .init();
-
         test_concurrent_delete_with_thread_pool(16, 16, 10, 1000);
     }
 
@@ -657,6 +651,10 @@ mod test {
                         .unwrap();
                     table.insert(&row);
 
+                    let statement = prepare_statement(&format!("select {j}")).unwrap();
+                    let result = table.select(&statement);
+                    assert_eq!(result, expected_output(j..j + 1));
+
                     let statement = prepare_statement(&format!("select {i}")).unwrap();
                     let result = table.select(&statement);
                     assert_eq!(result, expected_output(i..i + 1));
@@ -739,10 +737,10 @@ mod test {
         let thread_pool_size = 32;
         let frequency = 100;
 
-        // std::panic::set_hook(Box::new(|p| {
-        //     cleanup_test_db_file();
-        //     println!("{p}");
-        // }));
+        std::panic::set_hook(Box::new(|p| {
+            cleanup_test_db_file();
+            println!("{p}");
+        }));
 
         let pool = ThreadPool::new(thread_pool_size);
 
@@ -770,12 +768,17 @@ mod test {
                     let j = i + 100;
                     let statement = prepare_statement(&format!("select {j}")).unwrap();
                     let result = table.select(&statement);
-                    assert_eq!(result, expected_output(j..j + 1));
+                    let expected = expected_output(j..j + 1);
+                    if result != expected {
+                        table.flush();
+                        println!("oops");
+                    }
+                    assert_eq!(result, expected);
                 });
             }
 
             pool.join();
-            // assert_eq!(pool.panic_count(), 0);
+            assert_eq!(pool.panic_count(), 0);
 
             let statement = prepare_statement("select").unwrap();
             let result = table.select(&statement);
