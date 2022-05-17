@@ -692,8 +692,6 @@ impl Pager {
                     while let Some(page) = parent_page_guards.pop() {
                         self.unpin_page_with_write_guard(page, false);
                     }
-                } else {
-                    tracing::info!("it might be split/merge: {}", page_num);
                 }
 
                 if node.node_type == NodeType::Leaf {
@@ -867,15 +865,7 @@ impl Pager {
             );
         }
 
-        if parent_node.num_of_cells > INTERNAL_NODE_MAX_CELLS as u32 {
-            return self.concurrent_split_internal_node(parent_page, parent_page_guards);
-        }
-
-        for page in parent_page_guards {
-            self.unpin_page_with_write_guard(page, false);
-        }
-
-        self.unpin_page_with_write_guard(parent_page, true);
+        self.concurrent_split_internal_node(parent_page, parent_page_guards);
     }
 
     fn concurrent_create_new_root(
@@ -940,6 +930,16 @@ impl Pager {
         mut left_page: RwLockWriteGuard<Page>,
         mut parent_page_guards: Vec<RwLockWriteGuard<Page>>,
     ) {
+        if left_page.node.as_ref().unwrap().num_of_cells <= INTERNAL_NODE_MAX_CELLS as u32 {
+            for page in parent_page_guards {
+                self.unpin_page_with_write_guard(page, false);
+            }
+
+            self.unpin_page_with_write_guard(left_page, true);
+
+            return;
+        }
+
         let left_node = left_page.node.as_mut().unwrap();
         let split_at_index = left_node.num_of_cells as usize / 2;
 
@@ -1016,7 +1016,6 @@ impl Pager {
                     node.delete(cursor.cell_num);
                     self.concurrent_maybe_merge_nodes(page, parent_page_guards);
 
-                    tracing::info!("delete {} end", row.id);
                     Some(format!("deleted {}", row.id))
                 } else {
                     for page in parent_page_guards {
@@ -1042,11 +1041,6 @@ impl Pager {
             && node.num_of_cells < LEAF_NODE_MAX_CELLS as u32 / 2
             && !node.is_root
         {
-            tracing::info!(
-                "merge at page {:?} occurring: {:?}",
-                page,
-                parent_page_guards
-            );
             return self.concurrent_merge_leaf_nodes(page, parent_page_guards);
         }
 
@@ -1071,37 +1065,48 @@ impl Pager {
         let (left_child_pointer, right_child_pointer) = parent.siblings(page_id as u32);
 
         if let Some(cp) = left_child_pointer {
-            let left_page = self.fetch_write_page_guard_with_retry(cp);
-            let left_nb = left_page.node.as_ref().unwrap();
+            if cp != page_id {
+                let left_page = self.fetch_write_page_guard_with_retry(cp);
+                let left_nb = left_page.node.as_ref().unwrap();
 
-            if cp != page_id && left_nb.cells.len() + node_cells_len < LEAF_NODE_MAX_CELLS {
-                debug!("Merging node {} with its left neighbour...", page_id);
-                return self.concurrent_do_merge_leaf_nodes(
-                    parent_page,
-                    left_page,
-                    page,
-                    parent_page_guards,
-                );
+                if left_nb.cells.len() + node_cells_len <= LEAF_NODE_MAX_CELLS {
+                    debug!("Merging node {} with its left neighbour...", page_id);
+                    return self.concurrent_do_merge_leaf_nodes(
+                        parent_page,
+                        left_page,
+                        page,
+                        parent_page_guards,
+                    );
+                }
+                self.unpin_page_with_write_guard(left_page, false);
+            } else {
+                tracing::info!("oops cp == page_id");
+                tracing::info!("page: {:?}", page);
+                tracing::info!("parent_page: {:?}", parent_page);
             }
-
-            self.unpin_page_with_write_guard(left_page, false);
         }
 
         if let Some(cp) = right_child_pointer {
-            let right_page = self.fetch_write_page_guard_with_retry(cp);
-            let right_nb = right_page.node.as_ref().unwrap();
+            if cp != page_id {
+                let right_page = self.fetch_write_page_guard_with_retry(cp);
+                let right_nb = right_page.node.as_ref().unwrap();
 
-            if cp != page_id && right_nb.cells.len() + node_cells_len < LEAF_NODE_MAX_CELLS {
-                debug!("Merging node {} with its right neighbour...", page_id);
-                return self.concurrent_do_merge_leaf_nodes(
-                    parent_page,
-                    page,
-                    right_page,
-                    parent_page_guards,
-                );
+                if cp != page_id && right_nb.cells.len() + node_cells_len <= LEAF_NODE_MAX_CELLS {
+                    debug!("Merging node {} with its right neighbour...", page_id);
+                    return self.concurrent_do_merge_leaf_nodes(
+                        parent_page,
+                        page,
+                        right_page,
+                        parent_page_guards,
+                    );
+                }
+
+                self.unpin_page_with_write_guard(right_page, false);
+            } else {
+                tracing::info!("oops cp == page_id");
+                tracing::info!("page: {:?}", page);
+                tracing::info!("parent_page: {:?}", parent_page);
             }
-
-            self.unpin_page_with_write_guard(right_page, false);
         }
 
         // Drop parent guards lock
@@ -1135,7 +1140,6 @@ impl Pager {
             left_node.num_of_cells += 1;
         }
         left_node.next_leaf_offset = right_node.next_leaf_offset;
-
         let parent = parent_page.node.as_mut().unwrap();
 
         if parent.num_of_cells == 1 && parent.is_root {
@@ -1171,6 +1175,10 @@ impl Pager {
             }
 
             if parent.num_of_cells <= min_key_length && !parent.is_root {
+                tracing::info!(
+                    "merge intenral node at page {}",
+                    parent_page.page_id.unwrap()
+                );
                 return self.concurrent_merge_internal_nodes(parent_page, parent_page_guards);
             }
 
@@ -1198,8 +1206,6 @@ impl Pager {
         left_node.next_leaf_offset = 0;
         parent_page.node = Some(left_node);
 
-        // tracing::info!("parent_page: {:?}", parent_page);
-
         self.delete_page_with_write_guard(left_page);
         self.delete_page_with_write_guard(right_page);
 
@@ -1222,44 +1228,60 @@ impl Pager {
         let (left_child_pointer, right_child_pointer) = parent.siblings(page_id as u32);
 
         if let Some(cp) = left_child_pointer {
-            let left_page = self.fetch_write_page_guard_with_retry(cp);
-            let left_nb = left_page.node.as_ref().unwrap();
+            if cp != page_id {
+                let left_page = self.fetch_write_page_guard_with_retry(cp);
+                let left_nb = left_page.node.as_ref().unwrap();
 
-            if cp != page_id
-                && left_nb.internal_cells.len() + node_num_of_cells <= INTERNAL_NODE_MAX_CELLS
-            {
-                debug!("Merging internal node {page_id} with left neighbour");
-                self.concurrent_do_merge_internal_nodes(
-                    parent_page,
-                    left_page,
-                    page,
-                    parent_page_guards,
-                );
-                return;
+                if left_nb.internal_cells.len() + node_num_of_cells <= INTERNAL_NODE_MAX_CELLS {
+                    debug!("Merging internal node {page_id} with left neighbour");
+                    self.concurrent_do_merge_internal_nodes(
+                        parent_page,
+                        left_page,
+                        page,
+                        parent_page_guards,
+                    );
+                    return;
+                }
+
+                self.unpin_page_with_write_guard(left_page, false);
+            } else {
+                tracing::info!("oops cp == page id");
             }
-
-            self.unpin_page_with_write_guard(left_page, false);
         }
 
         if let Some(cp) = right_child_pointer {
-            let right_page = self.fetch_write_page_guard_with_retry(cp);
-            let right_nb = right_page.node.as_ref().unwrap();
-
-            if cp != page_id
-                && right_nb.internal_cells.len() + node_num_of_cells <= INTERNAL_NODE_MAX_CELLS
-            {
-                debug!("Merging internal node {page_id} with right neighbour");
-                self.concurrent_do_merge_internal_nodes(
-                    parent_page,
-                    page,
-                    right_page,
-                    parent_page_guards,
+            if cp != page_id {
+                let right_page = self.fetch_write_page_guard_with_retry(cp);
+                let right_nb = right_page.node.as_ref().unwrap();
+                tracing::info!(
+                    "nb: {}, {}, node: {}",
+                    right_nb.internal_cells.len(),
+                    right_nb.num_of_cells,
+                    node_num_of_cells
                 );
-                return;
-            }
 
-            self.unpin_page_with_write_guard(right_page, false);
+                if right_nb.internal_cells.len() + node_num_of_cells <= INTERNAL_NODE_MAX_CELLS {
+                    debug!("Merging internal node {page_id} with right neighbour");
+                    self.concurrent_do_merge_internal_nodes(
+                        parent_page,
+                        page,
+                        right_page,
+                        parent_page_guards,
+                    );
+                    return;
+                }
+
+                self.unpin_page_with_write_guard(right_page, false);
+            } else {
+                tracing::info!("oops cp == page id");
+            }
         }
+
+        tracing::info!(
+            "page: {:?}, left: {left_child_pointer:?}, right: {right_child_pointer:?}",
+            page
+        );
+        tracing::info!("parent_page: {:?}", parent_page);
 
         // Drop parent guards lock
         for page in parent_page_guards {

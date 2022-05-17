@@ -671,11 +671,11 @@ mod test {
     fn concurrent_insert_and_delete() {
         tracing_subscriber::fmt()
             .with_thread_ids(true)
-            .with_max_level(tracing::Level::INFO)
+            .with_max_level(tracing::Level::DEBUG)
             .init();
 
         let thread_pool_size = 32;
-        let frequency = 100;
+        let frequency = 1000;
 
         std::panic::set_hook(Box::new(|p| {
             cleanup_test_db_file();
@@ -685,7 +685,7 @@ mod test {
         let pool = ThreadPool::new(thread_pool_size);
 
         for i in 0..frequency {
-            info!("--- test concurrent insert and select {i} ---");
+            info!("--- test concurrent insert and delete {i} ---");
             let table = Arc::new(setup_test_table());
 
             for i in 0..100 {
