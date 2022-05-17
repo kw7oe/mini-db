@@ -121,7 +121,7 @@ impl InternalCell {
         bincode::deserialize(bytes).unwrap()
     }
 
-    fn write_key(&mut self, key: u32) {
+    pub fn write_key(&mut self, key: u32) {
         let mut j = 4;
         for i in key.to_le_bytes() {
             self.0[j] = i;
