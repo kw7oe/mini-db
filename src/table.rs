@@ -367,7 +367,7 @@ mod test {
         // enough pages to hold those page and caused a panic.
         //
         // And having more threads != better performance.
-        test_concurrent_insert_with_thread_pool(16, 16, 10, 1000)
+        test_concurrent_insert_with_thread_pool(16, 16, 10, 10000)
     }
 
     fn test_concurrent_insert_with_thread_pool(
@@ -540,7 +540,7 @@ mod test {
 
     #[test]
     fn concurrent_delete_lots_of_records() {
-        test_concurrent_delete_with_thread_pool(16, 16, 10, 1000);
+        test_concurrent_delete_with_thread_pool(16, 16, 10, 10000);
     }
 
     fn test_concurrent_delete_with_thread_pool(
