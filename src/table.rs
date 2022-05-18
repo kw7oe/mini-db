@@ -233,13 +233,16 @@ mod test {
     #[test]
     fn delete_ensure_pages_is_unpin_correctly() {
         // Previous impl doesn not unpin left page during merge operation.
-        deletion_test(57);
+        // deletion_test(57);
 
         // Previous impl does not unpin left page most right node during merge operation.
-        deletion_test(165);
+        // deletion_test(165);
+
+        // 203 will fill up every leaf node
+        deletion_test(208);
 
         // Testing on a bigger db.
-        deletion_test(365);
+        deletion_test(1000);
     }
 
     fn deletion_test(row_count: usize) {
@@ -251,10 +254,16 @@ mod test {
         }
 
         let mut remaining: Vec<usize> = (1..row_count).collect();
-        for i in 1..row_count {
+        for i in (1..row_count).rev() {
             let query = format!("delete {i}");
             let statement = prepare_statement(&query).unwrap();
             table.delete(&statement.row.unwrap());
+
+            if i - 1 != 0 {
+                let statement = prepare_statement(&format!("select {}", i - 1)).unwrap();
+                let result = table.select(&statement);
+                assert_eq!(result, expected_output(i - 1..i));
+            }
 
             let index = remaining.iter().position(|&x| x == i).unwrap();
             remaining.remove(index);
@@ -723,7 +732,7 @@ mod test {
 
     #[test]
     fn concurrent_delete_and_select() {
-        let thread_pool_size = 32;
+        let thread_pool_size = 128;
         let frequency = 100;
 
         std::panic::set_hook(Box::new(|p| {
@@ -748,7 +757,8 @@ mod test {
                 pool.execute(move || {
                     let statement = prepare_statement(&format!("select {i}")).unwrap();
                     let result = table.select(&statement);
-                    assert_eq!(result, expected_output(i..i + 1));
+                    let expected = expected_output(i..i + 1);
+                    assert_eq!(result, expected);
 
                     let statement = prepare_statement(&format!("delete {i}")).unwrap();
                     let result = table.delete(&statement.row.unwrap());
@@ -758,10 +768,6 @@ mod test {
                     let statement = prepare_statement(&format!("select {j}")).unwrap();
                     let result = table.select(&statement);
                     let expected = expected_output(j..j + 1);
-                    if result != expected {
-                        table.flush();
-                        println!("oops");
-                    }
                     assert_eq!(result, expected);
                 });
             }
@@ -784,7 +790,7 @@ mod test {
         //     .with_max_level(tracing::Level::INFO)
         //     .init();
 
-        let thread_pool_size = 32;
+        let thread_pool_size = 64;
         let frequency = 100;
 
         std::panic::set_hook(Box::new(|p| {
@@ -795,7 +801,7 @@ mod test {
         let pool = ThreadPool::new(thread_pool_size);
 
         for i in 0..frequency {
-            info!("--- test concurrent insert and delete {i} ---");
+            info!("--- test concurrent insert, select and delete {i} ---");
             let table = Arc::new(setup_test_table(8));
 
             for i in 0..100 {
@@ -829,12 +835,6 @@ mod test {
             let statement = prepare_statement("select").unwrap();
             let result = table.select(&statement);
             let expected_result = expected_output(100..200);
-
-            if result != expected_result {
-                table.flush();
-                println!("oops");
-            }
-
             assert_eq!(result, expected_result);
 
             cleanup_test_db_file();

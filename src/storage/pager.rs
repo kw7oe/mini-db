@@ -64,13 +64,6 @@ impl LRUReplacer {
         }
     }
 
-    #[cfg(test)]
-    /// Number of frames that are currently in the replacer.
-    pub fn size(&self) -> usize {
-        let page_table = self.page_table.read();
-        page_table.len()
-    }
-
     /// Return frame metadata that are accessed least recently
     /// as compared to the other frame.
     pub fn victim(&self) -> Option<PageMetadata> {
@@ -908,6 +901,13 @@ impl Pager {
         self.unpin_page_with_write_guard(page, true);
     }
 
+    pub fn update_parent_offset(&self, page_id: usize, parent_page_id: usize) {
+        let mut page = self.fetch_write_page_guard_with_retry(page_id);
+        let child = page.node.as_mut().unwrap();
+        child.parent_offset = parent_page_id as u32;
+        self.unpin_page_with_write_guard(page, true);
+    }
+
     pub fn concurrent_update_children_parent_offset(&self, page: &mut RwLockWriteGuard<Page>) {
         let node = page.node.as_ref().unwrap();
         let parent_page_id = page.page_id.unwrap();
@@ -919,10 +919,7 @@ impl Pager {
 
         child_pointers.retain(|&i| i != 0);
         for i in child_pointers {
-            let mut page = self.fetch_write_page_guard_with_retry(i);
-            let child = page.node.as_mut().unwrap();
-            child.parent_offset = parent_page_id as u32;
-            self.unpin_page_with_write_guard(page, true);
+            self.update_parent_offset(i, parent_page_id);
         }
     }
 
@@ -1062,7 +1059,7 @@ impl Pager {
         let parent_page = parent_page_guards.pop().unwrap();
         let parent = parent_page.node.as_ref().unwrap();
         let (left_child_pointer, right_child_pointer) = parent.siblings(page_id as u32);
-        debug!("-- merge leaf node {page_id}");
+        debug!("-- merge leaf node {page_id}: {left_child_pointer:?}, {right_child_pointer:?}");
 
         if let Some(cp) = left_child_pointer {
             if cp != page_id && cp != 0 {
@@ -1071,7 +1068,7 @@ impl Pager {
 
                 // If merging both result does not exceed MAX, proceed
                 if left_nb.cells.len() + node_cells_len <= LEAF_NODE_MAX_CELLS {
-                    debug!("Merging leaf node {} with its left neighbour...", page_id);
+                    debug!("-- merge leaf node {} with its left neighbour...", page_id);
                     return self.concurrent_do_merge_leaf_nodes(
                         parent_page,
                         left_page,
@@ -1080,15 +1077,17 @@ impl Pager {
                     );
                 }
 
-                // warn!(
-                //     "-- failed to merge leaf, len: {} + {} >= MAX",
-                //     node_cells_len,
-                //     left_nb.cells.len()
-                // );
+                if node_cells_len == 0 {
+                    warn!(
+                        "-- failed to merge leaf {page_id}, len: {} + {} >= MAX",
+                        node_cells_len,
+                        left_nb.cells.len()
+                    );
+                }
 
                 self.unpin_page_with_write_guard(left_page, false);
             } else {
-                warn!("-- fail to merge, cp: {cp}");
+                warn!("-- fail to merge {page_id}, cp: {cp}");
             }
         }
 
@@ -1098,7 +1097,7 @@ impl Pager {
                 let right_nb = right_page.node.as_ref().unwrap();
 
                 if right_nb.cells.len() + node_cells_len <= LEAF_NODE_MAX_CELLS {
-                    debug!("Merging leaf node {} with its right neighbour...", page_id);
+                    debug!("-- merge leaf node {} with its right neighbour...", page_id);
                     return self.concurrent_do_merge_leaf_nodes(
                         parent_page,
                         page,
@@ -1107,15 +1106,17 @@ impl Pager {
                     );
                 }
 
-                // warn!(
-                //     "-- failed to merge leaf, len: {} + {} >= MAX",
-                //     node_cells_len,
-                //     right_nb.cells.len()
-                // );
+                if node_cells_len == 0 {
+                    warn!(
+                        "-- failed to merge leaf {page_id}, len: {} + {} >= MAX",
+                        node_cells_len,
+                        right_nb.cells.len()
+                    );
+                }
 
                 self.unpin_page_with_write_guard(right_page, false);
             } else {
-                warn!("-- fail to merge, cp: {cp}");
+                warn!("-- fail to merge {page_id}, cp: {cp}");
             }
         }
 
@@ -1157,6 +1158,7 @@ impl Pager {
             self.delete_page_with_write_guard(right_page);
 
             let max_key = left_node.get_max_key();
+            debug!("-- left_page ({max_key}): {:?}", left_page);
             self.unpin_page_with_write_guard(left_page, true);
 
             let index = parent.internal_search_child_pointer(right_page_id as u32);
@@ -1169,15 +1171,6 @@ impl Pager {
                 let internal_cell = parent.internal_cells.remove(index - 1);
                 parent.num_of_cells -= 1;
                 parent.right_child_offset = internal_cell.child_pointer();
-                // } else {
-                //     debug!("-- mark parent as single child internal node");
-                //     // Else we are the only children left, so we will need to have our parent node
-                //     // merge with it's sibling later.
-                //     // Indicate that there's no right child anymore:
-                //     parent.right_child_offset = 0;
-                //     parent.internal_cells[index - 1] =
-                //         InternalCell::new(left_page_id as u32, max_key);
-                // }
             } else {
                 debug!("remove index");
                 // Remove extra key, pointers cell as we now have one less child
@@ -1194,6 +1187,8 @@ impl Pager {
                 }
             }
 
+            debug!("-- parent_page: {:?}", parent_page);
+            debug!("-- merge leaf node (end)\n\n");
             self.concurrent_merge_internal_nodes(parent_page, parent_page_guards)
         }
     }
@@ -1217,6 +1212,8 @@ impl Pager {
         self.delete_page_with_write_guard(right_page);
 
         self.concurrent_update_children_parent_offset(&mut parent_page);
+        debug!("parent_page: {parent_page:?}");
+        debug!("promote node to root (end)\n\n");
         self.unpin_page_with_write_guard(parent_page, true);
     }
 
@@ -1227,7 +1224,7 @@ impl Pager {
     ) {
         let page_id = page.page_id.unwrap();
         let node = page.node.as_ref().unwrap();
-        let node_num_of_cells = node.num_of_cells as usize;
+        let node_num_of_cells = node.num_of_cells;
         let min_key_length = self.min_key(INTERNAL_NODE_MAX_CELLS) as u32;
 
         // Skip merging internal node if it has more than min_key length.
@@ -1256,8 +1253,8 @@ impl Pager {
                 let left_page = self.fetch_write_page_guard_with_retry(cp);
                 let left_nb = left_page.node.as_ref().unwrap();
 
-                if left_nb.internal_cells.len() + node_num_of_cells <= INTERNAL_NODE_MAX_CELLS {
-                    debug!("Merging internal node {page_id} with left neighbour");
+                if left_nb.num_of_cells + node_num_of_cells < INTERNAL_NODE_MAX_CELLS as u32 {
+                    debug!("-- merge internal node {page_id} with left neighbour");
                     self.concurrent_do_merge_internal_nodes(
                         parent_page,
                         left_page,
@@ -1267,13 +1264,10 @@ impl Pager {
                     return;
                 }
 
-                warn!(
-                    "-- failed to merge internal, len: {} + {} >= MAX",
-                    node_num_of_cells,
-                    left_nb.internal_cells.len()
-                );
+                self.steal_from_sibling(parent_page, left_page, page, parent_page_guards);
+                return;
 
-                self.unpin_page_with_write_guard(left_page, false);
+                // self.unpin_page_with_write_guard(left_page, false);
             } else {
                 warn!("-- failed to merge internal, cp: {cp}");
             }
@@ -1284,8 +1278,8 @@ impl Pager {
                 let right_page = self.fetch_write_page_guard_with_retry(cp);
                 let right_nb = right_page.node.as_ref().unwrap();
 
-                if right_nb.internal_cells.len() + node_num_of_cells <= INTERNAL_NODE_MAX_CELLS {
-                    debug!("Merging internal node {page_id} with right neighbour");
+                if right_nb.num_of_cells + node_num_of_cells <= INTERNAL_NODE_MAX_CELLS as u32 {
+                    debug!("-- merge internal node {page_id} with right neighbour");
                     self.concurrent_do_merge_internal_nodes(
                         parent_page,
                         page,
@@ -1295,13 +1289,10 @@ impl Pager {
                     return;
                 }
 
-                warn!(
-                    "-- failed to merge internal, len: {} + {} >= MAX",
-                    node_num_of_cells,
-                    right_nb.internal_cells.len()
-                );
+                self.steal_from_sibling(parent_page, page, right_page, parent_page_guards);
+                return;
 
-                self.unpin_page_with_write_guard(right_page, false);
+                // self.unpin_page_with_write_guard(right_page, false);
             } else {
                 warn!("-- failed to merge internal, cp: {cp}");
             }
@@ -1316,6 +1307,122 @@ impl Pager {
         self.unpin_page_with_write_guard(parent_page, false);
     }
 
+    fn steal_from_sibling(
+        &self,
+        mut parent_page: RwLockWriteGuard<Page>,
+        mut left_page: RwLockWriteGuard<Page>,
+        mut right_page: RwLockWriteGuard<Page>,
+        parent_page_guards: Vec<RwLockWriteGuard<Page>>,
+    ) {
+        debug!("-- steal from sibling");
+        let min_key_length = self.min_key(INTERNAL_NODE_MAX_CELLS) as u32;
+        let left_page_id = left_page.page_id.unwrap();
+        let left_node = left_page.node.as_mut().unwrap();
+        let right_node = right_page.node.as_mut().unwrap();
+        let parent_node = parent_page.node.as_mut().unwrap();
+
+        // Left node have less cell so let's steal from our right node.
+        if left_node.num_of_cells < min_key_length {
+            debug!("-- steal from right");
+            // Get the parent key that's pointing to the left node
+            let index = parent_node.internal_search_child_pointer(left_page_id as u32);
+            let parent_key = parent_node.internal_cells[index].key();
+
+            // Move the parent key into internal cell and link it to our one and only right child.
+            // It won't be the most right child anymore as we are going to steal our most right
+            // child from our right siblings.
+            let internal_cell = InternalCell::new(left_node.right_child_offset, parent_key);
+            left_node.internal_cells.push(internal_cell);
+            left_node.num_of_cells += 1;
+
+            // Remove the first internal cell from our right siblings and make it our own
+            // children.
+            let min_internal_cell = right_node.internal_cells.remove(0);
+            let new_most_right_child_page_id = min_internal_cell.child_pointer();
+            right_node.num_of_cells -= 1;
+            left_node.right_child_offset = new_most_right_child_page_id;
+            debug!("-- right_page: {:?}", right_page);
+            self.unpin_page_with_write_guard(right_page, true);
+
+            // Update our new children parent offset
+            self.update_parent_offset(
+                new_most_right_child_page_id as usize,
+                left_page.page_id.unwrap(),
+            );
+            debug!("-- left_page: {:?}", left_page);
+            self.unpin_page_with_write_guard(left_page, true);
+
+            // Replace our parent key with the the node key we steal from right sibling.
+            parent_node.internal_cells[index].write_key(min_internal_cell.key());
+            debug!("-- parent_page: {:?}", parent_page);
+            debug!("-- steal sibling (end)\n\n");
+
+            for page in parent_page_guards {
+                self.unpin_page_with_write_guard(page, false);
+            }
+
+            self.unpin_page_with_write_guard(parent_page, true);
+            return;
+        }
+
+        // right node have less cell so let's steal from our left node.
+        if right_node.num_of_cells < min_key_length {
+            debug!("-- steal from left");
+            // Get parent key that point to the left node, since we are stealing from
+            // our left siblings, we will need the key to create the separator key in our internal
+            // cell.
+            let index = parent_node.internal_search_child_pointer(left_page_id as u32);
+            let parent_key = parent_node.internal_cells[index].key();
+
+            // Create internal cell using parent key, then steal our left siblings most right child
+            // to become our first child.
+            let internal_cell = InternalCell::new(left_node.right_child_offset, parent_key);
+            right_node.internal_cells.insert(0, internal_cell);
+            right_node.num_of_cells += 1;
+
+            // Update our new child parent offset.
+            self.update_parent_offset(
+                left_node.right_child_offset as usize,
+                right_page.page_id.unwrap(),
+            );
+            debug!("-- right_page: {:?}", right_page);
+            self.unpin_page_with_write_guard(right_page, true);
+
+            // Remove our left sibling last internal node as now it has one less child, it don't
+            // need the internal node.
+            let max_internal_cell = left_node.internal_cells.pop().unwrap();
+            left_node.num_of_cells -= 1;
+
+            // Point the removed internal cell children as the left sibling most right child.
+            left_node.right_child_offset = max_internal_cell.child_pointer();
+            debug!("-- left_page: {:?}", left_page);
+            self.unpin_page_with_write_guard(left_page, true);
+
+            // Update parent key to use the key from the removed internal cell.
+            parent_node.internal_cells[index].write_key(max_internal_cell.key());
+
+            debug!("-- parent: {:?}", parent_page);
+            debug!("-- steal sibling (end)\n\n",);
+
+            for page in parent_page_guards {
+                self.unpin_page_with_write_guard(page, false);
+            }
+
+            self.unpin_page_with_write_guard(parent_page, true);
+            return;
+        }
+
+        self.unpin_page_with_write_guard(right_page, true);
+        self.unpin_page_with_write_guard(left_page, true);
+
+        // Drop parent guards lock
+        for page in parent_page_guards {
+            self.unpin_page_with_write_guard(page, false);
+        }
+
+        self.unpin_page_with_write_guard(parent_page, false);
+    }
+
     fn concurrent_do_merge_internal_nodes(
         &self,
         mut parent_page: RwLockWriteGuard<Page>,
@@ -1323,7 +1430,7 @@ impl Pager {
         mut right_page: RwLockWriteGuard<Page>,
         parent_page_guards: Vec<RwLockWriteGuard<Page>>,
     ) {
-        debug!("--- concurrent do merge internal node");
+        debug!("-- concurrent do merge internal node");
         let right_page_id = right_page.page_id.unwrap();
         let left_page_id = left_page.page_id.unwrap();
 
@@ -1359,7 +1466,6 @@ impl Pager {
             let parent_right_child_offset = parent.right_child_offset as usize;
             let index = parent.internal_search_child_pointer(left_page_id as u32);
 
-            // if parent.num_of_cells != 1 {
             parent.internal_cells.remove(index);
             parent.num_of_cells -= 1;
 
@@ -1371,40 +1477,21 @@ impl Pager {
                 parent.internal_cells[index].write_child_pointer(left_page_id as u32);
                 parent.internal_cells[index].write_key(new_left_max_key as u32);
             }
-            // } else {
-            //     // our parent only left one cell and we just merge the only cell with it's right
-            //     // child, in this case index should be 0
-            //     assert_eq!(index, 0);
-            //     debug!("-- mark parent as single child internal node");
-
-            //     // parent.right_child_offset = 0;
-            //     parent.internal_cells[index].write_child_pointer(left_page_id as u32);
-            //     parent.internal_cells[index].write_key(new_left_max_key as u32);
-            // }
 
             self.delete_page_with_write_guard(right_page);
 
             self.concurrent_update_children_parent_offset(&mut left_page);
+            debug!("-- left_page: {left_page:?}");
             self.unpin_page_with_write_guard(left_page, true);
 
+            debug!("-- parent_page: {parent_page:?}");
+            debug!("-- concurrent do merge internal node (end)\n\n");
             self.concurrent_merge_internal_nodes(parent_page, parent_page_guards);
-
-            // if parent.num_of_cells <= self.min_key(INTERNAL_NODE_MAX_CELLS) as u32 {
-            //     self.concurrent_merge_internal_nodes(parent_page, parent_page_guards);
-            // } else {
-            //     for page in parent_page_guards {
-            //         self.unpin_page_with_write_guard(page, false);
-            //     }
-
-            //     self.unpin_page_with_write_guard(parent_page, true);
-            // }
         }
     }
 
     pub fn get_node_max_key(&self, mut page_id: usize) -> u32 {
         loop {
-            if page_id == 0 {}
-
             let page = self.fetch_write_page_guard_with_retry(page_id);
             let node = page.node.as_ref().unwrap();
 
