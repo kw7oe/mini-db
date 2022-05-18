@@ -15,7 +15,8 @@ One of the most important one is [CMU Intro to Database Systems projects][5]
 _(including previous years archive, since each year they have students
 implement different structure)_.
 
-Currently, it's still a single threaded database system.
+While our B+ tree now support concurrent operations, it's still a single
+threaded database system.
 
 _This is by no mean an idiomatic Rust implementation as I'm learning Rust
 along the way._
@@ -40,7 +41,10 @@ quick breakdown on what I'm going to implement next:
   - [x] Implement deletion on internal node.
   - [x] Implement merging after the neighbouring nodes pointers/key-values < N.
   - [x] Implement mergeing for internal nodes.
-  - [ ] Implement rebalancing to reduce the number of merges need. _(probably come back to this later)_
+  - [ ] Implement rebalancing to reduce the number of merges need.
+    - [x] Implement steal from siblings if can't merge both nodes together.
+    - [ ] Check if there's still other rebalancing optimisation technique
+      available...
   - [ ] Replace hardcoded max internal node count of 3 with the actual internal
     node count supported by our data format.
       - This require us to generate a larger datasets to tests the
@@ -49,24 +53,24 @@ quick breakdown on what I'm going to implement next:
   - [x] Implement least recently used (LRU) replacement policies.
   - [x] Implement Buffer Pool Manager.
   - [x] Integrated Buffer Pool manager into the rest of the system.
-  - [ ] Make buffer pool page size configurable. Currently is hardcoded to 4.
-- [ ] Implement concurrency for our database.
-  - [ ] Multi threaded index concurrency control. _([Reference][2], [Reference, see Task 4][3])_
+  - [x] Make buffer pool page size configurable.
+- [x] Multi threaded index concurrency control. _([Reference][2], [Reference, see Task 4][3])_
     - [x] Support concurrent insert to B+ Tree.
     - [x] Support concurrent select to B+ Tree.
     - [x] Support concurrent delete to B+ Tree.
     - [x] Test concurrent insert + select;
     - [x] Test concurrent delete + select;
-    - [ ] Test concurrent insert + delete;
-    - [ ] Test concurrent insert + select + delete;
+    - [x] Test concurrent insert + delete;
+    - [x] Test concurrent insert + select + delete;
     - [ ] Optimize latch crabbing by holding read lock and only swap to write
       lock when there's a split/merge.
-  - [ ] Implement concurrency control at row/tuple level. _([Reference][4])_
-    - [ ] Implement lock manager.
-    - [ ] Implement dead lock detection.
-    - [ ] Implement concurrent query execution.
+- [ ] Implement concurrency control at row/tuple level. _([Reference][4])_
+  - [ ] Implement lock manager.
+  - [ ] Implement dead lock detection.
+  - [ ] Implement concurrent query execution.
 - [ ] Implement recovery mechanism for our database.
-- [ ] Make it a distributed database????
+  - [ ] Implement WAL.
+  - [ ] Implement ARIES.
 
 _(subject to changes as we progress)_
 
