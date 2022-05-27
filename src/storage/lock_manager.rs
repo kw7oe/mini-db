@@ -1,4 +1,4 @@
-use super::transaction::Transaction;
+use super::transaction_manager::Transaction;
 use std::collections::HashMap;
 use std::sync::Arc;
 
