@@ -1522,6 +1522,7 @@ impl Pager {
 mod test {
     use super::*;
     use crate::table::Table;
+    use std::str::FromStr;
 
     #[test]
     fn lru_replacer_evict_least_recently_accessed_page() {
@@ -1761,8 +1762,7 @@ mod test {
         let table = setup_test_table();
 
         for i in 1..50 {
-            let row =
-                Row::from_statement(&format!("insert {i} user{i} user{i}@email.com")).unwrap();
+            let row = Row::from_str(&format!("{i} user{i} user{i}@email.com")).unwrap();
             table.insert(&row);
         }
 

@@ -56,6 +56,7 @@ mod test {
     use super::*;
     use crate::query::prepare_statement;
     use pretty_assertions::assert_eq;
+    use std::str::FromStr;
     use std::sync::Arc;
     use std::thread;
     use threadpool::ThreadPool;
@@ -401,8 +402,7 @@ mod test {
                 let table = Arc::clone(&table);
                 let tx = tx.clone();
                 pool.execute(move || {
-                    let row = Row::from_statement(&format!("insert {i} user{i} user{i}@email.com"))
-                        .unwrap();
+                    let row = Row::from_str(&format!("{i} user{i} user{i}@email.com")).unwrap();
                     table.insert(&row);
                     tx.send(1)
                         .expect("channel will be there waiting for the pool");
@@ -436,8 +436,7 @@ mod test {
             for i in 1..row {
                 let table = Arc::clone(&table);
                 let handle = thread::spawn(move || {
-                    let row = Row::from_statement(&format!("insert {i} user{i} user{i}@email.com"))
-                        .unwrap();
+                    let row = Row::from_str(&format!("{i} user{i} user{i}@email.com")).unwrap();
                     table.insert(&row);
                 });
                 handles.push(handle);
@@ -465,8 +464,7 @@ mod test {
         let table = Arc::new(setup_test_table(8));
 
         for i in 1..row {
-            let row =
-                Row::from_statement(&format!("insert {i} user{i} user{i}@email.com")).unwrap();
+            let row = Row::from_str(&format!("{i} user{i} user{i}@email.com")).unwrap();
             table.insert(&row);
         }
 
@@ -498,8 +496,7 @@ mod test {
         let table = Arc::new(setup_test_table(8));
 
         for i in 1..row {
-            let row =
-                Row::from_statement(&format!("insert {i} user{i} user{i}@email.com")).unwrap();
+            let row = Row::from_str(&format!("{i} user{i} user{i}@email.com")).unwrap();
             table.insert(&row);
         }
 
@@ -570,8 +567,7 @@ mod test {
             let table = Arc::new(setup_test_table(buffer_pool_size));
 
             for i in 1..row {
-                let row =
-                    Row::from_statement(&format!("insert {i} user{i} user{i}@email.com")).unwrap();
+                let row = Row::from_str(&format!("{i} user{i} user{i}@email.com")).unwrap();
                 table.insert(&row);
             }
 
@@ -601,8 +597,7 @@ mod test {
             let table = Arc::new(setup_test_table(8));
 
             for i in 1..row {
-                let row =
-                    Row::from_statement(&format!("insert {i} user{i} user{i}@email.com")).unwrap();
+                let row = Row::from_str(&format!("{i} user{i} user{i}@email.com")).unwrap();
                 table.insert(&row);
             }
 
@@ -646,8 +641,7 @@ mod test {
             let table = Arc::new(setup_test_table(8));
 
             for i in 0..100 {
-                let row =
-                    Row::from_statement(&format!("insert {i} user{i} user{i}@email.com")).unwrap();
+                let row = Row::from_str(&format!("{i} user{i} user{i}@email.com")).unwrap();
                 table.insert(&row);
             }
 
@@ -656,8 +650,7 @@ mod test {
                 pool.execute(move || {
                     let j = i + 100;
 
-                    let row = Row::from_statement(&format!("insert {j} user{j} user{j}@email.com"))
-                        .unwrap();
+                    let row = Row::from_str(&format!("{j} user{j} user{j}@email.com")).unwrap();
                     table.insert(&row);
 
                     let statement = prepare_statement(&format!("select {j}")).unwrap();
@@ -698,8 +691,7 @@ mod test {
             let table = Arc::new(setup_test_table(8));
 
             for i in 0..100 {
-                let row =
-                    Row::from_statement(&format!("insert {i} user{i} user{i}@email.com")).unwrap();
+                let row = Row::from_str(&format!("{i} user{i} user{i}@email.com")).unwrap();
                 table.insert(&row);
             }
 
@@ -708,8 +700,7 @@ mod test {
                 pool.execute(move || {
                     let j = i + 100;
 
-                    let row = Row::from_statement(&format!("insert {j} user{j} user{j}@email.com"))
-                        .unwrap();
+                    let row = Row::from_str(&format!("{j} user{j} user{j}@email.com")).unwrap();
                     table.insert(&row);
 
                     let statement = prepare_statement(&format!("delete {i}")).unwrap();
@@ -747,8 +738,7 @@ mod test {
             let table = Arc::new(setup_test_table(8));
 
             for i in 0..200 {
-                let row =
-                    Row::from_statement(&format!("insert {i} user{i} user{i}@email.com")).unwrap();
+                let row = Row::from_str(&format!("{i} user{i} user{i}@email.com")).unwrap();
                 table.insert(&row);
             }
 
@@ -805,8 +795,7 @@ mod test {
             let table = Arc::new(setup_test_table(8));
 
             for i in 0..100 {
-                let row =
-                    Row::from_statement(&format!("insert {i} user{i} user{i}@email.com")).unwrap();
+                let row = Row::from_str(&format!("{i} user{i} user{i}@email.com")).unwrap();
                 table.insert(&row);
             }
 
@@ -815,8 +804,7 @@ mod test {
                 pool.execute(move || {
                     let j = i + 100;
 
-                    let row = Row::from_statement(&format!("insert {j} user{j} user{j}@email.com"))
-                        .unwrap();
+                    let row = Row::from_str(&format!("{j} user{j} user{j}@email.com")).unwrap();
                     table.insert(&row);
 
                     let statement = prepare_statement(&format!("select {j}")).unwrap();
@@ -864,8 +852,7 @@ mod test {
         let table = setup_test_table(8);
 
         for i in 1..50 {
-            let row =
-                Row::from_statement(&format!("insert {i} user{i} user{i}@email.com")).unwrap();
+            let row = Row::from_str(&format!("{i} user{i} user{i}@email.com")).unwrap();
             table.insert(&row);
         }
 

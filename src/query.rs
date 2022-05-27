@@ -1,5 +1,6 @@
 use crate::row::Row;
 use crate::table::*;
+use std::str::FromStr;
 
 #[derive(Debug)]
 pub enum MetaCommand {
@@ -15,6 +16,18 @@ pub enum StatementType {
     Select,
     Insert,
     Delete,
+}
+
+impl FromStr for StatementType {
+    type Err = String;
+    fn from_str(action: &str) -> Result<Self, Self::Err> {
+        match action {
+            "select" => Ok(StatementType::Select),
+            "insert" => Ok(StatementType::Insert),
+            "delete" => Ok(StatementType::Delete),
+            _ => Err("unrecognized statement".into()),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -35,50 +48,25 @@ pub fn handle_meta_command(command: &str) -> MetaCommand {
     }
 }
 
-pub fn parse_action_with_id(
-    input: &str,
-    statement_type: StatementType,
-) -> Result<Statement, String> {
+pub fn prepare_statement(input: &str) -> Result<Statement, String> {
     match input.split_once(' ') {
-        None => Ok(Statement {
-            statement_type,
-            row: None,
-        }),
-        Some((_, id)) => {
-            if let Ok(id) = id.parse::<u32>() {
+        None => {
+            let statement_type = StatementType::from_str(input)?;
+
+            if statement_type == StatementType::Insert {
+                Err("missing row value for insert".to_string())
+            } else {
                 Ok(Statement {
                     statement_type,
-                    row: Some(Row::create(id, "", "")),
-                })
-            } else {
-                Err("invalid id provided".to_string())
-            }
-        }
-    }
-}
-
-pub fn prepare_statement(input: &str) -> Result<Statement, String> {
-    if input.starts_with("select") {
-        return parse_action_with_id(input, StatementType::Select);
-    }
-
-    if input.starts_with("delete") {
-        return parse_action_with_id(input, StatementType::Delete);
-    }
-
-    if input.starts_with("insert") {
-        match Row::from_statement(input) {
-            Ok(row) => {
-                return Ok(Statement {
-                    statement_type: StatementType::Insert,
-                    row: Some(row),
+                    row: None,
                 })
             }
-            Err(e) => return Err(e),
         }
+        Some((action, rest)) => Ok(Statement {
+            statement_type: StatementType::from_str(action)?,
+            row: Some(Row::from_str(rest)?),
+        }),
     }
-
-    Err("unrecognized statement".to_string())
 }
 
 pub fn execute_statement(table: &mut Table, statement: &Statement) -> String {
@@ -110,7 +98,7 @@ mod test {
 
         let statement = result.unwrap();
         assert_eq!(statement.statement_type, StatementType::Select);
-        assert_eq!(statement.row, Some(Row::create(1, "", "")));
+        assert_eq!(statement.row, Some(Row::new("1", "", "").unwrap()));
     }
 
     #[test]
@@ -120,7 +108,7 @@ mod test {
 
         let statement = result.unwrap();
         assert_eq!(statement.statement_type, StatementType::Delete);
-        assert_eq!(statement.row, Some(Row::create(1, "", "")));
+        assert_eq!(statement.row, Some(Row::new("1", "", "").unwrap()));
     }
 
     #[test]

@@ -1,5 +1,6 @@
 use crate::BigArray;
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 
 const USERNAME_SIZE: usize = 32;
 const EMAIL_SIZE: usize = 255;
@@ -15,30 +16,11 @@ pub struct Row {
 }
 
 impl Row {
-    // Alternatively can move to prepare_insert instead.
-    pub fn from_statement(statement: &str) -> Result<Row, String> {
-        let insert_statement: Vec<&str> = statement.split(' ').collect();
-        match insert_statement[..] {
-            ["insert", id, name, email] => {
-                if let Ok(id) = id.parse::<u32>() {
-                    if name.len() > USERNAME_SIZE {
-                        return Err("Name is too long.".to_string());
-                    }
+    pub fn new(id: &str, u: &str, m: &str) -> Result<Row, String> {
+        let id = id
+            .parse::<u32>()
+            .map_err(|_e| "invalid id provided".to_string())?;
 
-                    if email.len() > EMAIL_SIZE {
-                        return Err("Email is too long.".to_string());
-                    }
-
-                    Ok(Self::create(id, name, email))
-                } else {
-                    Err("ID must be positive.".to_string())
-                }
-            }
-            _ => Err(format!("Unrecognized keyword at start of '{statement}'.")),
-        }
-    }
-
-    pub fn create(id: u32, u: &str, m: &str) -> Row {
         let mut username: [u8; USERNAME_SIZE] = [0; USERNAME_SIZE];
         let mut email: [u8; EMAIL_SIZE] = [0; EMAIL_SIZE];
 
@@ -54,11 +36,11 @@ impl Row {
             index += 1;
         }
 
-        Row {
+        Ok(Row {
             id,
             username,
             email,
-        }
+        })
     }
 
     pub fn username(&self) -> String {
@@ -77,6 +59,29 @@ impl Row {
         String::from_utf8_lossy(&self.email)
             .trim_end_matches(char::from(0))
             .to_owned()
+    }
+}
+
+impl FromStr for Row {
+    type Err = String;
+
+    fn from_str(row: &str) -> Result<Self, Self::Err> {
+        let columns: Vec<&str> = row.split(' ').collect();
+        match columns[..] {
+            [id] => Self::new(id, "", ""),
+            [id, name, email] => {
+                if name.len() > USERNAME_SIZE {
+                    return Err("Name is too long.".to_string());
+                }
+
+                if email.len() > EMAIL_SIZE {
+                    return Err("Email is too long.".to_string());
+                }
+
+                Self::new(id, name, email)
+            }
+            _ => Err(format!("Unrecognized keyword at start of '{row}'.")),
+        }
     }
 }
 

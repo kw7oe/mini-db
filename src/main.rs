@@ -91,7 +91,7 @@ mod test {
         let output = handle_input(&mut table, "insert 1 apple apple apple");
         assert_eq!(
             output,
-            "Unrecognized keyword at start of 'insert 1 apple apple apple'."
+            "Unrecognized keyword at start of '1 apple apple apple'."
         );
 
         clean_test();
@@ -466,7 +466,7 @@ mod test {
     fn error_when_id_is_negative() {
         let mut table = setup_test_table();
         let output = handle_input(&mut table, "insert -1 john john@email.com");
-        assert_eq!(output, "ID must be positive.");
+        assert_eq!(output, "invalid id provided");
 
         clean_test();
     }
@@ -476,7 +476,7 @@ mod test {
         let mut table = setup_test_table();
         let mut username = String::new();
         for _ in 0..33 {
-            username.push_str("a");
+            username.push('a');
         }
 
         let output = handle_input(&mut table, &format!("insert 1 {username} john@email.com"));
@@ -484,7 +484,7 @@ mod test {
 
         let mut email = String::new();
         for _ in 0..256 {
-            email.push_str("a");
+            email.push('a');
         }
 
         let output = handle_input(&mut table, &format!("insert 1 john {email}"));
