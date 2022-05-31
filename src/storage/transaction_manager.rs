@@ -2,6 +2,7 @@ use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::{self, atomic::AtomicU32, Arc};
 
+#[derive(Debug, PartialEq)]
 pub enum TransactionState {
     Growing,
     Sinking,
@@ -18,11 +19,20 @@ pub enum IsolationLevel {
 pub struct Transaction {
     txn_id: u32,
     iso_level: IsolationLevel,
+    state: TransactionState,
 }
 
 impl Transaction {
     fn new(txn_id: u32, iso_level: IsolationLevel) -> Self {
-        Self { txn_id, iso_level }
+        Self {
+            txn_id,
+            iso_level,
+            state: TransactionState::Growing,
+        }
+    }
+
+    fn set_state(&mut self, state: TransactionState) {
+        self.state = state;
     }
 }
 
@@ -53,8 +63,23 @@ impl TransactionManager {
         transaction
     }
 
-    fn commit(&self, txn_id: u32) {}
-    fn abort(&self, txn_id: u32) {}
+    fn commit(&self, transaction: &mut Transaction) {
+        transaction.set_state(TransactionState::Committed);
+
+        // Apply changes
+
+        // Release locks
+    }
+
+    fn abort(&self, transaction: &mut Transaction) {
+        transaction.set_state(TransactionState::Aborted);
+
+        // Rollback changes
+
+        // Rollback index changes
+
+        // Release locks
+    }
 
     fn get_transaction(&self, txn_id: &u32) -> Arc<Transaction> {
         let map = self.transaction_map.read();
@@ -64,7 +89,7 @@ impl TransactionManager {
 
 #[cfg(test)]
 mod test {
-    use super::{IsolationLevel, TransactionManager};
+    use super::{IsolationLevel, TransactionManager, TransactionState};
 
     #[test]
     fn transaction_begin_and_get() {
@@ -72,11 +97,13 @@ mod test {
         let transaction = tm.begin(IsolationLevel::ReadUncommited);
 
         assert_eq!(transaction.txn_id, 1);
+        assert_eq!(transaction.state, TransactionState::Growing);
 
         let map = tm.transaction_map.read();
         assert_eq!(map.len(), 1);
 
         let tx = tm.get_transaction(&1);
         assert_eq!(tx.txn_id, 1);
+        assert_eq!(tx.state, TransactionState::Growing);
     }
 }
