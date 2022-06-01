@@ -735,7 +735,7 @@ mod test {
 
         for i in 0..frequency {
             info!("--- test concurrent select and delete {i} ---");
-            let table = Arc::new(setup_test_table(8));
+            let table = Arc::new(setup_test_table(128));
 
             for i in 0..200 {
                 let row = Row::from_str(&format!("{i} user{i} user{i}@email.com")).unwrap();
@@ -792,7 +792,7 @@ mod test {
 
         for i in 0..frequency {
             info!("--- test concurrent insert, select and delete {i} ---");
-            let table = Arc::new(setup_test_table(8));
+            let table = Arc::new(setup_test_table(64));
 
             for i in 0..100 {
                 let row = Row::from_str(&format!("{i} user{i} user{i}@email.com")).unwrap();
