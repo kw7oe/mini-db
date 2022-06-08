@@ -1,10 +1,13 @@
 use super::{
-    lock_manager::LockManager, transaction::Transaction, transaction_manager::TransactionManager,
+    lock_manager::LockManager,
+    transaction::{Transaction, WriteRecord, WriteRecordType},
+    transaction_manager::TransactionManager,
 };
 use crate::row::Row;
 use crate::storage::Pager;
 use std::path::Path;
 
+#[derive(Copy, Clone)]
 pub struct RowID {
     page_id: usize,
     slot_num: usize,
@@ -28,16 +31,16 @@ impl Table {
         }
     }
 
-    pub fn insert(row: &Row, rid: &mut RowID, transaction: Transaction) {
-        // Insert into Page
-        //   - We will need to set Row ID based on the page id and slot num
-        //     after we find the right page and slot to insert.
-
-        // After insertion place it into Transaction write set,
-        // so that if a transaction is aborted we can revert it back.
-        //   - What are the information we need to revert a insert?
-        //   - We need to delete the inserted record.
-        //   - To delete an inserted record, we probably need the key or row id.
+    pub fn insert(&self, row: &Row, rid: &mut RowID, mut transaction: Transaction) {
+        if let Ok((page_id, slot_num)) = self.pager.insert_row(0, row) {
+            // The RID probably need to be added to the row
+            // as well?
+            //
+            // It's currently unused by row/tuple.
+            rid.page_id = page_id;
+            rid.slot_num = slot_num;
+            transaction.push_write_set(WriteRecord::new(WriteRecordType::Insert, *rid, row.id));
+        }
     }
 
     pub fn delete(row: &Row, rid: &mut RowID, transaction: Transaction) {

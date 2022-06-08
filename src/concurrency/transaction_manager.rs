@@ -35,7 +35,7 @@ impl TransactionManager {
 
         // Apply changes
 
-        // Release locks
+        // Release locks from lock manager I assumed
     }
 
     fn abort(&self, transaction: &mut Transaction) {

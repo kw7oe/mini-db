@@ -731,6 +731,41 @@ impl Pager {
         }
     }
 
+    pub fn insert_row(&self, root_page_num: usize, row: &Row) -> Result<(usize, usize), String> {
+        self.search_and_then(
+            vec![],
+            root_page_num,
+            row.id,
+            Operation::Insert,
+            |cursor, parent_page_guards, mut page| {
+                if cursor.key_existed {
+                    return None;
+                };
+
+                let node = page.node.as_ref().unwrap();
+                let num_of_cells = node.num_of_cells as usize;
+
+                // If num cell = MAX CELL, inserting into it cause it to overflow
+                // which mean we need to insert and split.
+                if num_of_cells >= LEAF_NODE_MAX_CELLS {
+                    self.concurrent_insert_and_split_node(parent_page_guards, page, &cursor, row);
+                } else {
+                    let node = page.node.as_mut().unwrap();
+                    node.insert(row, &cursor);
+
+                    for page in parent_page_guards {
+                        self.unpin_page_with_write_guard(page, false);
+                    }
+
+                    self.unpin_page_with_write_guard(page, true);
+                }
+
+                Some((cursor.page_num, cursor.cell_num))
+            },
+        )
+        .ok_or_else(|| "duplicate key".to_string())
+    }
+
     pub fn insert(&self, root_page_num: usize, row: &Row) -> Option<String> {
         self.search_and_then(
             vec![],
