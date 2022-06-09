@@ -5,6 +5,7 @@ use super::{
 };
 use crate::row::Row;
 use crate::storage::Pager;
+use parking_lot::RwLockWriteGuard;
 use std::path::Path;
 
 #[derive(Copy, Clone)]
@@ -31,15 +32,14 @@ impl Table {
         }
     }
 
-    pub fn insert(&self, row: &Row, rid: &mut RowID, mut transaction: Transaction) {
+    pub fn insert(&self, row: &Row, transaction: &mut RwLockWriteGuard<Transaction>) {
         if let Ok((page_id, slot_num)) = self.pager.insert_row(0, row) {
             // The RID probably need to be added to the row
             // as well?
             //
             // It's currently unused by row/tuple.
-            rid.page_id = page_id;
-            rid.slot_num = slot_num;
-            transaction.push_write_set(WriteRecord::new(WriteRecordType::Insert, *rid, row.id));
+            let rid = RowID { page_id, slot_num };
+            transaction.push_write_set(WriteRecord::new(WriteRecordType::Insert, rid, row.id));
         }
     }
 
