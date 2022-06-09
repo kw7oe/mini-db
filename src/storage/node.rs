@@ -393,6 +393,13 @@ impl Node {
         Ok(child_pointer as usize)
     }
 
+    pub fn get_row(&self, cell_num: usize) -> Option<Row> {
+        self.cells.get(cell_num).map(|cell| {
+            let bytes = cell.value();
+            bincode::deserialize(bytes).unwrap()
+        })
+    }
+
     pub fn get(&self, cell_num: usize) -> Row {
         let bytes = self.cells[cell_num].value();
         bincode::deserialize(bytes).unwrap()

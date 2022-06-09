@@ -118,7 +118,7 @@ impl Page {
     }
 
     pub fn get_row(&self, slot_num: usize) -> Option<Row> {
-        self.node.as_ref().map(|node| node.get(slot_num))
+        self.node.as_ref().and_then(|node| node.get_row(slot_num))
     }
 }
 
@@ -1037,6 +1037,32 @@ impl Pager {
 
             self.concurrent_split_internal_node(parent_page, parent_page_guards);
         }
+    }
+
+    pub fn delete_by_key(&self, root_page_num: usize, key: u32) -> Option<String> {
+        self.search_and_then(
+            vec![],
+            root_page_num,
+            key,
+            Operation::Delete,
+            |cursor, parent_page_guards, mut page| {
+                if cursor.key_existed {
+                    let node = page.node.as_mut().unwrap();
+                    node.delete(cursor.cell_num);
+                    self.concurrent_maybe_merge_nodes(page, parent_page_guards);
+
+                    Some(format!("deleted {}", key))
+                } else {
+                    for page in parent_page_guards {
+                        self.unpin_page_with_write_guard(page, false);
+                    }
+
+                    self.unpin_page_with_write_guard(page, false);
+
+                    Some(format!("item not found with id {}", key))
+                }
+            },
+        )
     }
 
     pub fn delete(&self, root_page_num: usize, row: &Row) -> Option<String> {

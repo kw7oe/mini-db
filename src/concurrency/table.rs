@@ -8,7 +8,7 @@ use crate::storage::Pager;
 use parking_lot::RwLockWriteGuard;
 use std::path::Path;
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct RowID {
     page_id: usize,
     slot_num: usize,
@@ -57,6 +57,10 @@ impl Table {
         } else {
             None
         }
+    }
+
+    pub fn apply_delete(&self, key: u32) {
+        self.pager.delete_by_key(0, key);
     }
 
     pub fn delete(row: &Row, rid: &mut RowID, transaction: Transaction) {

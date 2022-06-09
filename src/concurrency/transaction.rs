@@ -8,22 +8,25 @@ pub enum TransactionState {
     Aborted,
 }
 
+#[derive(Debug)]
 pub enum IsolationLevel {
     ReadUncommited,
     ReadCommited,
     RepeatableRead,
 }
 
+#[derive(Debug, PartialEq)]
 pub enum WriteRecordType {
     Insert,
     Delete,
     Update,
 }
 
+#[derive(Debug)]
 pub struct WriteRecord {
-    rid: RowID,
-    key: u32,
-    wr_type: WriteRecordType,
+    pub rid: RowID,
+    pub key: u32,
+    pub wr_type: WriteRecordType,
 }
 
 impl WriteRecord {
@@ -32,11 +35,12 @@ impl WriteRecord {
     }
 }
 
+#[derive(Debug)]
 pub struct Transaction {
     pub txn_id: u32,
     pub iso_level: IsolationLevel,
     pub state: TransactionState,
-    write_sets: Vec<WriteRecord>,
+    pub write_sets: Vec<WriteRecord>,
 }
 
 impl Transaction {
@@ -55,5 +59,9 @@ impl Transaction {
 
     pub fn push_write_set(&mut self, write_set: WriteRecord) {
         self.write_sets.push(write_set);
+    }
+
+    pub fn pop_write_set(&mut self) -> Option<WriteRecord> {
+        self.write_sets.pop()
     }
 }

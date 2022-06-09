@@ -1,4 +1,5 @@
-use super::transaction::{IsolationLevel, Transaction, TransactionState};
+use super::table::Table;
+use super::transaction::{IsolationLevel, Transaction, TransactionState, WriteRecordType};
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::{self, atomic::AtomicU32, Arc};
@@ -18,13 +19,18 @@ impl TransactionManager {
 
     fn execute<F, T>(&self, iso_level: IsolationLevel, f: F) -> T
     where
-        F: FnOnce(Arc<RwLock<Transaction>>) -> T,
+        F: FnOnce(Arc<RwLock<Transaction>>, &TransactionManager) -> T,
     {
         let transaction = self.begin(iso_level);
-        let result = f(Arc::clone(&transaction));
+        let result = f(Arc::clone(&transaction), self);
 
+        // We only automatically commit transactions that
+        // are not aborted.
         let mut t = transaction.write();
-        self.commit(&mut t);
+        if t.state != TransactionState::Aborted {
+            self.commit(&mut t);
+        }
+
         result
     }
 
@@ -50,10 +56,16 @@ impl TransactionManager {
         // Release locks from lock manager I assumed
     }
 
-    fn abort(&self, transaction: &mut Transaction) {
+    fn abort(&self, table: &Table, transaction: &mut Transaction) {
         transaction.set_state(TransactionState::Aborted);
 
         // Rollback changes
+        while let Some(wr) = transaction.pop_write_set() {
+            if wr.wr_type == WriteRecordType::Insert {
+                // Delete record
+                table.apply_delete(wr.key);
+            }
+        }
 
         // Rollback index changes
 
@@ -91,11 +103,6 @@ mod test {
 
         tm.commit(&mut tx);
         assert_eq!(tx.state, TransactionState::Committed);
-
-        // Shouldn't be possible in the first place,
-        // but this is just a quick test to verify things
-        tm.abort(&mut tx);
-        assert_eq!(tx.state, TransactionState::Aborted);
     }
 
     #[test]
@@ -103,7 +110,7 @@ mod test {
         let tm = TransactionManager::new();
         let table = Table::new("tt.db", 4);
         let row = Row::from_str("1 apple apple@apple.com").unwrap();
-        tm.execute(IsolationLevel::ReadCommited, |transaction| {
+        tm.execute(IsolationLevel::ReadCommited, |transaction, _tm| {
             let mut t = transaction.write();
             let rid = table.insert(&row, &mut t).unwrap();
             drop(t);
@@ -113,11 +120,36 @@ mod test {
 
             assert_eq!(row, inserted_row);
         });
+    }
 
-        // If an transaction ended, it should be remove
-        // from the transaction manager state.
-        //
-        // let map = tm.transaction_map.read();
-        // assert_eq!(map.len(), 0);
+    #[test]
+    fn abort_transaction() {
+        let tm = TransactionManager::new();
+        let table = Table::new("tt.db", 4);
+        let row = Row::from_str("1 apple apple@apple.com").unwrap();
+        let rid = tm.execute(IsolationLevel::ReadCommited, |transaction, tm| {
+            let mut t = transaction.write();
+            let rid = table.insert(&row, &mut t).unwrap();
+            drop(t);
+
+            let mut t = transaction.write();
+            tm.abort(&table, &mut t);
+
+            assert_eq!(t.state, TransactionState::Aborted);
+            rid
+        });
+
+        tm.execute(IsolationLevel::ReadCommited, |transaction, _tm| {
+            let mut t = transaction.write();
+            assert_eq!(table.get(rid, &mut t), None);
+        });
+
+        // We should have an aborted transaciton.
+        let map = tm.transaction_map.read();
+        let transaction = map.iter().find(|(_, t)| {
+            let t = t.read();
+            t.state == TransactionState::Aborted
+        });
+        assert!(transaction.is_some());
     }
 }
