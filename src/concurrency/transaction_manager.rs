@@ -104,10 +104,14 @@ mod test {
         let table = Table::new("tt.db", 4);
         let row = Row::from_str("1 apple apple@apple.com").unwrap();
         tm.execute(IsolationLevel::ReadCommited, |transaction| {
-            // do something with transaction
             let mut t = transaction.write();
-            table.insert(&row, &mut t);
+            let rid = table.insert(&row, &mut t).unwrap();
             drop(t);
+
+            let mut t = transaction.write();
+            let inserted_row = table.get(rid, &mut t).unwrap();
+
+            assert_eq!(row, inserted_row);
         });
 
         // If an transaction ended, it should be remove

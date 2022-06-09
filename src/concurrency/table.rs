@@ -32,7 +32,20 @@ impl Table {
         }
     }
 
-    pub fn insert(&self, row: &Row, transaction: &mut RwLockWriteGuard<Transaction>) {
+    pub fn get(&self, rid: RowID, transaction: &mut RwLockWriteGuard<Transaction>) -> Option<Row> {
+        if let Ok(page) = self.pager.fetch_read_page_guard(rid.page_id) {
+            page.get_row(rid.slot_num)
+        } else {
+            transaction.set_state(super::transaction::TransactionState::Aborted);
+            None
+        }
+    }
+
+    pub fn insert(
+        &self,
+        row: &Row,
+        transaction: &mut RwLockWriteGuard<Transaction>,
+    ) -> Option<RowID> {
         if let Ok((page_id, slot_num)) = self.pager.insert_row(0, row) {
             // The RID probably need to be added to the row
             // as well?
@@ -40,6 +53,9 @@ impl Table {
             // It's currently unused by row/tuple.
             let rid = RowID { page_id, slot_num };
             transaction.push_write_set(WriteRecord::new(WriteRecordType::Insert, rid, row.id));
+            Some(rid)
+        } else {
+            None
         }
     }
 

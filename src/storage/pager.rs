@@ -116,6 +116,10 @@ impl Page {
         self.is_dirty = false;
         self.pin_count = 0;
     }
+
+    pub fn get_row(&self, slot_num: usize) -> Option<Row> {
+        self.node.as_ref().map(|node| node.get(slot_num))
+    }
 }
 
 #[derive(Debug)]
