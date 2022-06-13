@@ -57,10 +57,10 @@ pub const INTERNAL_NODE_MAX_CELLS: usize = 3;
 // serde attributes in Vec<T>.
 //
 // See: https://github.com/serde-rs/serde/issues/723
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq)]
 pub struct Cell(#[serde(with = "BigArray")] [u8; LEAF_NODE_CELL_SIZE]);
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq)]
 pub struct InternalCell([u8; INTERNAL_NODE_CELL_SIZE]);
 
 impl Cell {
@@ -78,6 +78,16 @@ impl Cell {
         for (i, byte) in key.to_le_bytes().into_iter().enumerate() {
             self.0[i] = byte;
         }
+    }
+
+    pub fn mark_as_deleted(&mut self) {
+        let offset = LEAF_NODE_KEY_SIZE;
+        self.0[offset + ROW_SIZE - 1] = 1;
+    }
+
+    pub fn mark_as_undeleted(&mut self) {
+        let offset = LEAF_NODE_KEY_SIZE;
+        self.0[offset + ROW_SIZE - 1] = 0;
     }
 
     fn write_value(&mut self, row: &Row) {
@@ -141,7 +151,7 @@ impl std::fmt::Debug for InternalCell {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct Node {
     // Header
     // Common
@@ -391,6 +401,10 @@ impl Node {
         };
 
         Ok(child_pointer as usize)
+    }
+
+    pub fn get_mut_cell(&mut self, cell_num: usize) -> Option<&mut Cell> {
+        self.cells.get_mut(cell_num)
     }
 
     pub fn get_row(&self, cell_num: usize) -> Option<Row> {

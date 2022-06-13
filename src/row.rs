@@ -4,9 +4,9 @@ use std::str::FromStr;
 
 const USERNAME_SIZE: usize = 32;
 const EMAIL_SIZE: usize = 255;
-pub const ROW_SIZE: usize = USERNAME_SIZE + EMAIL_SIZE + 4; // u32 is 4 x u8;
+pub const ROW_SIZE: usize = USERNAME_SIZE + EMAIL_SIZE + 4 + std::mem::size_of::<bool>(); // u32 is 4 x u8;
 
-#[derive(Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct Row {
     pub id: u32,
     #[serde(with = "BigArray")]
@@ -90,11 +90,5 @@ impl FromStr for Row {
 impl std::string::ToString for Row {
     fn to_string(&self) -> String {
         format!("({}, {}, {})", self.id, self.username(), self.email())
-    }
-}
-
-impl std::fmt::Debug for Row {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_string())
     }
 }
