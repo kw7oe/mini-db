@@ -1,5 +1,6 @@
 mod disk_manager;
 mod node;
+mod page;
 mod pager;
 
 // Reexport so we can refer it from other mod
@@ -8,5 +9,6 @@ mod pager;
 pub use self::{
     disk_manager::DiskManager,
     node::{NodeType, LEAF_NODE_CELL_SIZE},
+    page::Page,
     pager::*,
 };

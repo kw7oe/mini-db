@@ -10,7 +10,7 @@ use super::node::{
     LEAF_NODE_RIGHT_SPLIT_COUNT,
 };
 use crate::row::Row;
-use crate::storage::{DiskManager, NodeType};
+use crate::storage::{DiskManager, NodeType, Page};
 use std::time::Instant;
 
 pub const PAGE_SIZE: usize = 4096;
@@ -89,36 +89,6 @@ impl LRUReplacer {
     pub fn unpin(&self, frame_id: usize) {
         let mut page_table = self.page_table.write();
         page_table.push(PageMetadata::new(frame_id));
-    }
-}
-
-#[derive(Debug)]
-pub struct Page {
-    page_id: Option<usize>,
-    is_dirty: bool,
-    pin_count: usize,
-    pub node: Option<Node>,
-}
-
-impl Page {
-    pub fn new(page_id: Option<usize>) -> Self {
-        Self {
-            page_id,
-            is_dirty: false,
-            pin_count: 0,
-            node: None,
-        }
-    }
-
-    pub fn deallocate(&mut self) {
-        self.page_id = None;
-        self.node = None;
-        self.is_dirty = false;
-        self.pin_count = 0;
-    }
-
-    pub fn get_row(&self, slot_num: usize) -> Option<Row> {
-        self.node.as_ref().and_then(|node| node.get_row(slot_num))
     }
 }
 

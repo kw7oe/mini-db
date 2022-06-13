@@ -13,6 +13,7 @@ pub struct Row {
     username: [u8; USERNAME_SIZE],
     #[serde(with = "BigArray")]
     email: [u8; EMAIL_SIZE],
+    pub is_deleted: bool,
 }
 
 impl Row {
@@ -37,6 +38,7 @@ impl Row {
         }
 
         Ok(Row {
+            is_deleted: false,
             id,
             username,
             email,
