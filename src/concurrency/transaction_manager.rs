@@ -17,7 +17,7 @@ impl TransactionManager {
         }
     }
 
-    fn execute<F, T>(&self, iso_level: IsolationLevel, f: F) -> T
+    fn execute<F, T>(&self, table: &Table, iso_level: IsolationLevel, f: F) -> T
     where
         F: FnOnce(Arc<RwLock<Transaction>>, &TransactionManager) -> T,
     {
@@ -28,7 +28,7 @@ impl TransactionManager {
         // are not aborted.
         let mut t = transaction.write();
         if t.state != TransactionState::Aborted {
-            self.commit(&mut t);
+            self.commit(&table, &mut t);
         }
 
         result
@@ -48,10 +48,16 @@ impl TransactionManager {
         transaction
     }
 
-    fn commit(&self, transaction: &mut Transaction) {
+    fn commit(&self, table: &Table, transaction: &mut Transaction) {
         transaction.set_state(TransactionState::Committed);
 
         // Apply changes
+        while let Some(wr) = transaction.pop_write_set() {
+            if wr.wr_type == WriteRecordType::Delete {
+                // Delete record
+                table.apply_delete(wr.key);
+            }
+        }
 
         // Release locks from lock manager I assumed
     }
@@ -61,9 +67,10 @@ impl TransactionManager {
 
         // Rollback changes
         while let Some(wr) = transaction.pop_write_set() {
-            if wr.wr_type == WriteRecordType::Insert {
-                // Delete record
-                table.apply_delete(wr.key);
+            match wr.wr_type {
+                WriteRecordType::Insert => table.apply_delete(wr.key),
+                WriteRecordType::Delete => table.rollback_delete(&wr.rid),
+                _ => (),
             }
         }
 
@@ -101,7 +108,8 @@ mod test {
         assert_eq!(tx.txn_id, 1);
         assert_eq!(tx.state, TransactionState::Growing);
 
-        tm.commit(&mut tx);
+        let table = Table::new("tt.db", 4);
+        tm.commit(&table, &mut tx);
         assert_eq!(tx.state, TransactionState::Committed);
     }
 
@@ -110,7 +118,7 @@ mod test {
         let tm = TransactionManager::new();
         let table = Table::new("tt.db", 4);
         let row = Row::from_str("1 apple apple@apple.com").unwrap();
-        tm.execute(IsolationLevel::ReadCommited, |transaction, _tm| {
+        tm.execute(&table, IsolationLevel::ReadCommited, |transaction, _tm| {
             let mut t = transaction.write();
             let rid = table.insert(&row, &mut t).unwrap();
             drop(t);
@@ -127,7 +135,7 @@ mod test {
         let tm = TransactionManager::new();
         let table = Table::new("tt.db", 4);
         let row = Row::from_str("1 apple apple@apple.com").unwrap();
-        let rid = tm.execute(IsolationLevel::ReadCommited, |transaction, tm| {
+        let rid = tm.execute(&table, IsolationLevel::ReadCommited, |transaction, tm| {
             let mut t = transaction.write();
             let rid = table.insert(&row, &mut t).unwrap();
             drop(t);
@@ -139,7 +147,7 @@ mod test {
             rid
         });
 
-        tm.execute(IsolationLevel::ReadCommited, |transaction, _tm| {
+        tm.execute(&table, IsolationLevel::ReadCommited, |transaction, _tm| {
             let mut t = transaction.write();
             assert_eq!(table.get(rid, &mut t), None);
         });

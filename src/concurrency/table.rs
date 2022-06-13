@@ -63,16 +63,27 @@ impl Table {
         self.pager.delete_by_key(0, key);
     }
 
-    pub fn delete(row: &Row, rid: &mut RowID, transaction: Transaction) {
-        // Delete from Page
+    pub fn rollback_delete(&self, rid: &RowID) {
+        let mut page = self.pager.fetch_write_page_guard(rid.page_id).unwrap();
+        page.mark_row_as_undeleted(rid.slot_num);
+        self.pager.unpin_page_with_write_guard(page, true);
+    }
 
-        // Mark row as delete. We only apply delete after transaction is committed.
-        // But what happen to our B+ Tree if we mark something as delete?
-        // We don't merge until is committed.
-        //
-        // This mean that our pager need to support two kind of delete: soft delete and
-        // hard delete. On top of that, we also need to be able to rollback soft delete,
-        // when a transaction is aborted.
+    pub fn mark_delete(
+        &self,
+        row: &Row,
+        rid: &RowID,
+        transaction: &mut RwLockWriteGuard<Transaction>,
+    ) -> bool {
+        if let Ok(mut page) = self.pager.fetch_write_page_guard(rid.page_id) {
+            page.mark_row_as_deleted(rid.slot_num);
+            self.pager.unpin_page_with_write_guard(page, true);
+
+            transaction.push_write_set(WriteRecord::new(WriteRecordType::Delete, *rid, row.id));
+            true
+        } else {
+            false
+        }
     }
 
     pub fn update(row: &Row, rid: &mut RowID, transaction: Transaction) {
