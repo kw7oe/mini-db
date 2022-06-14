@@ -65,7 +65,8 @@ quick breakdown on what I'm going to implement next:
     - [ ] Optimize latch crabbing by holding read lock and only swap to write
       lock when there's a split/merge.
 - [ ] Implement concurrency control at row/tuple level. _([Reference][4])_
-  - [ ] Implement a transaction manager first.
+  - [x] Implement a transaction manager first.
+  - [ ] Implement a query executor?
   - [ ] Implement lock manager.
   - [ ] Implement dead lock detection.
   - [ ] Implement concurrent query execution.
