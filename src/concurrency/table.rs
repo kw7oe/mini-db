@@ -8,7 +8,7 @@ use crate::storage::Pager;
 use parking_lot::RwLockWriteGuard;
 use std::path::Path;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct RowID {
     page_id: usize,
     slot_num: usize,

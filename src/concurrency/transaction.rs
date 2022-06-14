@@ -1,4 +1,5 @@
 use super::table::RowID;
+use std::collections::HashSet;
 
 #[derive(Debug, PartialEq)]
 pub enum TransactionState {
@@ -40,7 +41,9 @@ pub struct Transaction {
     pub txn_id: u32,
     pub iso_level: IsolationLevel,
     pub state: TransactionState,
-    pub write_sets: Vec<WriteRecord>,
+    write_sets: Vec<WriteRecord>,
+    pub shared_lock_sets: HashSet<RowID>,
+    pub exclusive_lock_sets: HashSet<RowID>,
 }
 
 impl Transaction {
@@ -50,6 +53,8 @@ impl Transaction {
             iso_level,
             state: TransactionState::Growing,
             write_sets: Vec::new(),
+            shared_lock_sets: HashSet::new(),
+            exclusive_lock_sets: HashSet::new(),
         }
     }
 
