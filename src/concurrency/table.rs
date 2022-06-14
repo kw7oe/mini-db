@@ -48,9 +48,7 @@ impl Table {
     ) -> Option<RowID> {
         if let Ok((page_id, slot_num)) = self.pager.insert_row(0, row) {
             // The RID probably need to be added to the row
-            // as well?
-            //
-            // It's currently unused by row/tuple.
+            // as well? It's currently unused by row/tuple.
             let rid = RowID { page_id, slot_num };
             transaction.push_write_set(WriteRecord::new(WriteRecordType::Insert, rid, row.id));
             Some(rid)
@@ -69,7 +67,7 @@ impl Table {
         self.pager.unpin_page_with_write_guard(page, true);
     }
 
-    pub fn mark_delete(
+    pub fn delete(
         &self,
         row: &Row,
         rid: &RowID,

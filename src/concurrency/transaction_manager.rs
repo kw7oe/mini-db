@@ -74,8 +74,6 @@ impl TransactionManager {
             }
         }
 
-        // Rollback index changes
-
         // Release locks
     }
 
@@ -159,5 +157,54 @@ mod test {
             t.state == TransactionState::Aborted
         });
         assert!(transaction.is_some());
+    }
+
+    #[test]
+    fn delete_and_abort_transaction() {
+        let tm = TransactionManager::new();
+        let table = Table::new("tt.db", 4);
+        let row = Row::from_str("1 apple apple@apple.com").unwrap();
+        let rid = tm.execute(&table, IsolationLevel::ReadCommited, |transaction, _tm| {
+            let mut t = transaction.write();
+            table.insert(&row, &mut t).unwrap()
+        });
+
+        // Delete and abort
+        tm.execute(&table, IsolationLevel::ReadCommited, |transaction, tm| {
+            let mut t = transaction.write();
+            assert!(table.delete(&row, &rid, &mut t));
+            tm.abort(&table, &mut t);
+            assert_eq!(t.state, TransactionState::Aborted);
+        });
+
+        // We should have an aborted transaciton.
+        let map = tm.transaction_map.read();
+        let transaction = map.iter().find(|(_, t)| {
+            let t = t.read();
+            t.state == TransactionState::Aborted
+        });
+        assert!(transaction.is_some());
+        drop(map);
+
+        // Make sure row is still there
+        tm.execute(&table, IsolationLevel::ReadCommited, |transaction, _tm| {
+            let mut t = transaction.write();
+            let row = table.get(rid, &mut t);
+            assert!(row.is_some());
+
+            let row = row.unwrap();
+            assert!(!row.is_deleted);
+        });
+
+        // Finally delete and commit it
+        tm.execute(&table, IsolationLevel::ReadCommited, |transaction, _tm| {
+            let mut t = transaction.write();
+            assert!(table.delete(&row, &rid, &mut t));
+        });
+
+        tm.execute(&table, IsolationLevel::ReadCommited, |transaction, _tm| {
+            let mut t = transaction.write();
+            assert_eq!(table.get(rid, &mut t), None);
+        });
     }
 }
