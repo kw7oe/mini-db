@@ -38,9 +38,9 @@ impl LockManager {
         true
     }
 
-    pub fn unlock(&self, transaction: &mut RwLockWriteGuard<Transaction>, rid: RowID) -> bool {
-        transaction.shared_lock_sets.remove(&rid);
-        transaction.exclusive_lock_sets.remove(&rid);
+    pub fn unlock(&self, transaction: &mut Transaction, rid: &RowID) -> bool {
+        transaction.shared_lock_sets.remove(rid);
+        transaction.exclusive_lock_sets.remove(rid);
         true
     }
 }

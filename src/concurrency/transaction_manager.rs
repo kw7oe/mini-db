@@ -1,25 +1,27 @@
+use super::lock_manager::LockManager;
 use super::table::Table;
 use super::transaction::{IsolationLevel, Transaction, TransactionState, WriteRecordType};
 use parking_lot::RwLock;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{self, atomic::AtomicU32, Arc};
 
 pub struct TransactionManager {
     next_txn_id: AtomicU32,
     transaction_map: Arc<RwLock<HashMap<u32, Arc<RwLock<Transaction>>>>>,
+    lock_manager: LockManager,
 }
 
 // A couple of things we have potentially not implemented:
 //
 //   - Cleaning up `transaction_map`. Currently, aborted and committed transactions
 //     are not removed from the map yet.
-//   - Acquiring and releasing lock for concurrency control.
 //   - Handling update.
 impl TransactionManager {
     pub fn new() -> Self {
         Self {
             next_txn_id: AtomicU32::new(1),
             transaction_map: Arc::new(RwLock::new(HashMap::new())),
+            lock_manager: LockManager::new(),
         }
     }
 
@@ -57,21 +59,18 @@ impl TransactionManager {
     fn commit(&self, table: &Table, transaction: &mut Transaction) {
         transaction.set_state(TransactionState::Committed);
 
-        // Apply changes
         while let Some(wr) = transaction.pop_write_set() {
             if wr.wr_type == WriteRecordType::Delete {
-                // Delete record
                 table.apply_delete(wr.key);
             }
         }
 
-        // Release locks from lock manager I assumed
+        self.release_locks(transaction);
     }
 
     fn abort(&self, table: &Table, transaction: &mut Transaction) {
         transaction.set_state(TransactionState::Aborted);
 
-        // Rollback changes
         while let Some(wr) = transaction.pop_write_set() {
             match wr.wr_type {
                 WriteRecordType::Insert => table.apply_delete(wr.key),
@@ -80,7 +79,22 @@ impl TransactionManager {
             }
         }
 
-        // Release locks
+        self.release_locks(transaction);
+    }
+
+    fn release_locks(&self, transaction: &mut Transaction) {
+        let mut lock_sets = HashSet::new();
+        for rid in &transaction.shared_lock_sets {
+            lock_sets.insert(*rid);
+        }
+
+        for rid in &transaction.exclusive_lock_sets {
+            lock_sets.insert(*rid);
+        }
+
+        for rid in lock_sets {
+            self.lock_manager.unlock(transaction, &rid);
+        }
     }
 
     fn get_transaction(&self, txn_id: &u32) -> Arc<RwLock<Transaction>> {
