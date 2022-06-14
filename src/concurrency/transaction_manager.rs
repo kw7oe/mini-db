@@ -9,6 +9,12 @@ pub struct TransactionManager {
     transaction_map: Arc<RwLock<HashMap<u32, Arc<RwLock<Transaction>>>>>,
 }
 
+// A couple of things we have potentially not implemented:
+//
+//   - Cleaning up `transaction_map`. Currently, aborted and committed transactions
+//     are not removed from the map yet.
+//   - Acquiring and releasing lock for concurrency control.
+//   - Handling update.
 impl TransactionManager {
     pub fn new() -> Self {
         Self {
@@ -25,10 +31,10 @@ impl TransactionManager {
         let result = f(Arc::clone(&transaction), self);
 
         // We only automatically commit transactions that
-        // are not aborted.
+        // are not aborted or committed.
         let mut t = transaction.write();
-        if t.state != TransactionState::Aborted {
-            self.commit(&table, &mut t);
+        if t.state != TransactionState::Aborted && t.state != TransactionState::Committed {
+            self.commit(table, &mut t);
         }
 
         result
@@ -89,6 +95,14 @@ mod test {
     use crate::{concurrency::table::Table, row::Row};
     use std::str::FromStr;
 
+    fn setup_table() -> Table {
+        Table::new(format!("test-{:?}.db", std::thread::current().id()), 4)
+    }
+
+    fn cleanup_table() {
+        let _ = std::fs::remove_file(format!("test-{:?}.db", std::thread::current().id()));
+    }
+
     #[test]
     fn transaction_operations() {
         let tm = TransactionManager::new();
@@ -106,15 +120,17 @@ mod test {
         assert_eq!(tx.txn_id, 1);
         assert_eq!(tx.state, TransactionState::Growing);
 
-        let table = Table::new("tt.db", 4);
+        let table = setup_table();
         tm.commit(&table, &mut tx);
         assert_eq!(tx.state, TransactionState::Committed);
+
+        cleanup_table();
     }
 
     #[test]
     fn execute_transaction() {
         let tm = TransactionManager::new();
-        let table = Table::new("tt.db", 4);
+        let table = setup_table();
         let row = Row::from_str("1 apple apple@apple.com").unwrap();
         tm.execute(&table, IsolationLevel::ReadCommited, |transaction, _tm| {
             let mut t = transaction.write();
@@ -126,12 +142,14 @@ mod test {
 
             assert_eq!(row, inserted_row);
         });
+
+        cleanup_table();
     }
 
     #[test]
     fn abort_transaction() {
         let tm = TransactionManager::new();
-        let table = Table::new("tt.db", 4);
+        let table = setup_table();
         let row = Row::from_str("1 apple apple@apple.com").unwrap();
         let rid = tm.execute(&table, IsolationLevel::ReadCommited, |transaction, tm| {
             let mut t = transaction.write();
@@ -157,12 +175,14 @@ mod test {
             t.state == TransactionState::Aborted
         });
         assert!(transaction.is_some());
+
+        cleanup_table();
     }
 
     #[test]
     fn delete_and_abort_transaction() {
         let tm = TransactionManager::new();
-        let table = Table::new("tt.db", 4);
+        let table = setup_table();
         let row = Row::from_str("1 apple apple@apple.com").unwrap();
         let rid = tm.execute(&table, IsolationLevel::ReadCommited, |transaction, _tm| {
             let mut t = transaction.write();
@@ -206,5 +226,7 @@ mod test {
             let mut t = transaction.write();
             assert_eq!(table.get(rid, &mut t), None);
         });
+
+        cleanup_table();
     }
 }
