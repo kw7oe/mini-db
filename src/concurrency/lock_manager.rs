@@ -3,12 +3,13 @@ use super::transaction::{Transaction, TransactionState};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum LockMode {
     Shared,
     Exclusive,
 }
 
+#[derive(Debug)]
 pub struct LockRequest {
     txn_id: u32,
     mode: LockMode,
@@ -72,17 +73,16 @@ impl LockManager {
             // if the lock obtained in front is share.
             //
             // If it's exclusive, we block.
-            let prev_request = request_queue.front().unwrap();
-
-            if prev_request.mode == LockMode::Shared && prev_request.granted {
-                request.granted = true;
-            }
-
-            if !request.granted {
-                println!("block please...");
-                // We should block if is not granted.
-                //
-                // Someone will need to notify us when it's unlock.
+            for req in request_queue.iter() {
+                if req.mode == LockMode::Shared && req.granted {
+                    continue;
+                } else {
+                    println!("block please...");
+                    // We should block if is not granted.
+                    //
+                    // Someone will need to notify us when it's unlock.
+                    return false;
+                }
             }
 
             request_queue.push_back(request);
@@ -106,14 +106,24 @@ impl LockManager {
         }
 
         let mut lock_table = self.lock_table.lock().unwrap();
-        if let Some(request_queue) = lock_table.get(&rid) {
+        let mut request = LockRequest::new(transaction.txn_id, LockMode::Exclusive);
+
+        if let Some(request_queue) = lock_table.get_mut(&rid) {
             // We need to check if the we granted any shared lock.
             // If yes, blocked.
-            //
-            // Else, grant the lock.
-            false
+            if let Some(req) = request_queue.front() {
+                println!("block please...");
+                request_queue.push_back(request);
+                // We should block if is not granted.
+                //
+                // Someone will need to notify us when it's unlock.
+                false
+            } else {
+                request_queue.push_back(request);
+                transaction.shared_lock_sets.insert(rid);
+                true
+            }
         } else {
-            let mut request = LockRequest::new(transaction.txn_id, LockMode::Exclusive);
             request.granted = true;
 
             let mut queue = VecDeque::new();
@@ -178,8 +188,50 @@ mod test {
     use crate::concurrency::transaction;
 
     #[test]
+    fn multiple_locks() {
+        let lm = LockManager::new();
+
+        // RID 1: Grant two consecutive shared lock
+        let row_id = RowID::new(0, 0);
+        let mut transaction = Transaction::new(0, transaction::IsolationLevel::ReadCommited);
+        assert!(lm.lock_shared(&mut transaction, row_id));
+
+        let mut transaction = Transaction::new(1, transaction::IsolationLevel::ReadCommited);
+        assert!(lm.lock_shared(&mut transaction, row_id));
+
+        // RID 2: Grant a shared lock but block at execlusive lock
+        let row_id = RowID::new(0, 1);
+        let mut transaction = Transaction::new(2, transaction::IsolationLevel::ReadCommited);
+        assert!(lm.lock_shared(&mut transaction, row_id));
+
+        let mut transaction = Transaction::new(3, transaction::IsolationLevel::ReadCommited);
+        assert!(!lm.lock_exclusive(&mut transaction, row_id));
+
+        // RID 2: Block on shared locks as an exclusive lock is waiting.
+        let mut transaction = Transaction::new(4, transaction::IsolationLevel::ReadCommited);
+        assert!(!lm.lock_shared(&mut transaction, row_id));
+
+        let mut transaction = Transaction::new(5, transaction::IsolationLevel::ReadCommited);
+        assert!(!lm.lock_shared(&mut transaction, row_id));
+
+        // RID 3: Grant a exclusive lock but block at multiple share locks
+        let row_id = RowID::new(0, 2);
+        let mut transaction = Transaction::new(6, transaction::IsolationLevel::ReadCommited);
+        assert!(lm.lock_exclusive(&mut transaction, row_id));
+
+        let mut transaction = Transaction::new(7, transaction::IsolationLevel::ReadCommited);
+        assert!(!lm.lock_shared(&mut transaction, row_id));
+
+        let mut transaction = Transaction::new(8, transaction::IsolationLevel::ReadCommited);
+        assert!(!lm.lock_shared(&mut transaction, row_id));
+
+        let mut transaction = Transaction::new(9, transaction::IsolationLevel::ReadCommited);
+        assert!(!lm.lock_exclusive(&mut transaction, row_id));
+    }
+
+    #[test]
     fn lock_shared() {
-        let mut lm = LockManager::new();
+        let lm = LockManager::new();
         let mut transaction = Transaction::new(0, transaction::IsolationLevel::ReadCommited);
         let row_id = RowID::new(0, 0);
         assert!(lm.lock_shared(&mut transaction, row_id));
@@ -187,7 +239,7 @@ mod test {
 
     #[test]
     fn lock_exclusive() {
-        let mut lm = LockManager::new();
+        let lm = LockManager::new();
         let mut transaction = Transaction::new(0, transaction::IsolationLevel::ReadCommited);
         let row_id = RowID::new(0, 0);
         assert!(lm.lock_exclusive(&mut transaction, row_id));
@@ -195,7 +247,7 @@ mod test {
 
     #[test]
     fn lock_upgrade() {
-        let mut lm = LockManager::new();
+        let lm = LockManager::new();
         let mut transaction = Transaction::new(0, transaction::IsolationLevel::ReadCommited);
         let row_id = RowID::new(0, 0);
 
