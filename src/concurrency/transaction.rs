@@ -2,21 +2,6 @@ use super::table::RowID;
 use std::collections::HashSet;
 
 #[derive(Debug, PartialEq)]
-pub enum TransactionState {
-    Growing,
-    Sinking,
-    Committed,
-    Aborted,
-}
-
-#[derive(Debug)]
-pub enum IsolationLevel {
-    ReadUncommited,
-    ReadCommited,
-    RepeatableRead,
-}
-
-#[derive(Debug, PartialEq)]
 pub enum WriteRecordType {
     Insert,
     Delete,
@@ -34,6 +19,21 @@ impl WriteRecord {
     pub fn new(wr_type: WriteRecordType, rid: RowID, key: u32) -> Self {
         Self { wr_type, rid, key }
     }
+}
+
+#[derive(Debug)]
+pub enum IsolationLevel {
+    ReadUncommited,
+    ReadCommited,
+    RepeatableRead,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum TransactionState {
+    Growing,
+    Shrinking,
+    Committed,
+    Aborted,
 }
 
 #[derive(Debug)]
