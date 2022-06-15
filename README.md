@@ -1,8 +1,8 @@
-## Mini RDBMS in Rust
+## Mini DBMS in Rust
 
 [![Rust](https://github.com/kw7oe/sqlite-rust/actions/workflows/rust.yml/badge.svg)](https://github.com/kw7oe/sqlite-rust/actions/workflows/rust.yml)
 
-An attempt to write ~~SQLite~~ relational database management system (RDBMS) in Rust
+An attempt to write database management system (DBMS) in Rust
 to learn about database internals.
 
 We started by implementing it following the [Let's Build a Simple Database][0]
@@ -64,11 +64,12 @@ quick breakdown on what I'm going to implement next:
     - [x] Test concurrent insert + select + delete;
     - [ ] Optimize latch crabbing by holding read lock and only swap to write
       lock when there's a split/merge.
+    - [ ] Refactor tree operation out of `Pager`.
 - [ ] Implement concurrency control at row/tuple level. _([Reference][4])_
   - [x] Implement a transaction manager first.
-  - [ ] Implement a query executor?
   - [ ] Implement lock manager.
   - [ ] Implement dead lock detection.
+  - [ ] Implement a query executor?
   - [ ] Implement concurrent query execution.
 - [ ] Implement recovery mechanism for our database.
   - [ ] Implement WAL.
