@@ -1,6 +1,8 @@
 use super::table::RowID;
 use super::transaction::{Transaction, TransactionState};
+use parking_lot::Condvar;
 use std::collections::{HashMap, VecDeque};
+use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, PartialEq)]
@@ -16,6 +18,34 @@ pub struct LockRequest {
     granted: bool,
 }
 
+pub struct LockRequestQueue {
+    queue: VecDeque<LockRequest>,
+    condvar: Condvar,
+}
+
+impl LockRequestQueue {
+    pub fn new() -> Self {
+        Self {
+            queue: VecDeque::new(),
+            condvar: Condvar::new(),
+        }
+    }
+}
+
+impl Deref for LockRequestQueue {
+    type Target = VecDeque<LockRequest>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.queue
+    }
+}
+
+impl DerefMut for LockRequestQueue {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.queue
+    }
+}
+
 impl LockRequest {
     pub fn new(txn_id: u32, mode: LockMode) -> Self {
         Self {
@@ -27,7 +57,7 @@ impl LockRequest {
 }
 
 pub struct LockManager {
-    lock_table: Arc<Mutex<HashMap<RowID, VecDeque<LockRequest>>>>,
+    lock_table: Arc<Mutex<HashMap<RowID, LockRequestQueue>>>,
 }
 
 // The behaviour depends on the isolation level of the transaciton:
@@ -90,7 +120,7 @@ impl LockManager {
         } else {
             request.granted = true;
 
-            let mut queue = VecDeque::new();
+            let mut queue = LockRequestQueue::new();
             queue.push_back(request);
             lock_table.insert(rid, queue);
 
@@ -126,7 +156,7 @@ impl LockManager {
         } else {
             request.granted = true;
 
-            let mut queue = VecDeque::new();
+            let mut queue = LockRequestQueue::new();
             queue.push_back(request);
             lock_table.insert(rid, queue);
 
@@ -186,6 +216,36 @@ impl LockManager {
 mod test {
     use super::*;
     use crate::concurrency::transaction;
+    use std::{thread, time::Duration};
+
+    #[test]
+    fn lock_shared() {
+        let lm = LockManager::new();
+        let mut transaction = Transaction::new(0, transaction::IsolationLevel::ReadCommited);
+        let row_id = RowID::new(0, 0);
+        assert!(lm.lock_shared(&mut transaction, row_id));
+    }
+
+    #[test]
+    fn lock_exclusive() {
+        let lm = LockManager::new();
+        let mut transaction = Transaction::new(0, transaction::IsolationLevel::ReadCommited);
+        let row_id = RowID::new(0, 0);
+        assert!(lm.lock_exclusive(&mut transaction, row_id));
+    }
+
+    #[test]
+    fn lock_upgrade() {
+        let lm = LockManager::new();
+        let mut transaction = Transaction::new(0, transaction::IsolationLevel::ReadCommited);
+        let row_id = RowID::new(0, 0);
+
+        // False, if we have no shared lock yet.
+        assert!(!lm.lock_upgrade(&mut transaction, row_id));
+
+        assert!(lm.lock_shared(&mut transaction, row_id));
+        assert!(lm.lock_upgrade(&mut transaction, row_id));
+    }
 
     #[test]
     fn multiple_locks() {
@@ -230,31 +290,60 @@ mod test {
     }
 
     #[test]
-    fn lock_shared() {
-        let lm = LockManager::new();
-        let mut transaction = Transaction::new(0, transaction::IsolationLevel::ReadCommited);
+    fn concurrent_lock_and_unlock_shared_shared() {
+        let lock_manager = Arc::new(LockManager::new());
+
         let row_id = RowID::new(0, 0);
-        assert!(lm.lock_shared(&mut transaction, row_id));
+        let lm = Arc::clone(&lock_manager);
+        let handle = thread::spawn(move || {
+            let mut transaction = Transaction::new(0, transaction::IsolationLevel::ReadCommited);
+            assert!(lm.lock_shared(&mut transaction, row_id));
+
+            // Simulate some operation
+            thread::sleep(Duration::from_millis(250));
+            assert!(lm.unlock(&mut transaction, &row_id));
+        });
+
+        let lm = Arc::clone(&lock_manager);
+        let handle2 = thread::spawn(move || {
+            let mut transaction = Transaction::new(0, transaction::IsolationLevel::ReadCommited);
+            assert!(lm.lock_shared(&mut transaction, row_id));
+
+            // Simulate some operation
+            thread::sleep(Duration::from_millis(200));
+            assert!(lm.unlock(&mut transaction, &row_id));
+        });
+
+        handle.join().unwrap();
+        handle2.join().unwrap();
     }
 
     #[test]
-    fn lock_exclusive() {
-        let lm = LockManager::new();
-        let mut transaction = Transaction::new(0, transaction::IsolationLevel::ReadCommited);
+    fn concurrent_lock_and_unlock_shared_exclusive() {
+        let lock_manager = Arc::new(LockManager::new());
+
         let row_id = RowID::new(0, 0);
-        assert!(lm.lock_exclusive(&mut transaction, row_id));
-    }
+        let lm = Arc::clone(&lock_manager);
+        let handle = thread::spawn(move || {
+            let mut transaction = Transaction::new(0, transaction::IsolationLevel::ReadCommited);
+            assert!(lm.lock_shared(&mut transaction, row_id));
 
-    #[test]
-    fn lock_upgrade() {
-        let lm = LockManager::new();
-        let mut transaction = Transaction::new(0, transaction::IsolationLevel::ReadCommited);
-        let row_id = RowID::new(0, 0);
+            // Simulate some operation
+            thread::sleep(Duration::from_millis(250));
 
-        // False, if we have no shared lock yet.
-        assert!(!lm.lock_upgrade(&mut transaction, row_id));
+            assert!(lm.unlock(&mut transaction, &row_id));
+        });
 
-        assert!(lm.lock_shared(&mut transaction, row_id));
-        assert!(lm.lock_upgrade(&mut transaction, row_id));
+        // let lm = Arc::clone(&lock_manager);
+        // let handle2 = thread::spawn(move || {
+        //     let mut transaction = Transaction::new(0, transaction::IsolationLevel::ReadCommited);
+
+        //     // It should block until successful once shared lock is released.
+        //     assert!(lm.lock_exclusive(&mut transaction, row_id));
+        //     assert!(lm.unlock(&mut transaction, &row_id));
+        // });
+
+        // handle.join().unwrap();
+        // handle2.join().unwrap();
     }
 }
