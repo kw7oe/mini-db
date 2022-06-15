@@ -14,6 +14,12 @@ pub struct RowID {
     slot_num: usize,
 }
 
+impl RowID {
+    pub fn new(page_id: usize, slot_num: usize) -> Self {
+        Self { page_id, slot_num }
+    }
+}
+
 pub struct Table {
     root_page_num: usize,
     pager: Pager,

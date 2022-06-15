@@ -1,6 +1,5 @@
 use super::table::RowID;
 use super::transaction::{Transaction, TransactionState};
-use parking_lot::RwLockWriteGuard;
 use std::collections::{HashMap, VecDeque};
 
 pub enum LockMode {
@@ -35,11 +34,7 @@ impl LockManager {
         }
     }
 
-    pub fn lock_shared(
-        &mut self,
-        transaction: &mut RwLockWriteGuard<Transaction>,
-        rid: RowID,
-    ) -> bool {
+    pub fn lock_shared(&mut self, transaction: &mut Transaction, rid: RowID) -> bool {
         if transaction.state == TransactionState::Aborted {
             return false;
         }
@@ -63,11 +58,7 @@ impl LockManager {
         }
     }
 
-    pub fn lock_exclusive(
-        &mut self,
-        transaction: &mut RwLockWriteGuard<Transaction>,
-        rid: RowID,
-    ) -> bool {
+    pub fn lock_exclusive(&mut self, transaction: &mut Transaction, rid: RowID) -> bool {
         if transaction.state == TransactionState::Aborted {
             return false;
         }
@@ -91,11 +82,7 @@ impl LockManager {
         }
     }
 
-    pub fn lock_upgrade(
-        &mut self,
-        transaction: &mut RwLockWriteGuard<Transaction>,
-        rid: RowID,
-    ) -> bool {
+    pub fn lock_upgrade(&mut self, transaction: &mut Transaction, rid: RowID) -> bool {
         if transaction.state == TransactionState::Aborted {
             return false;
         }
@@ -118,11 +105,57 @@ impl LockManager {
     }
 
     pub fn unlock(&self, transaction: &mut Transaction, rid: &RowID) -> bool {
-        transaction.shared_lock_sets.remove(rid);
-        transaction.exclusive_lock_sets.remove(rid);
+        false
+        // We need interior mutability.
 
-        transaction.set_state(TransactionState::Shrinking);
+        // self.lock_table
+        //     .get_mut(&rid)
+        //     .map(|request_vec| {
+        //         // Find the index of the transaction
+        //         let index = request_vec
+        //             .iter()
+        //             .position(|r| r.txn_id == transaction.txn_id)
+        //             .unwrap();
+        //         request_vec.remove(index);
 
-        true
+        //         // Update transaction state
+        //         transaction.shared_lock_sets.remove(rid);
+        //         transaction.exclusive_lock_sets.remove(rid);
+        //         transaction.set_state(TransactionState::Shrinking);
+
+        //         true
+        //     })
+        //     .map_or(false, |v| v)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::concurrency::transaction;
+
+    #[test]
+    fn lock_shared() {
+        let mut lm = LockManager::new();
+        let mut transaction = Transaction::new(0, transaction::IsolationLevel::ReadCommited);
+        let row_id = RowID::new(0, 0);
+        assert!(lm.lock_shared(&mut transaction, row_id));
+    }
+
+    #[test]
+    fn lock_exclusive() {
+        let mut lm = LockManager::new();
+        let mut transaction = Transaction::new(0, transaction::IsolationLevel::ReadCommited);
+        let row_id = RowID::new(0, 0);
+        assert!(lm.lock_exclusive(&mut transaction, row_id));
+    }
+
+    #[test]
+    fn lock_upgrade() {
+        let mut lm = LockManager::new();
+        let mut transaction = Transaction::new(0, transaction::IsolationLevel::ReadCommited);
+        let row_id = RowID::new(0, 0);
+        assert!(lm.lock_shared(&mut transaction, row_id));
+        assert!(lm.lock_upgrade(&mut transaction, row_id));
     }
 }
