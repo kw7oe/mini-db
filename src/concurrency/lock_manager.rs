@@ -1,9 +1,9 @@
 use super::table::RowID;
 use super::transaction::{Transaction, TransactionState};
-use parking_lot::Condvar;
+use parking_lot::{Condvar, Mutex, RwLock, RwLockUpgradableReadGuard};
 use std::collections::{HashMap, VecDeque};
 use std::ops::{Deref, DerefMut};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 #[derive(Debug, PartialEq)]
 pub enum LockMode {
@@ -21,16 +21,12 @@ pub struct LockRequest {
 #[derive(Debug)]
 pub struct LockRequestQueue {
     queue: VecDeque<LockRequest>,
-    condvar: Condvar,
-    is_blocking: parking_lot::Mutex<bool>,
 }
 
 impl LockRequestQueue {
     pub fn new() -> Self {
         Self {
             queue: VecDeque::new(),
-            condvar: Condvar::new(),
-            is_blocking: parking_lot::Mutex::new(false),
         }
     }
 }
@@ -60,7 +56,7 @@ impl LockRequest {
 }
 
 pub struct LockManager {
-    lock_table: Arc<Mutex<HashMap<RowID, LockRequestQueue>>>,
+    lock_table: Arc<RwLock<HashMap<RowID, Arc<(Mutex<LockRequestQueue>, Condvar)>>>>,
 }
 
 // The behaviour depends on the isolation level of the transaciton:
@@ -80,7 +76,7 @@ pub struct LockManager {
 impl LockManager {
     pub fn new() -> Self {
         LockManager {
-            lock_table: Arc::new(Mutex::new(HashMap::new())),
+            lock_table: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -89,14 +85,14 @@ impl LockManager {
             return false;
         }
 
-        let mut lock_table = self.lock_table.lock().unwrap();
+        let lock_table = self.lock_table.upgradable_read();
         let mut request = LockRequest::new(transaction.txn_id, LockMode::Shared);
 
         // To prevent starvation, we can only grant the lock if and only if:
         //
         // - There is no other transaction holding a lock that conflict with us.
         // - There is not other transaction that is waiting for lock before us.
-        if let Some(request_queue) = lock_table.get_mut(&rid) {
+        if let Some(inner) = lock_table.get(&rid) {
             // If we have a request, check if it's shared or exclusive.
             //
             // If it's shared, we need to make sure that there's no other transaction in
@@ -106,30 +102,39 @@ impl LockManager {
             // if the lock obtained in front is share.
             //
             // If it's exclusive, we block.
+
+            let (request_queue, condvar) = &*inner.clone();
+            let mut request_queue = request_queue.lock();
+            let mut should_block = false;
             for req in request_queue.iter() {
                 if req.mode == LockMode::Shared && req.granted {
                     continue;
                 } else {
                     println!("block please...");
-                    let mut guard = request_queue.is_blocking.lock();
-                    request_queue.condvar.wait(&mut guard);
 
                     println!("unblock!");
                     // We should block if is not granted.
                     //
                     // Someone will need to notify us when it's unlock.
+                    should_block = true;
+                    break;
                 }
             }
 
-            println!("{:?}", request_queue);
-            request_queue.push_back(request);
-            transaction.shared_lock_sets.insert(rid);
+            if should_block {
+                condvar.wait(&mut request_queue);
+            } else {
+                println!("{:?}", request_queue);
+                request_queue.push_back(request);
+                transaction.shared_lock_sets.insert(rid);
+            }
         } else {
             request.granted = true;
 
             let mut queue = LockRequestQueue::new();
             queue.push_back(request);
-            lock_table.insert(rid, queue);
+            let mut lock_table = RwLockUpgradableReadGuard::upgrade(lock_table);
+            lock_table.insert(rid, Arc::new((Mutex::new(queue), Condvar::new())));
 
             transaction.shared_lock_sets.insert(rid);
         };
@@ -142,22 +147,24 @@ impl LockManager {
             return false;
         }
 
-        let mut lock_table = self.lock_table.lock().unwrap();
+        let lock_table = self.lock_table.upgradable_read();
         let mut request = LockRequest::new(transaction.txn_id, LockMode::Exclusive);
 
-        if let Some(request_queue) = lock_table.get_mut(&rid) {
+        if let Some(inner) = lock_table.get(&rid) {
             // We need to check if the we granted any shared lock.
             // If yes, blocked.
+            let (request_queue, condvar) = &*inner.clone();
+            let mut request_queue = request_queue.lock();
             if let Some(req) = request_queue.front() {
                 println!("block please...");
                 let index = request_queue.len();
                 request_queue.push_back(request);
+                condvar.wait(&mut request_queue);
 
-                let mut guard = request_queue.is_blocking.lock();
-                request_queue.condvar.wait(&mut guard);
-                drop(guard);
+                // drop(guard);
                 println!("unblock");
-                let request = request_queue.get_mut(index).unwrap();
+                println!("{:?}", request_queue);
+                let request = request_queue.iter_mut().last().unwrap();
 
                 request.granted = true;
                 transaction.shared_lock_sets.insert(rid);
@@ -173,7 +180,9 @@ impl LockManager {
 
             let mut queue = LockRequestQueue::new();
             queue.push_back(request);
-            lock_table.insert(rid, queue);
+
+            let mut lock_table = RwLockUpgradableReadGuard::upgrade(lock_table);
+            lock_table.insert(rid, Arc::new((Mutex::new(queue), Condvar::new())));
 
             transaction.shared_lock_sets.insert(rid);
             true
@@ -185,12 +194,14 @@ impl LockManager {
             return false;
         }
 
-        let mut lock_table = self.lock_table.lock().unwrap();
+        let lock_table = self.lock_table.read();
         // Upgrade the lock request owned by transaction to Exclusive mode
         lock_table
-            .get_mut(&rid)
-            .map(|request_vec| {
-                request_vec
+            .get(&rid)
+            .map(|inner| {
+                let (request_queue, _cond_var) = &*inner.clone();
+                let mut request_queue = request_queue.lock();
+                request_queue
                     .iter_mut()
                     .find(|r| r.txn_id == transaction.txn_id)
                     .map_or(false, |r| {
@@ -204,18 +215,21 @@ impl LockManager {
     }
 
     pub fn unlock(&self, transaction: &mut Transaction, rid: &RowID) -> bool {
-        let mut lock_table = self.lock_table.lock().unwrap();
+        let lock_table = self.lock_table.read();
 
         lock_table
-            .get_mut(rid)
-            .map(|request_vec| {
+            .get(rid)
+            .map(|inner| {
+                let (request_queue, condvar) = &*inner.clone();
+                let mut request_queue = request_queue.lock();
+
                 // Find the index of the transaction
-                let index = request_vec
+                let index = request_queue
                     .iter()
                     .position(|r| r.txn_id == transaction.txn_id)
                     .unwrap();
-                request_vec.remove(index);
-                request_vec.condvar.notify_one();
+                request_queue.remove(index);
+                condvar.notify_one();
 
                 // Update transaction state
                 transaction.shared_lock_sets.remove(rid);
