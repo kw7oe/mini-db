@@ -18,9 +18,11 @@ pub struct LockRequest {
     granted: bool,
 }
 
+#[derive(Debug)]
 pub struct LockRequestQueue {
     queue: VecDeque<LockRequest>,
     condvar: Condvar,
+    is_blocking: parking_lot::Mutex<bool>,
 }
 
 impl LockRequestQueue {
@@ -28,6 +30,7 @@ impl LockRequestQueue {
         Self {
             queue: VecDeque::new(),
             condvar: Condvar::new(),
+            is_blocking: parking_lot::Mutex::new(false),
         }
     }
 }
@@ -108,13 +111,17 @@ impl LockManager {
                     continue;
                 } else {
                     println!("block please...");
+                    let mut guard = request_queue.is_blocking.lock();
+                    request_queue.condvar.wait(&mut guard);
+
+                    println!("unblock!");
                     // We should block if is not granted.
                     //
                     // Someone will need to notify us when it's unlock.
-                    return false;
                 }
             }
 
+            println!("{:?}", request_queue);
             request_queue.push_back(request);
             transaction.shared_lock_sets.insert(rid);
         } else {
@@ -143,12 +150,20 @@ impl LockManager {
             // If yes, blocked.
             if let Some(req) = request_queue.front() {
                 println!("block please...");
+                let index = request_queue.len();
                 request_queue.push_back(request);
-                // We should block if is not granted.
-                //
-                // Someone will need to notify us when it's unlock.
-                false
+
+                let mut guard = request_queue.is_blocking.lock();
+                request_queue.condvar.wait(&mut guard);
+                drop(guard);
+                println!("unblock");
+                let request = request_queue.get_mut(index).unwrap();
+
+                request.granted = true;
+                transaction.shared_lock_sets.insert(rid);
+                true
             } else {
+                request.granted = true;
                 request_queue.push_back(request);
                 transaction.shared_lock_sets.insert(rid);
                 true
@@ -200,6 +215,7 @@ impl LockManager {
                     .position(|r| r.txn_id == transaction.txn_id)
                     .unwrap();
                 request_vec.remove(index);
+                request_vec.condvar.notify_one();
 
                 // Update transaction state
                 transaction.shared_lock_sets.remove(rid);
@@ -248,6 +264,8 @@ mod test {
     }
 
     #[test]
+    #[ignore]
+    // Test case if we return false when is blocked
     fn multiple_locks() {
         let lm = LockManager::new();
 
@@ -332,18 +350,19 @@ mod test {
             thread::sleep(Duration::from_millis(250));
 
             assert!(lm.unlock(&mut transaction, &row_id));
+            println!("unlock");
         });
 
-        // let lm = Arc::clone(&lock_manager);
-        // let handle2 = thread::spawn(move || {
-        //     let mut transaction = Transaction::new(0, transaction::IsolationLevel::ReadCommited);
+        let lm = Arc::clone(&lock_manager);
+        let handle2 = thread::spawn(move || {
+            let mut transaction = Transaction::new(0, transaction::IsolationLevel::ReadCommited);
 
-        //     // It should block until successful once shared lock is released.
-        //     assert!(lm.lock_exclusive(&mut transaction, row_id));
-        //     assert!(lm.unlock(&mut transaction, &row_id));
-        // });
+            // It should block until successful once shared lock is released.
+            assert!(lm.lock_exclusive(&mut transaction, row_id));
+            assert!(lm.unlock(&mut transaction, &row_id));
+        });
 
-        // handle.join().unwrap();
-        // handle2.join().unwrap();
+        handle.join().unwrap();
+        handle2.join().unwrap();
     }
 }
