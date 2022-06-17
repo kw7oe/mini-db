@@ -705,6 +705,24 @@ impl Pager {
         }
     }
 
+    pub fn search(&self, root_page_num: usize, key: u32) -> Option<(usize, usize)> {
+        self.search_and_then(
+            vec![],
+            root_page_num,
+            key,
+            Operation::Insert,
+            |cursor, parent_page_guards, mut page| {
+                if cursor.key_existed {
+                    return None;
+                };
+
+                let node = page.node.as_ref().unwrap();
+                let num_of_cells = node.num_of_cells as usize;
+                Some((cursor.page_num, cursor.cell_num))
+            },
+        )
+    }
+
     pub fn insert_row(&self, root_page_num: usize, row: &Row) -> Result<(usize, usize), String> {
         self.search_and_then(
             vec![],

@@ -38,6 +38,14 @@ impl Table {
         }
     }
 
+    pub fn index_scan(&self, key: u32, transaction: &mut Transaction) -> Option<RowID> {
+        self.pager.search(0, key).map(|(page_id, slot_num)| {
+            let row_id = RowID::new(page_id, slot_num);
+            self.lock_manager.lock_shared(transaction, row_id);
+            row_id
+        })
+    }
+
     pub fn get(&self, rid: RowID, transaction: &mut RwLockWriteGuard<Transaction>) -> Option<Row> {
         if let Ok(page) = self.pager.fetch_read_page_guard(rid.page_id) {
             page.get_row(rid.slot_num)
