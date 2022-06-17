@@ -18,6 +18,8 @@ pub struct LockRequest {
     granted: bool,
 }
 
+// Actually this is a bit unncessary but
+// let it be this way first...
 #[derive(Debug)]
 pub struct LockRequestQueue {
     queue: VecDeque<LockRequest>,
@@ -181,7 +183,11 @@ impl LockManager {
         }
 
         let lock_table = self.lock_table.read();
+
         // Upgrade the lock request owned by transaction to Exclusive mode
+        //
+        // TODO: We need to check if any request infront is actually waiting for the exclusive lock
+        // before we upgrade it to exlusive lock. This is to prevent starvation.
         lock_table
             .get(&rid)
             .map(|inner| {
