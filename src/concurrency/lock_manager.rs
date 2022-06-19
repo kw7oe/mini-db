@@ -4,8 +4,9 @@ use parking_lot::{Condvar, Mutex, RwLock, RwLockUpgradableReadGuard};
 use std::collections::{HashMap, VecDeque};
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
+use tracing::trace;
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum LockMode {
     Shared,
     Exclusive,
@@ -83,6 +84,7 @@ impl LockManager {
     }
 
     pub fn lock_shared(&self, transaction: &mut Transaction, rid: RowID) -> bool {
+        trace!("lock_shared");
         if transaction.state == TransactionState::Aborted {
             return false;
         }
@@ -96,6 +98,8 @@ impl LockManager {
         // - There is not other transaction that is waiting for lock before us.
         if let Some(inner) = lock_table.get(&rid) {
             let (request_queue, condvar) = &*inner.clone();
+            drop(lock_table);
+
             let mut request_queue = request_queue.lock();
             let mut should_block = false;
 
@@ -116,6 +120,7 @@ impl LockManager {
             }
 
             if should_block {
+                trace!("lock_shared: waiting for lock");
                 condvar.wait(&mut request_queue);
             }
 
@@ -126,8 +131,10 @@ impl LockManager {
 
             let mut queue = LockRequestQueue::new();
             queue.push_back(request);
+
             let mut lock_table = RwLockUpgradableReadGuard::upgrade(lock_table);
             lock_table.insert(rid, Arc::new((Mutex::new(queue), Condvar::new())));
+            drop(lock_table);
 
             transaction.shared_lock_sets.insert(rid);
         };
@@ -136,6 +143,7 @@ impl LockManager {
     }
 
     pub fn lock_exclusive(&self, transaction: &mut Transaction, rid: RowID) -> bool {
+        trace!("lock_exclusive");
         if transaction.state == TransactionState::Aborted {
             return false;
         }
@@ -144,23 +152,29 @@ impl LockManager {
         let mut request = LockRequest::new(transaction.txn_id, LockMode::Exclusive);
 
         if let Some(inner) = lock_table.get(&rid) {
-            // We need to check if the we granted any shared lock.
-            // If yes, blocked.
             let (request_queue, condvar) = &*inner.clone();
+            drop(lock_table);
+
             let mut request_queue = request_queue.lock();
             if request_queue.front().is_some() {
                 request_queue.push_back(request);
                 condvar.wait(&mut request_queue);
 
                 // Awake, and get lock
-                let request = request_queue.iter_mut().last().unwrap();
+                let request = request_queue
+                    .iter_mut()
+                    .find(|r| r.txn_id == transaction.txn_id)
+                    .unwrap();
+                assert_eq!(request.txn_id, transaction.txn_id);
                 request.granted = true;
                 transaction.exclusive_lock_sets.insert(rid);
+                trace!("lock_exclusive end");
                 true
             } else {
                 request.granted = true;
                 request_queue.push_back(request);
                 transaction.exclusive_lock_sets.insert(rid);
+                trace!("lock_exclusive end");
                 true
             }
         } else {
@@ -168,11 +182,12 @@ impl LockManager {
 
             let mut queue = LockRequestQueue::new();
             queue.push_back(request);
-
             let mut lock_table = RwLockUpgradableReadGuard::upgrade(lock_table);
             lock_table.insert(rid, Arc::new((Mutex::new(queue), Condvar::new())));
+            drop(lock_table);
 
             transaction.exclusive_lock_sets.insert(rid);
+            trace!("lock_exclusive end");
             true
         }
     }
@@ -207,30 +222,32 @@ impl LockManager {
     }
 
     pub fn unlock(&self, transaction: &mut Transaction, rid: &RowID) -> bool {
+        trace!("unlock");
         let lock_table = self.lock_table.read();
 
-        lock_table
-            .get(rid)
-            .map(|inner| {
-                let (request_queue, condvar) = &*inner.clone();
-                let mut request_queue = request_queue.lock();
+        if let Some(inner) = lock_table.get(rid) {
+            let (request_queue, condvar) = &*inner.clone();
+            drop(lock_table);
+            let mut request_queue = request_queue.lock();
 
-                // Find the index of the transaction
-                let index = request_queue
-                    .iter()
-                    .position(|r| r.txn_id == transaction.txn_id)
-                    .unwrap();
-                request_queue.remove(index);
-                condvar.notify_one();
+            // Find the index of the transaction
+            let index = request_queue
+                .iter()
+                .position(|r| r.txn_id == transaction.txn_id)
+                .unwrap();
+            request_queue.remove(index);
+            trace!("queue updated: {request_queue:?}");
+            condvar.notify_one();
 
-                // Update transaction state
-                transaction.shared_lock_sets.remove(rid);
-                transaction.exclusive_lock_sets.remove(rid);
-                transaction.set_state(TransactionState::Shrinking);
+            // Update transaction state
+            transaction.shared_lock_sets.remove(rid);
+            transaction.exclusive_lock_sets.remove(rid);
+            transaction.set_state(TransactionState::Shrinking);
 
-                true
-            })
-            .map_or(false, |v| v)
+            true
+        } else {
+            false
+        }
     }
 }
 
@@ -238,7 +255,7 @@ impl LockManager {
 mod test {
     use super::*;
     use crate::concurrency::transaction;
-    use std::{thread, time::Duration};
+    use std::{thread, thread::JoinHandle, time::Duration};
 
     #[test]
     fn lock_shared() {
@@ -288,73 +305,96 @@ mod test {
 
     #[test]
     fn concurrent_lock_sha_sha_sha() {
+        let _ = tracing_subscriber::fmt().try_init();
+
         let lock_manager = Arc::new(LockManager::new());
         let sequences = vec![LockMode::Shared, LockMode::Shared, LockMode::Shared];
-        test_lock_with_sequences(&lock_manager, sequences);
+
+        for i in 0..10 {
+            tracing::info!("test lock with sequences {i}...");
+            test_lock_with_sequences(&lock_manager, sequences.clone());
+        }
     }
 
     #[test]
     fn concurrent_lock_ex_ex_ex() {
+        let _ = tracing_subscriber::fmt().try_init();
+
         let lock_manager = Arc::new(LockManager::new());
         let sequences = vec![
             LockMode::Exclusive,
             LockMode::Exclusive,
             LockMode::Exclusive,
         ];
-        test_lock_with_sequences(&lock_manager, sequences);
+
+        for i in 0..10 {
+            tracing::info!("test lock with sequences {i}...");
+            test_lock_with_sequences(&lock_manager, sequences.clone());
+        }
     }
 
     #[test]
     fn concurrent_lock_sha_sha_ex_sha() {
+        let _ = tracing_subscriber::fmt().try_init();
+
         let lock_manager = Arc::new(LockManager::new());
         let sequences = vec![
             LockMode::Exclusive,
             LockMode::Shared,
             LockMode::Shared,
             LockMode::Exclusive,
+            LockMode::Exclusive,
             LockMode::Shared,
             LockMode::Shared,
             LockMode::Exclusive,
         ];
 
-        test_lock_with_sequences(&lock_manager, sequences);
+        for i in 0..10 {
+            tracing::info!("test lock with sequences {i}...");
+            test_lock_with_sequences(&lock_manager, sequences.clone());
+        }
     }
 
     fn test_lock_with_sequences(lock_manager: &Arc<LockManager>, sequences: Vec<LockMode>) {
         let row_id = RowID::new(0, 0);
-        let handles = sequences.into_iter().enumerate().map(|(i, mode)| {
-            let lm = Arc::clone(lock_manager);
-            thread::spawn(move || {
-                let mut transaction =
-                    Transaction::new(i as u32, transaction::IsolationLevel::ReadCommited);
+        let handles: Vec<JoinHandle<_>> = sequences
+            .into_iter()
+            .enumerate()
+            .map(|(i, mode)| {
+                let lm = Arc::clone(lock_manager);
+                thread::spawn(move || {
+                    trace!("spawn {:?}", mode);
+                    let mut transaction =
+                        Transaction::new(i as u32, transaction::IsolationLevel::ReadCommited);
 
-                // It should block until successful once shared lock is released.
-                match mode {
-                    LockMode::Shared => {
-                        assert!(lm.lock_shared(&mut transaction, row_id));
-                        assert!(transaction.shared_lock_sets.contains(&row_id));
+                    // It should block until successful once shared lock is released.
+                    match mode {
+                        LockMode::Shared => {
+                            assert!(lm.lock_shared(&mut transaction, row_id));
+                            assert!(transaction.shared_lock_sets.contains(&row_id));
+                        }
+                        LockMode::Exclusive => {
+                            assert!(lm.lock_exclusive(&mut transaction, row_id));
+                            assert!(transaction.exclusive_lock_sets.contains(&row_id));
+                        }
                     }
-                    LockMode::Exclusive => {
-                        assert!(lm.lock_exclusive(&mut transaction, row_id));
-                        assert!(transaction.exclusive_lock_sets.contains(&row_id));
-                    }
-                }
 
-                // Simulate some operation
-                thread::sleep(Duration::from_millis(250));
+                    // Simulate some operation
+                    thread::sleep(Duration::from_millis(50));
 
-                assert!(lm.unlock(&mut transaction, &row_id));
+                    assert!(lm.unlock(&mut transaction, &row_id));
 
-                match mode {
-                    LockMode::Shared => {
-                        assert!(transaction.shared_lock_sets.is_empty());
+                    match mode {
+                        LockMode::Shared => {
+                            assert!(transaction.shared_lock_sets.is_empty());
+                        }
+                        LockMode::Exclusive => {
+                            assert!(transaction.exclusive_lock_sets.is_empty());
+                        }
                     }
-                    LockMode::Exclusive => {
-                        assert!(transaction.exclusive_lock_sets.is_empty());
-                    }
-                }
+                })
             })
-        });
+            .collect();
 
         for handle in handles {
             handle.join().unwrap();
