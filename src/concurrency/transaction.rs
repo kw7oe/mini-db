@@ -69,4 +69,12 @@ impl Transaction {
     pub fn pop_write_set(&mut self) -> Option<WriteRecord> {
         self.write_sets.pop()
     }
+
+    pub fn is_shared_lock(&self, rid: &RowID) -> bool {
+        self.shared_lock_sets.contains(rid)
+    }
+
+    pub fn is_exclusive_lock(&self, rid: &RowID) -> bool {
+        self.exclusive_lock_sets.contains(rid)
+    }
 }
