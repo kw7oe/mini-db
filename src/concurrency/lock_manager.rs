@@ -124,6 +124,7 @@ impl LockManager {
                 condvar.wait(&mut request_queue);
             }
 
+            request.granted = true;
             request_queue.push_back(request);
             transaction.shared_lock_sets.insert(rid);
         } else {
@@ -193,6 +194,7 @@ impl LockManager {
     }
 
     pub fn lock_upgrade(&self, transaction: &mut Transaction, rid: RowID) -> bool {
+        trace!("lock_upgrade");
         if transaction.state == TransactionState::Aborted {
             return false;
         }
@@ -200,25 +202,36 @@ impl LockManager {
         let lock_table = self.lock_table.read();
 
         // Upgrade the lock request owned by transaction to Exclusive mode
-        //
-        // TODO: We need to check if any request infront is actually waiting for the exclusive lock
-        // before we upgrade it to exlusive lock. This is to prevent starvation.
-        lock_table
-            .get(&rid)
-            .map(|inner| {
-                let (request_queue, _cond_var) = &*inner.clone();
-                let mut request_queue = request_queue.lock();
-                request_queue
-                    .iter_mut()
-                    .find(|r| r.txn_id == transaction.txn_id)
-                    .map_or(false, |r| {
-                        r.mode = LockMode::Exclusive;
-                        transaction.shared_lock_sets.remove(&rid);
-                        transaction.exclusive_lock_sets.insert(rid);
-                        true
-                    })
-            })
-            .map_or(false, |v| v)
+        if let Some(inner) = lock_table.get(&rid) {
+            let (request_queue, condvar) = &*inner.clone();
+            let mut request_queue = request_queue.lock();
+
+            while request_queue
+                .iter()
+                .any(|r| r.txn_id != transaction.txn_id && r.granted)
+            {
+                condvar.wait(&mut request_queue)
+            }
+
+            assert!(!request_queue
+                .iter()
+                .any(|r| r.txn_id != transaction.txn_id && r.granted));
+
+            let result = request_queue
+                .iter_mut()
+                .find(|r| r.txn_id == transaction.txn_id)
+                .map_or(false, |r| {
+                    assert!(r.granted);
+                    r.mode = LockMode::Exclusive;
+                    transaction.shared_lock_sets.remove(&rid);
+                    transaction.exclusive_lock_sets.insert(rid);
+                    true
+                });
+
+            result
+        } else {
+            false
+        }
     }
 
     pub fn unlock(&self, transaction: &mut Transaction, rid: &RowID) -> bool {
@@ -236,7 +249,6 @@ impl LockManager {
                 .position(|r| r.txn_id == transaction.txn_id)
                 .unwrap();
             request_queue.remove(index);
-            trace!("queue updated: {request_queue:?}");
             condvar.notify_one();
 
             // Update transaction state
@@ -395,6 +407,54 @@ mod test {
                 })
             })
             .collect();
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn concurrent_lock_upgrade() {
+        tracing_subscriber::fmt()
+            .with_thread_ids(true)
+            .with_max_level(tracing::Level::TRACE)
+            .init();
+
+        let lock_manager = Arc::new(LockManager::new());
+
+        let row_id = RowID::new(0, 0);
+        let mut handles = Vec::new();
+
+        for i in 1..5 {
+            let lm = Arc::clone(&lock_manager);
+            let handle = thread::spawn(move || {
+                let mut transaction =
+                    Transaction::new(i, transaction::IsolationLevel::ReadCommited);
+                assert!(lm.lock_shared(&mut transaction, row_id));
+                thread::sleep(Duration::from_millis(550));
+                assert!(lm.unlock(&mut transaction, &row_id));
+            });
+            handles.push(handle);
+        }
+
+        let lm = Arc::clone(&lock_manager);
+        let handle = thread::spawn(move || {
+            // Sleep so that the thread above get executed first...
+            thread::sleep(Duration::from_millis(50));
+
+            let mut transaction = Transaction::new(0, transaction::IsolationLevel::ReadCommited);
+            assert!(lm.lock_shared(&mut transaction, row_id));
+
+            assert!(lm.lock_upgrade(&mut transaction, row_id));
+            assert!(transaction.shared_lock_sets.is_empty());
+            assert!(transaction.exclusive_lock_sets.contains(&row_id));
+
+            // Simulate some operation
+            thread::sleep(Duration::from_millis(450));
+
+            assert!(lm.unlock(&mut transaction, &row_id));
+        });
+        handles.push(handle);
 
         for handle in handles {
             handle.join().unwrap();
