@@ -119,6 +119,16 @@ impl LockManager {
                 }
             }
 
+            // Not really sure if it is correct... Let say we have a queue of:
+            //
+            // [T1(e, t), T2(e, f), Tcurrent(s, f)]
+            //
+            // where, T1 is holding exclusive lock, T2 is waiting for exlcusive lock
+            // and current T is waiting for shared lock.
+            //
+            // This implementation possibly allow Tcurrent to acquire the shared lock once T1
+            // called condvar.notify_one(), which ideally we want T2 to be the one who acquire
+            // the shared lock first.
             if should_block {
                 trace!("lock_shared: waiting for lock");
                 condvar.wait(&mut request_queue);
@@ -157,6 +167,18 @@ impl LockManager {
             drop(lock_table);
 
             let mut request_queue = request_queue.lock();
+
+            // This isn't quite right as well. Let say we have a queue of:
+            //
+            // [T1(s, t), T2(s, t), Tcurrent(e, f)]
+            //
+            // where, T1 and T2 is holding shared lock and current T is waiting for
+            // exclusive lock.
+            //
+            // This implementation possibly allow current T to acquire the exclusive lock once T1
+            // called condvar.notify_one(). However, this isn't correct since T2 is still holding
+            // the shared lock, and current T shouldn't be able to acquire the lock until
+            // any T is not holding a lock.
             if request_queue.front().is_some() {
                 request_queue.push_back(request);
                 condvar.wait(&mut request_queue);
@@ -317,7 +339,7 @@ mod test {
 
     #[test]
     fn concurrent_lock_sha_sha_sha() {
-        let _ = tracing_subscriber::fmt().try_init();
+        // let _ = tracing_subscriber::fmt().try_init();
 
         let lock_manager = Arc::new(LockManager::new());
         let sequences = vec![LockMode::Shared, LockMode::Shared, LockMode::Shared];
@@ -330,7 +352,7 @@ mod test {
 
     #[test]
     fn concurrent_lock_ex_ex_ex() {
-        let _ = tracing_subscriber::fmt().try_init();
+        // let _ = tracing_subscriber::fmt().try_init();
 
         let lock_manager = Arc::new(LockManager::new());
         let sequences = vec![
@@ -347,7 +369,7 @@ mod test {
 
     #[test]
     fn concurrent_lock_sha_sha_ex_sha() {
-        let _ = tracing_subscriber::fmt().try_init();
+        // let _ = tracing_subscriber::fmt().try_init();
 
         let lock_manager = Arc::new(LockManager::new());
         let sequences = vec![
@@ -415,10 +437,10 @@ mod test {
 
     #[test]
     fn concurrent_lock_upgrade() {
-        tracing_subscriber::fmt()
-            .with_thread_ids(true)
-            .with_max_level(tracing::Level::TRACE)
-            .init();
+        // tracing_subscriber::fmt()
+        //     .with_thread_ids(true)
+        //     .with_max_level(tracing::Level::TRACE)
+        //     .init();
 
         let lock_manager = Arc::new(LockManager::new());
 
