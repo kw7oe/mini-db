@@ -67,7 +67,15 @@ quick breakdown on what I'm going to implement next:
     - [ ] Refactor tree operation out of `Pager`.
 - [ ] Implement concurrency control at row/tuple level. _([Reference][4])_
   - [x] Implement a transaction manager first.
-  - [ ] Implement lock manager.
+  - [x] Implement lock manager.
+    - It currently doesn't support different locking behaviour based on
+      different isolation levels.
+    - While is completed, I can't really guarantee the correctness of the
+      implementation for the time being. See the comments in code for more.
+    - Testing for read and write anomolies are not included yet. This will
+    require implementation of update operation and integration of lock manager
+    into the query/table code, which is what I plan to do next.
+  - [ ] Implement dead lock prevention. (Wound Wait algorithm)
   - [ ] Implement dead lock detection.
   - [ ] Implement a query executor?
   - [ ] Implement concurrent query execution.
