@@ -270,6 +270,9 @@ impl LockManager {
                 condvar.wait(&mut request_queue)
             }
 
+            // Adding assert to make sure it behaves correctly as I'm
+            // unsure how to really simulate the scenario that might break
+            // this.
             assert!(!request_queue
                 .iter()
                 .any(|r| r.txn_id != transaction.txn_id && r.granted));
