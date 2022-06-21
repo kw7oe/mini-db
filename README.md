@@ -75,10 +75,11 @@ quick breakdown on what I'm going to implement next:
     - Testing for read and write anomolies are not included yet. This will
     require implementation of update operation and integration of lock manager
     into the query/table code, which is what I plan to do next.
-  - [ ] Implement dead lock prevention. (Wound Wait algorithm)
-  - [ ] Implement dead lock detection.
   - [ ] Implement a query executor?
   - [ ] Implement concurrent query execution.
+  - [ ] Implement dead lock prevention. (Wound Wait algorithm)
+    _([Reference](https://15445.courses.cs.cmu.edu/fall2021/project4/#deadlock_prevention))_
+  - [ ] Implement dead lock detection.
 - [ ] Implement recovery mechanism for our database.
   - [ ] Implement WAL.
   - [ ] Implement ARIES.
