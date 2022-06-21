@@ -58,8 +58,9 @@ impl LockRequest {
     }
 }
 
+type RequestQueue = Arc<(Mutex<LockRequestQueue>, Condvar)>;
 pub struct LockManager {
-    lock_table: Arc<RwLock<HashMap<RowID, Arc<(Mutex<LockRequestQueue>, Condvar)>>>>,
+    lock_table: Arc<RwLock<HashMap<RowID, RequestQueue>>>,
 }
 
 // The behaviour depends on the isolation level of the transaciton:
@@ -128,7 +129,24 @@ impl LockManager {
             //
             // This implementation possibly allow Tcurrent to acquire the shared lock once T1
             // called condvar.notify_one(), which ideally we want T2 to be the one who acquire
-            // the shared lock first.
+            // the shared lock first, to prevent starvation.
+            //
+            // Some thoughts and reasoning going through my mind:
+            //
+            // There are two scenario, a shared lock will block:
+            //   - When an exclusive lock is hold.
+            //   - When there is an exclusive lock waiting to be hold.
+            //
+            // In case 1, when an exclusive lock is hold, and we are being blocked, this
+            // implementation is technically correct, since there is only one exclusive lock.
+            //
+            // If condvar awake, it will be always from the exlusive lock, as no others lock can
+            // be hold, and thus release and notify at the same time.
+            //
+            // In case 2, if both T2 and Tcurrent might be awake from the notify. If we got
+            // notified, T2 will continue blocking, Tcurrent will unlock soon, and hoping that
+            // T2 will acquire the lock. So, to prevent starvation on the lower level, it depends
+            // on the behaviour of condvar.notfiy_one().
             if should_block {
                 trace!("lock_shared: waiting for lock");
                 condvar.wait(&mut request_queue);
@@ -167,8 +185,19 @@ impl LockManager {
             drop(lock_table);
 
             let mut request_queue = request_queue.lock();
+            request_queue.push_back(request);
 
-            // This isn't quite right as well. Let say we have a queue of:
+            // The following implementation is not entirely correct:
+            //
+            // if let Some(r) = request_queue.front() {
+            //     // Wait if there is other request other than our newly added
+            //     // request:
+            //     if r.txn_id != transaction.txn_id {
+            //         condvar.wait(&mut request_queue);
+            //     }
+            // }
+            //
+            // Let say we have a queue of:
             //
             // [T1(s, t), T2(s, t), Tcurrent(e, f)]
             //
@@ -179,27 +208,33 @@ impl LockManager {
             // called condvar.notify_one(). However, this isn't correct since T2 is still holding
             // the shared lock, and current T shouldn't be able to acquire the lock until
             // any T is not holding a lock.
-            if request_queue.front().is_some() {
-                request_queue.push_back(request);
-                condvar.wait(&mut request_queue);
 
-                // Awake, and get lock
-                let request = request_queue
-                    .iter_mut()
-                    .find(|r| r.txn_id == transaction.txn_id)
-                    .unwrap();
-                assert_eq!(request.txn_id, transaction.txn_id);
-                request.granted = true;
-                transaction.exclusive_lock_sets.insert(rid);
-                trace!("lock_exclusive end");
-                true
-            } else {
-                request.granted = true;
-                request_queue.push_back(request);
-                transaction.exclusive_lock_sets.insert(rid);
-                trace!("lock_exclusive end");
-                true
+            // Hence, we have to continue to wait until the front element is not granted:
+            while let Some(r) = request_queue.front() {
+                if r.granted {
+                    condvar.wait(&mut request_queue);
+                } else {
+                    break;
+                }
             }
+
+            // We are looping manually to ensure that
+            // we don't have any request infront that still have
+            // granted = true.
+            let mut request = None;
+            for r in request_queue.iter_mut() {
+                assert!(!r.granted);
+                if r.txn_id == transaction.txn_id {
+                    request = Some(r);
+                    break;
+                }
+            }
+
+            let request = request.unwrap();
+            request.granted = true;
+            transaction.exclusive_lock_sets.insert(rid);
+            trace!("lock_exclusive end");
+            true
         } else {
             request.granted = true;
 
@@ -414,7 +449,7 @@ mod test {
                     }
 
                     // Simulate some operation
-                    thread::sleep(Duration::from_millis(50));
+                    thread::sleep(Duration::from_millis(20));
 
                     assert!(lm.unlock(&mut transaction, &row_id));
 
@@ -453,7 +488,9 @@ mod test {
                 let mut transaction =
                     Transaction::new(i, transaction::IsolationLevel::ReadCommited);
                 assert!(lm.lock_shared(&mut transaction, row_id));
-                thread::sleep(Duration::from_millis(550));
+
+                thread::sleep(Duration::from_millis(80));
+
                 assert!(lm.unlock(&mut transaction, &row_id));
             });
             handles.push(handle);
@@ -470,9 +507,6 @@ mod test {
             assert!(lm.lock_upgrade(&mut transaction, row_id));
             assert!(transaction.shared_lock_sets.is_empty());
             assert!(transaction.exclusive_lock_sets.contains(&row_id));
-
-            // Simulate some operation
-            thread::sleep(Duration::from_millis(450));
 
             assert!(lm.unlock(&mut transaction, &row_id));
         });
