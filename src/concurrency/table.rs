@@ -1,7 +1,6 @@
 use super::{
     lock_manager::LockManager,
     transaction::{Transaction, WriteRecord, WriteRecordType},
-    transaction_manager::TransactionManager,
 };
 use crate::row::Row;
 use crate::storage::Pager;
@@ -23,7 +22,6 @@ impl RowID {
 pub struct Table {
     root_page_num: usize,
     pager: Pager,
-    transaction_manager: TransactionManager,
     lock_manager: LockManager,
 }
 
@@ -34,11 +32,14 @@ impl Table {
             root_page_num: 0,
             pager,
             lock_manager: LockManager::new(),
-            transaction_manager: TransactionManager::new(),
         }
     }
 
-    pub fn index_scan(&self, key: u32, transaction: &mut Transaction) -> Option<RowID> {
+    pub fn index_scan(
+        &self,
+        key: u32,
+        transaction: &mut RwLockWriteGuard<Transaction>,
+    ) -> Option<RowID> {
         self.pager.search(0, key).map(|(page_id, slot_num)| {
             let row_id = RowID::new(page_id, slot_num);
             self.lock_manager.lock_shared(transaction, row_id);

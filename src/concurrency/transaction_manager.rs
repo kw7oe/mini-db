@@ -25,7 +25,7 @@ impl TransactionManager {
         }
     }
 
-    fn execute<F, T>(&self, table: &Table, iso_level: IsolationLevel, f: F) -> T
+    pub fn execute<F, T>(&self, table: &Table, iso_level: IsolationLevel, f: F) -> T
     where
         F: FnOnce(Arc<RwLock<Transaction>>, &TransactionManager) -> T,
     {
@@ -42,7 +42,7 @@ impl TransactionManager {
         result
     }
 
-    fn begin(&self, iso_level: IsolationLevel) -> Arc<RwLock<Transaction>> {
+    pub fn begin(&self, iso_level: IsolationLevel) -> Arc<RwLock<Transaction>> {
         let txn_id = self
             .next_txn_id
             .fetch_add(1, sync::atomic::Ordering::SeqCst);
@@ -56,7 +56,7 @@ impl TransactionManager {
         transaction
     }
 
-    fn commit(&self, table: &Table, transaction: &mut Transaction) {
+    pub fn commit(&self, table: &Table, transaction: &mut Transaction) {
         transaction.set_state(TransactionState::Committed);
 
         while let Some(wr) = transaction.pop_write_set() {
@@ -68,7 +68,7 @@ impl TransactionManager {
         self.release_locks(transaction);
     }
 
-    fn abort(&self, table: &Table, transaction: &mut Transaction) {
+    pub fn abort(&self, table: &Table, transaction: &mut Transaction) {
         transaction.set_state(TransactionState::Aborted);
 
         while let Some(wr) = transaction.pop_write_set() {
