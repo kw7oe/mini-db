@@ -56,6 +56,8 @@ mod test {
         while let Some(t) = executor.next() {
             println!("{:?}", t);
         }
+
+        cleanup_table();
     }
 
     fn setup_table(tm: &TransactionManager) -> Table {
@@ -69,5 +71,9 @@ mod test {
         // tm.commit(&table, &mut t);
 
         table
+    }
+
+    fn cleanup_table() {
+        let _ = std::fs::remove_file(format!("test-{:?}.db", std::thread::current().id()));
     }
 }
