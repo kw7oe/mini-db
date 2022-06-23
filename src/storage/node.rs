@@ -57,10 +57,10 @@ pub const INTERNAL_NODE_MAX_CELLS: usize = 3;
 // serde attributes in Vec<T>.
 //
 // See: https://github.com/serde-rs/serde/issues/723
-#[derive(Serialize, Deserialize, PartialEq)]
+#[derive(Serialize, Deserialize, PartialEq, Clone)]
 pub struct Cell(#[serde(with = "BigArray")] [u8; LEAF_NODE_CELL_SIZE]);
 
-#[derive(Serialize, Deserialize, PartialEq)]
+#[derive(Serialize, Deserialize, PartialEq, Clone)]
 pub struct InternalCell([u8; INTERNAL_NODE_CELL_SIZE]);
 
 impl Cell {
@@ -151,7 +151,7 @@ impl std::fmt::Debug for InternalCell {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Node {
     // Header
     // Common

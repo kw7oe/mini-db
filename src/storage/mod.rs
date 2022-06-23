@@ -8,7 +8,7 @@ mod pager;
 // crate::storage::disk_manager::DiskManager
 pub use self::{
     disk_manager::DiskManager,
-    node::{NodeType, LEAF_NODE_CELL_SIZE},
+    node::{Node, NodeType, LEAF_NODE_CELL_SIZE},
     page::Page,
     pager::*,
 };

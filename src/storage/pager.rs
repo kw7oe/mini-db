@@ -512,7 +512,7 @@ impl Pager {
         self.retry(MAX_RETRY, || self.fetch_write_page_guard(page_num))
     }
 
-    fn fetch_read_page_with_retry(&self, page_num: usize) -> RwLockUpgradableReadGuard<Page> {
+    pub fn fetch_read_page_with_retry(&self, page_num: usize) -> RwLockUpgradableReadGuard<Page> {
         self.retry(MAX_RETRY, || self.fetch_read_page_guard(page_num))
     }
 

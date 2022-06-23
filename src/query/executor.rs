@@ -45,30 +45,35 @@ mod test {
         let plan_node = SeqScanPlanNode { predicate };
         let tm = TransactionManager::new();
         let table = setup_table(&tm);
-        let transaction = tm.begin(IsolationLevel::ReadCommited);
 
-        let ctx = ExecutionContext {
-            table: &table,
-            transaction: transaction.write(),
-        };
-
-        let mut executor = SequenceScanExecutor::new(ctx, plan_node);
-        while let Some(t) = executor.next() {
-            println!("{:?}", t);
+        for t in table.iter() {
+            println!("{}", t.to_string());
         }
+
+        // let transaction = tm.begin(IsolationLevel::ReadCommited);
+
+        // let ctx = ExecutionContext {
+        //     table: &table,
+        //     transaction: transaction.write(),
+        // };
+
+        // let mut executor = SequenceScanExecutor::new(ctx, plan_node);
+        // while let Some(t) = executor.next() {
+        //     println!("{:?}", t);
+        // }
 
         cleanup_table();
     }
 
     fn setup_table(tm: &TransactionManager) -> Table {
         let table = Table::new(format!("test-{:?}.db", std::thread::current().id()), 4);
-        // let transaction = tm.begin(IsolationLevel::ReadCommited);
-        // let mut t = transaction.write();
-        // for i in 1..50 {
-        //     let row = Row::from_str(&format!("{i} user{i} user{i}@email.com")).unwrap();
-        //     table.insert(&row, &mut t);
-        // }
-        // tm.commit(&table, &mut t);
+        let transaction = tm.begin(IsolationLevel::ReadCommited);
+        let mut t = transaction.write();
+        for i in 1..50 {
+            let row = Row::from_str(&format!("{i} user{i} user{i}@email.com")).unwrap();
+            table.insert(&row, &mut t);
+        }
+        tm.commit(&table, &mut t);
 
         table
     }

@@ -2,9 +2,9 @@ use super::{
     lock_manager::LockManager,
     transaction::{Transaction, WriteRecord, WriteRecordType},
 };
-use crate::row::Row;
-use crate::storage::Pager;
-use parking_lot::RwLockWriteGuard;
+use crate::storage::{Node, NodeType, Pager};
+use crate::{row::Row, storage::Page};
+use parking_lot::{RwLockUpgradableReadGuard, RwLockWriteGuard};
 use std::path::Path;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -20,16 +20,49 @@ impl RowID {
 }
 
 pub struct Table {
-    root_page_num: usize,
     pager: Pager,
     lock_manager: LockManager,
+}
+
+pub struct TableIntoIter<'a> {
+    pager: &'a Pager,
+    node: Option<Node>,
+    slot_num: usize,
+}
+
+impl<'a> Iterator for TableIntoIter<'a> {
+    type Item = Row;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // TODO: Figure out:
+        //
+        // - Can we achieve this without cloning?
+        // - Do we want to implement Iter and IntoIter trait for table?
+        // - Can table still be used after iteration?
+        self.node.clone().map(|node| {
+            let item = node.get(self.slot_num);
+            self.slot_num += 1;
+
+            if self.slot_num == node.num_of_cells as usize && node.next_leaf_offset == 0 {
+                self.node = None;
+            } else if self.slot_num >= node.num_of_cells as usize {
+                let page = self
+                    .pager
+                    .fetch_read_page_with_retry(node.next_leaf_offset as usize);
+                self.node = page.node.clone();
+                self.pager.unpin_page_with_read_guard(page, false);
+                self.slot_num = 0;
+            }
+
+            item
+        })
+    }
 }
 
 impl Table {
     pub fn new(path: impl AsRef<Path>, pool_size: usize) -> Table {
         let pager = Pager::new(path, pool_size);
         Table {
-            root_page_num: 0,
             pager,
             lock_manager: LockManager::new(),
         }
@@ -45,6 +78,42 @@ impl Table {
             self.lock_manager.lock_shared(transaction, row_id);
             row_id
         })
+    }
+
+    pub fn iter(&self) -> TableIntoIter {
+        // Search for the first leaf node
+        let page = self.search_page(0, 0);
+        let node = page.node.clone().unwrap();
+        self.pager.unpin_page_with_read_guard(page, false);
+        assert_eq!(node.node_type, NodeType::Leaf);
+
+        TableIntoIter {
+            pager: &self.pager,
+            node: Some(node),
+            slot_num: 0,
+        }
+    }
+
+    fn search_page(&self, page_num: usize, key: u32) -> RwLockUpgradableReadGuard<Page> {
+        match self.pager.fetch_read_page_guard(page_num) {
+            Err(_) => {
+                let duration = std::time::Duration::from_millis(1000);
+                std::thread::sleep(duration);
+
+                self.search_page(page_num, key)
+            }
+            Ok(page) => {
+                let node = page.node.as_ref().unwrap();
+
+                if node.node_type == NodeType::Leaf {
+                    return page;
+                }
+
+                let next_page_num = node.search(key).unwrap();
+                self.pager.unpin_page_with_read_guard(page, false);
+                self.search_page(next_page_num, key)
+            }
+        }
     }
 
     pub fn get(&self, rid: RowID, transaction: &mut RwLockWriteGuard<Transaction>) -> Option<Row> {
