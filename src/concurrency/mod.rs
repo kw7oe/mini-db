@@ -4,7 +4,7 @@ mod transaction;
 mod transaction_manager;
 
 pub use {
-    table::{RowID, Table},
+    table::{RowID, Table, TableIntoIter},
     transaction::{IsolationLevel, Transaction},
     transaction_manager::TransactionManager,
 };

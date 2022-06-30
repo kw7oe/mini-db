@@ -2,7 +2,7 @@ use parking_lot::RwLockWriteGuard;
 
 use super::query_plan::SeqScanPlanNode;
 use crate::{
-    concurrency::{RowID, Table, Transaction},
+    concurrency::{RowID, Table, Transaction, TableIntoIter},
     row::Row,
 };
 
@@ -14,6 +14,7 @@ pub struct ExecutionContext<'a> {
 pub struct SequenceScanExecutor<'a> {
     execution_context: ExecutionContext<'a>,
     plan_node: SeqScanPlanNode,
+    iter: Option<TableIntoIter<'a>>
 }
 
 impl<'a> SequenceScanExecutor<'a> {
@@ -21,12 +22,18 @@ impl<'a> SequenceScanExecutor<'a> {
         Self {
             plan_node,
             execution_context: ctx,
+            iter: None
         }
     }
 
-    pub fn next(&mut self) -> Option<(RowID, String)> {
-        // TODO: implement iterator in Table.rs
-        None
+    pub fn next(&mut self) -> Option<(RowID, Row)> {
+        let table = self.execution_context.table;
+        if self.iter.is_none() {
+            self.iter =  Some(table.iter());
+        };
+
+        let iter = self.iter.as_mut().unwrap();
+        iter.next()
     }
 }
 
@@ -40,27 +47,27 @@ mod test {
     use std::str::FromStr;
 
     #[test]
-    fn test() {
+    fn seq_scan() {
+        // Okay, this is just sample, we would need to implement
+        // expression evaluation for it to work.
         let predicate = "name = 'user2'".to_string();
         let plan_node = SeqScanPlanNode { predicate };
         let tm = TransactionManager::new();
         let table = setup_table(&tm);
+        let transaction = tm.begin(IsolationLevel::ReadCommited);
 
-        for t in table.iter() {
-            println!("{}", t.to_string());
+        let ctx = ExecutionContext {
+            table: &table,
+            transaction: transaction.write(),
+        };
+
+        let mut executor = SequenceScanExecutor::new(ctx, plan_node);
+
+        let mut id = 1;
+        while let Some((_rid, row)) = executor.next() {
+            assert_eq!(row.id, id);
+            id += 1;
         }
-
-        // let transaction = tm.begin(IsolationLevel::ReadCommited);
-
-        // let ctx = ExecutionContext {
-        //     table: &table,
-        //     transaction: transaction.write(),
-        // };
-
-        // let mut executor = SequenceScanExecutor::new(ctx, plan_node);
-        // while let Some(t) = executor.next() {
-        //     println!("{:?}", t);
-        // }
 
         cleanup_table();
     }

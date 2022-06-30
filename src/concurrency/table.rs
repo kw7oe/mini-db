@@ -27,19 +27,20 @@ pub struct Table {
 pub struct TableIntoIter<'a> {
     pager: &'a Pager,
     node: Option<Node>,
+    page_id: usize,
     slot_num: usize,
 }
 
 impl<'a> Iterator for TableIntoIter<'a> {
-    type Item = Row;
+    type Item = (RowID, Row);
 
     fn next(&mut self) -> Option<Self::Item> {
         // TODO: Figure out:
         //
         // - Can we achieve this without cloning?
         // - Do we want to implement Iter and IntoIter trait for table?
-        // - Can table still be used after iteration?
         self.node.clone().map(|node| {
+            let rid = RowID::new(self.page_id, self.slot_num);
             let item = node.get(self.slot_num);
             self.slot_num += 1;
 
@@ -49,12 +50,13 @@ impl<'a> Iterator for TableIntoIter<'a> {
                 let page = self
                     .pager
                     .fetch_read_page_with_retry(node.next_leaf_offset as usize);
+                self.page_id = page.page_id.unwrap();
                 self.node = page.node.clone();
                 self.pager.unpin_page_with_read_guard(page, false);
                 self.slot_num = 0;
             }
 
-            item
+            (rid, item)
         })
     }
 }
@@ -90,6 +92,7 @@ impl Table {
         TableIntoIter {
             pager: &self.pager,
             node: Some(node),
+            page_id: 0,
             slot_num: 0,
         }
     }
@@ -187,17 +190,16 @@ mod test {
         let table = setup_table(&tm);
 
         let mut rid = 1;
-        for row in table.iter() {
+        for (_, row) in table.iter() {
             assert_eq!(row.id, rid);
-            assert_eq!(row.username(), format!("user{rid}"));
             rid += 1;
         }
 
         // Verify it can be iterate multiple times
         // without table being consumed.
         rid = 1;
-        for row in table.iter() {
-            assert_eq!(row.id, rid);
+        for (_, row) in table.iter() {
+            assert_eq!(row.username(), format!("user{rid}"));
             rid += 1;
         }
 
