@@ -174,3 +174,50 @@ impl Table {
         // Store old row? So that we can rollback the the old row when it is aborted.
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::concurrency::{IsolationLevel, TransactionManager};
+    use std::str::FromStr;
+
+    #[test]
+    fn iter() {
+        let tm = TransactionManager::new();
+        let table = setup_table(&tm);
+
+        let mut rid = 1;
+        for row in table.iter() {
+            assert_eq!(row.id, rid);
+            assert_eq!(row.username(), format!("user{rid}"));
+            rid += 1;
+        }
+
+        // Verify it can be iterate multiple times
+        // without table being consumed.
+        rid = 1;
+        for row in table.iter() {
+            assert_eq!(row.id, rid);
+            rid += 1;
+        }
+
+        cleanup_table();
+    }
+
+    fn setup_table(tm: &TransactionManager) -> Table {
+        let table = Table::new(format!("test-{:?}.db", std::thread::current().id()), 4);
+        let transaction = tm.begin(IsolationLevel::ReadCommited);
+        let mut t = transaction.write();
+        for i in 1..50 {
+            let row = Row::from_str(&format!("{i} user{i} user{i}@email.com")).unwrap();
+            table.insert(&row, &mut t);
+        }
+        tm.commit(&table, &mut t);
+
+        table
+    }
+
+    fn cleanup_table() {
+        let _ = std::fs::remove_file(format!("test-{:?}.db", std::thread::current().id()));
+    }
+}
