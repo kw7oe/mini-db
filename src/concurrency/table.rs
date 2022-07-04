@@ -40,9 +40,16 @@ impl Iterator for TableIntoIter {
         //
         // - Can we achieve this without cloning?
         // - Do we want to implement Iter and IntoIter trait for table?
-        self.node.clone().map(|node| {
+        self.node.clone().and_then(|node| {
             let rid = RowID::new(self.page_id, self.slot_num);
-            let item = node.get(self.slot_num);
+            let item = node.get_row(self.slot_num);
+
+            if item.is_none() {
+                return None;
+            }
+
+            let item = item.unwrap();
+
             self.slot_num += 1;
 
             if self.slot_num == node.num_of_cells as usize && node.next_leaf_offset == 0 {
@@ -57,7 +64,7 @@ impl Iterator for TableIntoIter {
                 self.slot_num = 0;
             }
 
-            (rid, item)
+            Some((rid, item))
         })
     }
 }

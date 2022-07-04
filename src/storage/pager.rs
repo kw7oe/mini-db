@@ -98,7 +98,7 @@ pub enum PagerError {
     FailToAcquirePageLock,
 }
 
-// #[derive(Debug)]
+#[derive(Debug)]
 pub struct Pager {
     disk_manager: DiskManager,
     replacer: LRUReplacer,

@@ -144,11 +144,7 @@ mod test {
 
         let seq_plan_node = SeqScanPlanNode { predicate };
         let mut executor = SequenceScanExecutor::new(ctx, seq_plan_node);
-
-        while let Some((_rid, row)) = executor.next() {
-            println!("{row:?}");
-        }
-        // assert!(executor.next().is_none());
+        assert!(executor.next().is_none());
 
         cleanup_table();
     }
