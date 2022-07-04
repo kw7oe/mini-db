@@ -1,35 +1,36 @@
-use parking_lot::RwLockWriteGuard;
+use parking_lot::RwLock;
 
-use super::query_plan::{SeqScanPlanNode, DeletePlanNode};
+use super::query_plan::{DeletePlanNode, SeqScanPlanNode};
 use crate::{
-    concurrency::{RowID, Table, Transaction, TableIntoIter},
+    concurrency::{RowID, Table, TableIntoIter, Transaction},
     row::Row,
 };
+use std::sync::Arc;
 
-pub struct ExecutionContext<'a> {
-    table: &'a Table,
-    transaction: RwLockWriteGuard<'a, Transaction>,
+pub struct ExecutionContext {
+    table: Arc<Table>,
+    transaction: Arc<RwLock<Transaction>>,
 }
 
-pub struct SequenceScanExecutor<'a> {
-    execution_context: &'a ExecutionContext<'a>,
-    plan_node: &'a SeqScanPlanNode,
-    iter: Option<TableIntoIter<'a>>
+pub struct SequenceScanExecutor {
+    execution_context: Arc<ExecutionContext>,
+    plan_node: SeqScanPlanNode,
+    iter: Option<TableIntoIter>,
 }
 
-impl<'a> SequenceScanExecutor<'a> {
-    pub fn new(ctx: &'a ExecutionContext<'a>, plan_node: &'a SeqScanPlanNode) -> Self {
+impl SequenceScanExecutor {
+    pub fn new(ctx: Arc<ExecutionContext>, plan_node: SeqScanPlanNode) -> Self {
         Self {
             plan_node,
             execution_context: ctx,
-            iter: None
+            iter: None,
         }
     }
 
     pub fn next(&mut self) -> Option<(RowID, Row)> {
-        let table = self.execution_context.table;
+        let table = &self.execution_context.table;
         if self.iter.is_none() {
-            self.iter =  Some(table.iter());
+            self.iter = Some(table.iter());
         };
 
         let iter = self.iter.as_mut().unwrap();
@@ -37,25 +38,28 @@ impl<'a> SequenceScanExecutor<'a> {
     }
 }
 
-pub struct DeleteExecutor<'a> {
-    execution_context: &'a mut ExecutionContext<'a>,
-    plan_node: &'a DeletePlanNode,
+pub struct DeleteExecutor {
+    execution_context: Arc<ExecutionContext>,
+    plan_node: DeletePlanNode,
     affected_row: usize,
 }
 
-impl<'a> DeleteExecutor<'a> {
-    pub fn new(ctx: &'a mut ExecutionContext<'a>, plan_node: &'a DeletePlanNode) -> Self {
+impl DeleteExecutor {
+    pub fn new(ctx: Arc<ExecutionContext>, plan_node: DeletePlanNode) -> Self {
         Self {
             plan_node,
             execution_context: ctx,
-            affected_row: 0
+            affected_row: 0,
         }
     }
 
     pub fn next(&mut self) -> Option<usize> {
-        let mut executor = SequenceScanExecutor::new(&self.execution_context, &self.plan_node.child);
+        let mut executor =
+            SequenceScanExecutor::new(self.execution_context.clone(), self.plan_node.child.clone());
         while let Some((rid, row)) = executor.next() {
-            self.execution_context.table.delete(&row, &rid, &mut self.execution_context.transaction);
+            let mut t = self.execution_context.transaction.write();
+            self.execution_context.table.delete(&row, &rid, &mut t);
+            drop(t);
             self.affected_row += 1;
         }
 
@@ -82,12 +86,12 @@ mod test {
         let table = setup_table(&tm);
         let transaction = tm.begin(IsolationLevel::ReadCommited);
 
-        let ctx = ExecutionContext {
-            table: &table,
-            transaction: transaction.write(),
-        };
+        let ctx = Arc::new(ExecutionContext {
+            table: Arc::new(table),
+            transaction,
+        });
 
-        let mut executor = SequenceScanExecutor::new(&ctx, &plan_node);
+        let mut executor = SequenceScanExecutor::new(ctx, plan_node);
 
         let mut id = 1;
         while let Some((_rid, row)) = executor.next() {
@@ -101,18 +105,22 @@ mod test {
     #[test]
     fn delete() {
         let predicate = "".to_string();
-        let seq_plan_node = SeqScanPlanNode { predicate };
+        let seq_plan_node = SeqScanPlanNode {
+            predicate: predicate.clone(),
+        };
         let tm = TransactionManager::new();
         let table = setup_table(&tm);
         let transaction = tm.begin(IsolationLevel::ReadCommited);
 
-        let ctx = ExecutionContext {
-            table: &table,
-            transaction: transaction.write(),
-        };
+        let ctx = Arc::new(ExecutionContext {
+            table: Arc::new(table),
+            transaction,
+        });
 
-        let plan_node = DeletePlanNode { child: seq_plan_node };
-        let mut executor = DeleteExecutor::new(&ctx, plan_node);
+        let plan_node = DeletePlanNode {
+            child: seq_plan_node,
+        };
+        let mut executor = DeleteExecutor::new(ctx.clone(), plan_node);
 
         let mut count = 0;
         while let Some(affected_row) = executor.next() {
@@ -121,7 +129,7 @@ mod test {
         }
 
         let seq_plan_node = SeqScanPlanNode { predicate };
-        let mut executor = SequenceScanExecutor::new(&ctx, &seq_plan_node);
+        let mut executor = SequenceScanExecutor::new(ctx, seq_plan_node);
         assert!(executor.next().is_none());
 
         cleanup_table();

@@ -6,6 +6,7 @@ use crate::storage::{Node, NodeType, Pager};
 use crate::{row::Row, storage::Page};
 use parking_lot::{RwLockUpgradableReadGuard, RwLockWriteGuard};
 use std::path::Path;
+use std::sync::Arc;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct RowID {
@@ -20,18 +21,18 @@ impl RowID {
 }
 
 pub struct Table {
-    pager: Pager,
+    pager: Arc<Pager>,
     lock_manager: LockManager,
 }
 
-pub struct TableIntoIter<'a> {
-    pager: &'a Pager,
+pub struct TableIntoIter {
+    pager: Arc<Pager>,
     node: Option<Node>,
     page_id: usize,
     slot_num: usize,
 }
 
-impl<'a> Iterator for TableIntoIter<'a> {
+impl Iterator for TableIntoIter {
     type Item = (RowID, Row);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -65,7 +66,7 @@ impl Table {
     pub fn new(path: impl AsRef<Path>, pool_size: usize) -> Table {
         let pager = Pager::new(path, pool_size);
         Table {
-            pager,
+            pager: Arc::new(pager),
             lock_manager: LockManager::new(),
         }
     }
@@ -90,7 +91,7 @@ impl Table {
         assert_eq!(node.node_type, NodeType::Leaf);
 
         TableIntoIter {
-            pager: &self.pager,
+            pager: self.pager.clone(),
             node: Some(node),
             page_id: 0,
             slot_num: 0,
