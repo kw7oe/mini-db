@@ -1,6 +1,6 @@
 use parking_lot::RwLock;
 
-use super::query_plan::{DeletePlanNode, SeqScanPlanNode};
+use super::query_plan::{DeletePlanNode, PlanNode, SeqScanPlanNode};
 use crate::{
     concurrency::{RowID, Table, TableIntoIter, Transaction},
     row::Row,
@@ -10,6 +10,43 @@ use std::sync::Arc;
 pub struct ExecutionContext {
     table: Arc<Table>,
     transaction: Arc<RwLock<Transaction>>,
+}
+
+pub struct ExecutionEngine {
+    execution_context: Arc<ExecutionContext>,
+}
+
+impl ExecutionEngine {
+    pub fn new(ctx: Arc<ExecutionContext>) -> Self {
+        Self {
+            execution_context: ctx,
+        }
+    }
+
+    pub fn execute(&self, plan_node: PlanNode) -> Vec<(RowID, Row)> {
+        let mut result_set = Vec::new();
+        match plan_node {
+            PlanNode::SeqScan(plan_node) => {
+                let mut executor =
+                    SequenceScanExecutor::new(self.execution_context.clone(), plan_node);
+                while let Some(result) = executor.next() {
+                    result_set.push(result);
+                }
+            }
+            PlanNode::Delete(plan_node) => {
+                let mut executor = DeleteExecutor::new(self.execution_context.clone(), plan_node);
+                while let Some(result) = executor.next() {
+                    result_set.push(result);
+                }
+            }
+        };
+
+        result_set
+    }
+}
+
+pub trait Executor {
+    fn next(&mut self) -> Option<(RowID, Row)>;
 }
 
 pub struct SequenceScanExecutor {
@@ -26,8 +63,10 @@ impl SequenceScanExecutor {
             iter: None,
         }
     }
+}
 
-    pub fn next(&mut self) -> Option<(RowID, Row)> {
+impl Executor for SequenceScanExecutor {
+    fn next(&mut self) -> Option<(RowID, Row)> {
         let table = &self.execution_context.table;
         if self.iter.is_none() {
             self.iter = Some(table.iter());
@@ -54,8 +93,10 @@ impl DeleteExecutor {
             iter: None,
         }
     }
+}
 
-    pub fn next(&mut self) -> Option<usize> {
+impl Executor for DeleteExecutor {
+    fn next(&mut self) -> Option<(RowID, Row)> {
         if self.iter.is_none() {
             self.iter = Some(SequenceScanExecutor::new(
                 self.execution_context.clone(),
@@ -70,7 +111,7 @@ impl DeleteExecutor {
             self.execution_context.table.delete(&row, &rid, &mut t);
             drop(t);
             self.affected_row += 1;
-            Some(self.affected_row)
+            Some((rid, row))
         } else {
             None
         }
@@ -87,7 +128,34 @@ mod test {
     use std::str::FromStr;
 
     #[test]
-    fn seq_scan() {
+    fn execution_engine() {
+        let plan_node = SeqScanPlanNode {
+            predicate: "".to_string(),
+        };
+        let tm = TransactionManager::new();
+        let table = setup_table(&tm);
+        let transaction = tm.begin(IsolationLevel::ReadCommited);
+
+        let ctx = Arc::new(ExecutionContext {
+            table: Arc::new(table),
+            transaction,
+        });
+
+        let execution_engine = ExecutionEngine::new(ctx);
+        let result = execution_engine.execute(PlanNode::SeqScan(plan_node));
+        assert_eq!(result.len(), 49);
+        let mut id = 1;
+
+        for (_, row) in result {
+            assert_eq!(row.id, id);
+            id += 1;
+        }
+
+        cleanup_table();
+    }
+
+    #[test]
+    fn seq_scan_executor() {
         // Okay, this is just sample, we would need to implement
         // expression evaluation for it to work.
         let predicate = "name = 'user2'".to_string();
@@ -113,7 +181,7 @@ mod test {
     }
 
     #[test]
-    fn delete() {
+    fn delete_executor() {
         let predicate = "".to_string();
         let seq_plan_node = SeqScanPlanNode {
             predicate: predicate.clone(),
@@ -132,11 +200,11 @@ mod test {
         };
         let mut executor = DeleteExecutor::new(ctx.clone(), plan_node);
 
-        let mut count = 1;
-        while let Some(affected_row) = executor.next() {
-            assert_eq!(count, affected_row);
+        let mut count = 0;
+        while executor.next().is_some() {
             count += 1;
         }
+        assert_eq!(count, 49);
 
         let mut t = ctx.transaction.write();
         tm.commit(&ctx.table, &mut t);

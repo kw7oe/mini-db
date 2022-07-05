@@ -1,3 +1,8 @@
+pub enum PlanNode {
+    SeqScan(SeqScanPlanNode),
+    Delete(DeletePlanNode),
+}
+
 #[derive(Clone)]
 pub struct SeqScanPlanNode {
     pub predicate: String,
