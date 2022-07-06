@@ -72,10 +72,16 @@ quick breakdown on what I'm going to implement next:
       different isolation levels.
     - While is completed, I can't really guarantee the correctness of the
       implementation for the time being. See the comments in code for more.
-    - Testing for read and write anomolies are not included yet. This will
+    - Testing for read and write anomalies are not included yet. This will
     require implementation of update operation and integration of lock manager
     into the query/table code, which is what I plan to do next.
-  - [ ] Implement a query executor?
+  - [x] Implement a query executor.
+    - Implemented both sequence scan and delete executor and plan node.
+    - It is not integrated into the other part of the systems yet.
+  - [ ] Support update operation. This is important as it allow us to produce
+  test case that can lead to read/write anomalies.
+  - [ ] Write test to ensure that two phase locking works on all read and write
+    anomolies.
   - [ ] Implement concurrent query execution.
   - [ ] Implement dead lock prevention. (Wound Wait algorithm)
     _([Reference](https://15445.courses.cs.cmu.edu/fall2021/project4/#deadlock_prevention))_
