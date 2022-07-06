@@ -25,21 +25,20 @@ impl ExecutionEngine {
 
     pub fn execute(&self, plan_node: PlanNode) -> Vec<(RowID, Row)> {
         let mut result_set = Vec::new();
-        match plan_node {
-            PlanNode::SeqScan(plan_node) => {
-                let mut executor =
-                    SequenceScanExecutor::new(self.execution_context.clone(), plan_node);
-                while let Some(result) = executor.next() {
-                    result_set.push(result);
-                }
-            }
-            PlanNode::Delete(plan_node) => {
-                let mut executor = DeleteExecutor::new(self.execution_context.clone(), plan_node);
-                while let Some(result) = executor.next() {
-                    result_set.push(result);
-                }
-            }
+        let mut executor: Box<dyn Executor> = match plan_node {
+            PlanNode::SeqScan(plan_node) => Box::new(SequenceScanExecutor::new(
+                self.execution_context.clone(),
+                plan_node,
+            )),
+            PlanNode::Delete(plan_node) => Box::new(DeleteExecutor::new(
+                self.execution_context.clone(),
+                plan_node,
+            )),
         };
+
+        while let Some(result) = executor.next() {
+            result_set.push(result);
+        }
 
         result_set
     }
