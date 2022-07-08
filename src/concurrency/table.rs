@@ -190,6 +190,13 @@ impl Table {
             false
         }
     }
+
+    pub fn rollback_update(&self, rid: &RowID, row: &Row) {
+        if let Ok(mut page) = self.pager.fetch_write_page_guard(rid.page_id) {
+            page.update_row(rid.slot_num, row);
+            self.pager.unpin_page_with_write_guard(page, true);
+        }
+    }
 }
 
 #[cfg(test)]

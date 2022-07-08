@@ -15,7 +15,6 @@ pub struct TransactionManager {
 //
 //   - Cleaning up `transaction_map`. Currently, aborted and committed transactions
 //     are not removed from the map yet.
-//   - Handling update.
 impl TransactionManager {
     pub fn new() -> Self {
         Self {
@@ -75,7 +74,7 @@ impl TransactionManager {
             match wr.wr_type {
                 WriteRecordType::Insert => table.apply_delete(wr.key),
                 WriteRecordType::Delete => table.rollback_delete(&wr.rid),
-                _ => (),
+                WriteRecordType::Update => table.rollback_update(&wr.rid, &wr.old_row.unwrap()),
             }
         }
 
@@ -194,7 +193,7 @@ mod test {
     }
 
     #[test]
-    fn delete_and_abort_transaction() {
+    fn delete_abort_and_commit_transaction() {
         let tm = TransactionManager::new();
         let table = setup_table();
         let row = Row::from_str("1 apple apple@apple.com").unwrap();
@@ -239,6 +238,64 @@ mod test {
         tm.execute(&table, IsolationLevel::ReadCommited, |transaction, _tm| {
             let mut t = transaction.write();
             assert_eq!(table.get(rid, &mut t), None);
+        });
+
+        cleanup_table();
+    }
+
+    #[test]
+    fn update_abort_and_commit_transaction() {
+        let tm = TransactionManager::new();
+        let table = setup_table();
+        let row = Row::from_str("1 apple apple@apple.com").unwrap();
+        let rid = tm.execute(&table, IsolationLevel::ReadCommited, |transaction, _tm| {
+            let mut t = transaction.write();
+            table.insert(&row, &mut t).unwrap()
+        });
+
+        // Update and abort
+        let new_row = Row::from_str("1 john tim@apple.com").unwrap();
+        tm.execute(&table, IsolationLevel::ReadCommited, |transaction, tm| {
+            let mut t = transaction.write();
+            assert!(table.update(&row, &new_row, &rid, &mut t));
+            tm.abort(&table, &mut t);
+            assert_eq!(t.state, TransactionState::Aborted);
+        });
+
+        // We should have an aborted transaciton.
+        let map = tm.transaction_map.read();
+        let transaction = map.iter().find(|(_, t)| {
+            let t = t.read();
+            t.state == TransactionState::Aborted
+        });
+        assert!(transaction.is_some());
+        drop(map);
+
+        // Make sure row is still there and the value is unchange
+        tm.execute(&table, IsolationLevel::ReadCommited, |transaction, _tm| {
+            let mut t = transaction.write();
+            let row = table.get(rid, &mut t);
+            assert!(row.is_some());
+
+            let row = row.unwrap();
+            assert_eq!(row.username(), "apple");
+            assert_eq!(row.email(), "apple@apple.com");
+        });
+
+        // Finally delete and commit it
+        tm.execute(&table, IsolationLevel::ReadCommited, |transaction, _tm| {
+            let mut t = transaction.write();
+            assert!(table.update(&row, &new_row, &rid, &mut t));
+        });
+
+        tm.execute(&table, IsolationLevel::ReadCommited, |transaction, _tm| {
+            let mut t = transaction.write();
+            let row = table.get(rid, &mut t);
+            assert!(row.is_some());
+
+            let row = row.unwrap();
+            assert_eq!(row.username(), "john");
+            assert_eq!(row.email(), "tim@apple.com");
         });
 
         cleanup_table();
