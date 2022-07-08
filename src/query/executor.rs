@@ -34,6 +34,7 @@ impl ExecutionEngine {
                 self.execution_context.clone(),
                 plan_node,
             )),
+            _ => unimplemented!("oops"),
         };
 
         while let Some(result) = executor.next() {
