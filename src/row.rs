@@ -6,7 +6,7 @@ const USERNAME_SIZE: usize = 32;
 const EMAIL_SIZE: usize = 255;
 pub const ROW_SIZE: usize = USERNAME_SIZE + EMAIL_SIZE + 4 + std::mem::size_of::<bool>(); // u32 is 4 x u8;
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct Row {
     pub id: u32,
     #[serde(with = "BigArray")]

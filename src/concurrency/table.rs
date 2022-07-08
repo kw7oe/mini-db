@@ -36,19 +36,10 @@ impl Iterator for TableIntoIter {
     type Item = (RowID, Row);
 
     fn next(&mut self) -> Option<Self::Item> {
-        // TODO: Figure out:
-        //
-        // - Can we achieve this without cloning?
-        // - Do we want to implement Iter and IntoIter trait for table?
         self.node.clone().and_then(|node| {
             let rid = RowID::new(self.page_id, self.slot_num);
             let item = node.get_row(self.slot_num);
-
-            if item.is_none() {
-                return None;
-            }
-
-            let item = item.unwrap();
+            let item = item.as_ref()?.to_owned();
 
             self.slot_num += 1;
 
@@ -179,10 +170,25 @@ impl Table {
         }
     }
 
-    pub fn update(row: &Row, rid: &mut RowID, transaction: Transaction) {
-        // Update Page
-
+    pub fn update(
+        &self,
+        row: &Row,
+        new_row: &Row,
+        rid: &RowID,
+        transaction: &mut RwLockWriteGuard<Transaction>,
+    ) -> bool {
         // Store old row? So that we can rollback the the old row when it is aborted.
+        if let Ok(mut page) = self.pager.fetch_write_page_guard(rid.page_id) {
+            page.update_row(rid.slot_num, new_row);
+            self.pager.unpin_page_with_write_guard(page, true);
+
+            let mut write_record = WriteRecord::new(WriteRecordType::Update, *rid, row.id);
+            write_record.old_row = Some(row.clone());
+            transaction.push_write_set(write_record);
+            true
+        } else {
+            false
+        }
     }
 }
 
@@ -210,6 +216,27 @@ mod test {
             assert_eq!(row.username(), format!("user{rid}"));
             rid += 1;
         }
+
+        cleanup_table();
+    }
+
+    #[test]
+    fn update_row() {
+        let tm = TransactionManager::new();
+        let table = setup_table(&tm);
+
+        let transaction = tm.begin(IsolationLevel::ReadCommited);
+        let mut t = transaction.write();
+        let rid = table.index_scan(2, &mut t).unwrap();
+        let row = Row::new("1", "user1", "user1@email.com").unwrap();
+        let new_row = Row::new("1", "john", "john@email.com").unwrap();
+        assert!(table.update(&row, &new_row, &rid, &mut t));
+
+        let row = table.get(rid, &mut t).unwrap();
+        assert_eq!(row.id, 1);
+        assert_eq!(row.username(), "john");
+        assert_eq!(row.email(), "john@email.com");
+        tm.commit(&table, &mut t);
 
         cleanup_table();
     }

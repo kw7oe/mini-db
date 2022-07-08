@@ -711,15 +711,7 @@ impl Pager {
             root_page_num,
             key,
             Operation::Insert,
-            |cursor, parent_page_guards, mut page| {
-                if cursor.key_existed {
-                    return None;
-                };
-
-                let node = page.node.as_ref().unwrap();
-                let num_of_cells = node.num_of_cells as usize;
-                Some((cursor.page_num, cursor.cell_num))
-            },
+            |cursor, _parent_page_guards, _page| Some((cursor.page_num, cursor.cell_num)),
         )
     }
 

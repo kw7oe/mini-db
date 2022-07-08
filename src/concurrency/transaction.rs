@@ -1,4 +1,5 @@
 use super::table::RowID;
+use crate::row::Row;
 use std::collections::HashSet;
 
 #[derive(Debug, PartialEq)]
@@ -13,11 +14,17 @@ pub struct WriteRecord {
     pub rid: RowID,
     pub key: u32,
     pub wr_type: WriteRecordType,
+    pub old_row: Option<Row>,
 }
 
 impl WriteRecord {
     pub fn new(wr_type: WriteRecordType, rid: RowID, key: u32) -> Self {
-        Self { wr_type, rid, key }
+        Self {
+            wr_type,
+            rid,
+            key,
+            old_row: None,
+        }
     }
 }
 

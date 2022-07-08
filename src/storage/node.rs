@@ -90,7 +90,7 @@ impl Cell {
         self.0[offset + ROW_SIZE - 1] = 0;
     }
 
-    fn write_value(&mut self, row: &Row) {
+    pub fn write_value(&mut self, row: &Row) {
         let offset = LEAF_NODE_KEY_SIZE;
         let row_in_bytes = bincode::serialize(row).unwrap();
 

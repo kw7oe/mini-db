@@ -49,6 +49,16 @@ impl Page {
                 true
             })
     }
+
+    pub fn update_row(&mut self, slot_num: usize, new_row: &Row) -> bool {
+        self.node
+            .as_mut()
+            .and_then(|node| node.get_mut_cell(slot_num))
+            .map_or(false, |cell| {
+                cell.write_value(new_row);
+                true
+            })
+    }
 }
 
 #[cfg(test)]
