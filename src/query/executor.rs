@@ -30,6 +30,10 @@ impl ExecutionEngine {
                 self.execution_context.clone(),
                 plan_node,
             )),
+            PlanNode::Update(plan_node) => Box::new(UpdateExecutor::new(
+                self.execution_context.clone(),
+                plan_node,
+            )),
             PlanNode::Delete(plan_node) => Box::new(DeleteExecutor::new(
                 self.execution_context.clone(),
                 plan_node,
