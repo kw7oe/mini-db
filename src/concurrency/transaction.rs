@@ -15,6 +15,7 @@ pub struct WriteRecord {
     pub key: u32,
     pub wr_type: WriteRecordType,
     pub old_row: Option<Row>,
+    pub columns: Vec<String>,
 }
 
 impl WriteRecord {
@@ -24,6 +25,7 @@ impl WriteRecord {
             rid,
             key,
             old_row: None,
+            columns: vec![],
         }
     }
 }

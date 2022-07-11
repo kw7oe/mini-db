@@ -10,9 +10,9 @@ pub const ROW_SIZE: usize = USERNAME_SIZE + EMAIL_SIZE + 4 + std::mem::size_of::
 pub struct Row {
     pub id: u32,
     #[serde(with = "BigArray")]
-    username: [u8; USERNAME_SIZE],
+    pub username: [u8; USERNAME_SIZE],
     #[serde(with = "BigArray")]
-    email: [u8; EMAIL_SIZE],
+    pub email: [u8; EMAIL_SIZE],
     pub is_deleted: bool,
 }
 
@@ -43,6 +43,18 @@ impl Row {
             username,
             email,
         })
+    }
+
+    pub fn update(&mut self, column: &str, new_row: &Row) {
+        match column {
+            "username" => {
+                self.username = new_row.username;
+            }
+            "email" => {
+                self.email = new_row.email;
+            }
+            _ => panic!("invalid column name: {}", column),
+        }
     }
 
     pub fn username(&self) -> String {

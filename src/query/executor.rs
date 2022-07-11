@@ -1,6 +1,6 @@
 use parking_lot::RwLock;
 
-use super::query_plan::{DeletePlanNode, PlanNode, SeqScanPlanNode};
+use super::query_plan::{DeletePlanNode, PlanNode, SeqScanPlanNode, UpdatePlanNode};
 use crate::{
     concurrency::{RowID, Table, TableIntoIter, Transaction},
     row::Row,
@@ -118,6 +118,54 @@ impl Executor for DeleteExecutor {
     }
 }
 
+pub struct UpdateExecutor {
+    execution_context: Arc<ExecutionContext>,
+    plan_node: UpdatePlanNode,
+    affected_row: usize,
+    iter: Option<Box<dyn Executor>>,
+}
+
+impl UpdateExecutor {
+    pub fn new(ctx: Arc<ExecutionContext>, plan_node: UpdatePlanNode) -> Self {
+        Self {
+            plan_node,
+            execution_context: ctx,
+            affected_row: 0,
+            iter: None,
+        }
+    }
+}
+
+impl Executor for UpdateExecutor {
+    fn next(&mut self) -> Option<(RowID, Row)> {
+        if self.iter.is_none() {
+            self.iter = Some(Box::new(SequenceScanExecutor::new(
+                self.execution_context.clone(),
+                self.plan_node.child.clone(),
+            )));
+        }
+
+        let executor = self.iter.as_mut().unwrap();
+
+        if let Some((rid, row)) = executor.next() {
+            let mut t = self.execution_context.transaction.write();
+            self.execution_context.table.update(
+                &row,
+                &self.plan_node.new_row,
+                &self.plan_node.columns,
+                &rid,
+                &mut t,
+            );
+
+            drop(t);
+            self.affected_row += 1;
+            Some((rid, row))
+        } else {
+            None
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -181,7 +229,7 @@ mod test {
     }
 
     #[test]
-    fn delete_executor() {
+    fn delete_executor_with_seq_scan() {
         let predicate = "".to_string();
         let seq_plan_node = SeqScanPlanNode {
             predicate: predicate.clone(),
@@ -213,6 +261,50 @@ mod test {
         let seq_plan_node = SeqScanPlanNode { predicate };
         let mut executor = SequenceScanExecutor::new(ctx, seq_plan_node);
         assert!(executor.next().is_none());
+
+        cleanup_table();
+    }
+
+    #[test]
+    fn update_executor_with_seq_scan() {
+        let predicate = "".to_string();
+        let seq_plan_node = SeqScanPlanNode {
+            predicate: predicate.clone(),
+        };
+        let tm = TransactionManager::new();
+        let table = setup_table(&tm);
+        let transaction = tm.begin(IsolationLevel::ReadCommited);
+
+        let ctx = Arc::new(ExecutionContext {
+            table: Arc::new(table),
+            transaction,
+        });
+
+        let new_row = Row::new("0", "user1", "email").unwrap();
+        let columns = vec!["username".to_string()];
+        let plan_node = UpdatePlanNode {
+            child: seq_plan_node,
+            new_row,
+            columns,
+        };
+        let mut executor = UpdateExecutor::new(ctx.clone(), plan_node);
+
+        let mut count = 0;
+        while executor.next().is_some() {
+            count += 1;
+        }
+        assert_eq!(count, 49);
+
+        let mut t = ctx.transaction.write();
+        tm.commit(&ctx.table, &mut t);
+        drop(t);
+
+        let seq_plan_node = SeqScanPlanNode { predicate };
+        let mut executor = SequenceScanExecutor::new(ctx, seq_plan_node);
+        while let Some((_, row)) = executor.next() {
+            assert_eq!(row.username(), "user1");
+            assert!(row.id != 0);
+        }
 
         cleanup_table();
     }

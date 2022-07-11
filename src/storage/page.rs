@@ -50,12 +50,12 @@ impl Page {
             })
     }
 
-    pub fn update_row(&mut self, slot_num: usize, new_row: &Row) -> bool {
+    pub fn update_row(&mut self, slot_num: usize, new_row: &Row, columns: &Vec<String>) -> bool {
         self.node
             .as_mut()
             .and_then(|node| node.get_mut_cell(slot_num))
             .map_or(false, |cell| {
-                cell.write_value(new_row);
+                cell.update(columns, new_row);
                 true
             })
     }

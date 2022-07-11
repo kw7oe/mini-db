@@ -34,6 +34,7 @@ pub struct InsertPlanNode {
 pub struct UpdatePlanNode {
     pub child: SeqScanPlanNode,
     pub new_row: Row,
+    pub columns: Vec<String>,
 }
 
 #[derive(Clone)]

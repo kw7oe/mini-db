@@ -84,6 +84,7 @@ impl Table {
     pub fn iter(&self) -> TableIntoIter {
         // Search for the first leaf node
         let page = self.search_page(0, 0);
+        let page_id = page.page_id.unwrap();
         let node = page.node.clone().unwrap();
         self.pager.unpin_page_with_read_guard(page, false);
         assert_eq!(node.node_type, NodeType::Leaf);
@@ -91,7 +92,7 @@ impl Table {
         TableIntoIter {
             pager: self.pager.clone(),
             node: Some(node),
-            page_id: 0,
+            page_id,
             slot_num: 0,
         }
     }
@@ -174,26 +175,29 @@ impl Table {
         &self,
         row: &Row,
         new_row: &Row,
+        columns: &Vec<String>,
         rid: &RowID,
         transaction: &mut RwLockWriteGuard<Transaction>,
     ) -> bool {
         // Store old row? So that we can rollback the the old row when it is aborted.
         if let Ok(mut page) = self.pager.fetch_write_page_guard(rid.page_id) {
-            page.update_row(rid.slot_num, new_row);
+            assert!(page.update_row(rid.slot_num, new_row, columns));
             self.pager.unpin_page_with_write_guard(page, true);
 
             let mut write_record = WriteRecord::new(WriteRecordType::Update, *rid, row.id);
             write_record.old_row = Some(row.clone());
+            write_record.columns = columns.clone();
             transaction.push_write_set(write_record);
+
             true
         } else {
             false
         }
     }
 
-    pub fn rollback_update(&self, rid: &RowID, row: &Row) {
+    pub fn rollback_update(&self, rid: &RowID, row: &Row, columns: &Vec<String>) {
         if let Ok(mut page) = self.pager.fetch_write_page_guard(rid.page_id) {
-            page.update_row(rid.slot_num, row);
+            page.update_row(rid.slot_num, row, columns);
             self.pager.unpin_page_with_write_guard(page, true);
         }
     }
@@ -234,10 +238,11 @@ mod test {
 
         let transaction = tm.begin(IsolationLevel::ReadCommited);
         let mut t = transaction.write();
-        let rid = table.index_scan(2, &mut t).unwrap();
+        let rid = table.index_scan(1, &mut t).unwrap();
         let row = Row::new("1", "user1", "user1@email.com").unwrap();
         let new_row = Row::new("1", "john", "john@email.com").unwrap();
-        assert!(table.update(&row, &new_row, &rid, &mut t));
+        let columns = vec!["username".to_string(), "email".to_string()];
+        assert!(table.update(&row, &new_row, &columns, &rid, &mut t));
 
         let row = table.get(rid, &mut t).unwrap();
         assert_eq!(row.id, 1);

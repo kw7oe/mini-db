@@ -94,10 +94,19 @@ impl Cell {
         let offset = LEAF_NODE_KEY_SIZE;
         let row_in_bytes = bincode::serialize(row).unwrap();
 
-        // for i in 0..ROW_SIZE {
-        //     self.0[offset + i] = row_in_bytes[i];
-        // }
         self.0[offset..(ROW_SIZE + offset)].clone_from_slice(&row_in_bytes[..ROW_SIZE]);
+    }
+
+    pub fn update(&mut self, columns: &Vec<String>, new_row: &Row) {
+        let offset = LEAF_NODE_KEY_SIZE;
+        let row_in_bytes = &self.0[offset..(ROW_SIZE + offset)];
+        let mut row: Row = bincode::deserialize(row_in_bytes).unwrap();
+
+        for column in columns {
+            row.update(column, new_row);
+        }
+
+        self.write_value(&row);
     }
 }
 

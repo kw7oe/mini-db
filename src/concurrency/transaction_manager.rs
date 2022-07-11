@@ -74,7 +74,9 @@ impl TransactionManager {
             match wr.wr_type {
                 WriteRecordType::Insert => table.apply_delete(wr.key),
                 WriteRecordType::Delete => table.rollback_delete(&wr.rid),
-                WriteRecordType::Update => table.rollback_update(&wr.rid, &wr.old_row.unwrap()),
+                WriteRecordType::Update => {
+                    table.rollback_update(&wr.rid, &wr.old_row.unwrap(), &wr.columns)
+                }
             }
         }
 
@@ -255,9 +257,10 @@ mod test {
 
         // Update and abort
         let new_row = Row::from_str("1 john tim@apple.com").unwrap();
+        let columns = vec!["username".to_string(), "email".to_string()];
         tm.execute(&table, IsolationLevel::ReadCommited, |transaction, tm| {
             let mut t = transaction.write();
-            assert!(table.update(&row, &new_row, &rid, &mut t));
+            assert!(table.update(&row, &new_row, &columns, &rid, &mut t));
             tm.abort(&table, &mut t);
             assert_eq!(t.state, TransactionState::Aborted);
         });
@@ -285,7 +288,7 @@ mod test {
         // Finally delete and commit it
         tm.execute(&table, IsolationLevel::ReadCommited, |transaction, _tm| {
             let mut t = transaction.write();
-            assert!(table.update(&row, &new_row, &rid, &mut t));
+            assert!(table.update(&row, &new_row, &columns, &rid, &mut t));
         });
 
         tm.execute(&table, IsolationLevel::ReadCommited, |transaction, _tm| {
