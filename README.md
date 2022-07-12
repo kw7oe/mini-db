@@ -82,7 +82,7 @@ quick breakdown on what I'm going to implement next:
   test case that can lead to read/write anomalies.
     - [x] Implement update plan node.
     - [x] Implement update executor.
-    - [ ] Support usage of index scan in update plan node.
+    - [x] Support usage of index scan in update plan node.
   - [ ] Write test to ensure that two phase locking works on all read and write
     anomolies.
   - [ ] Implement concurrent query execution.

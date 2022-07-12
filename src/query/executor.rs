@@ -181,6 +181,12 @@ impl Executor for UpdateExecutor {
     fn next(&mut self) -> Option<(RowID, Row)> {
         if self.iter.is_none() {
             match self.plan_node.child.as_ref() {
+                PlanNode::IndexScan(plan_node) => {
+                    self.iter = Some(Box::new(IndexScanExecutor::new(
+                        self.execution_context.clone(),
+                        plan_node.clone(),
+                    )));
+                }
                 PlanNode::SeqScan(plan_node) => {
                     self.iter = Some(Box::new(SequenceScanExecutor::new(
                         self.execution_context.clone(),
@@ -371,6 +377,40 @@ mod test {
             assert_eq!(row.username(), "user1");
             assert!(row.id != 0);
         }
+
+        cleanup_table();
+    }
+
+    #[test]
+    fn update_executor_with_index_scan() {
+        let tm = TransactionManager::new();
+        let table = setup_table(&tm);
+        let transaction = tm.begin(IsolationLevel::ReadCommited);
+        let ctx = Arc::new(ExecutionContext {
+            table: Arc::new(table),
+            transaction,
+        });
+        let execution_engine = ExecutionEngine::new(ctx);
+
+        let child_plan_node = IndexScanPlanNode { key: 15 };
+        let update_plan_node = UpdatePlanNode {
+            child: Box::new(PlanNode::IndexScan(child_plan_node.clone())),
+            columns: vec!["email".to_string()],
+            new_row: Row::new("0", "0", "new@email.com").unwrap(),
+        };
+
+        let result = execution_engine.execute(PlanNode::Update(update_plan_node));
+        assert_eq!(result.len(), 1);
+        let (_, row) = &result[0];
+        assert_eq!(row.id, 15);
+        // We can't assert email here since, our current implementation doesn't return
+        // the updated row.
+
+        let result = execution_engine.execute(PlanNode::IndexScan(child_plan_node));
+        assert_eq!(result.len(), 1);
+        let (_, row) = &result[0];
+        assert_eq!(row.id, 15);
+        assert_eq!(row.email(), "new@email.com");
 
         cleanup_table();
     }
