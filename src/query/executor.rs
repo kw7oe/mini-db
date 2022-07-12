@@ -143,10 +143,15 @@ impl UpdateExecutor {
 impl Executor for UpdateExecutor {
     fn next(&mut self) -> Option<(RowID, Row)> {
         if self.iter.is_none() {
-            self.iter = Some(Box::new(SequenceScanExecutor::new(
-                self.execution_context.clone(),
-                self.plan_node.child.clone(),
-            )));
+            match self.plan_node.child.as_ref() {
+                PlanNode::SeqScan(plan_node) => {
+                    self.iter = Some(Box::new(SequenceScanExecutor::new(
+                        self.execution_context.clone(),
+                        plan_node.clone(),
+                    )));
+                }
+                _ => panic!("unsupported plan node for child"),
+            }
         }
 
         let executor = self.iter.as_mut().unwrap();
@@ -287,7 +292,7 @@ mod test {
         let new_row = Row::new("0", "user1", "email").unwrap();
         let columns = vec!["username".to_string()];
         let plan_node = UpdatePlanNode {
-            child: seq_plan_node,
+            child: Box::new(PlanNode::SeqScan(seq_plan_node)),
             new_row,
             columns,
         };

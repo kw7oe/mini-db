@@ -1,5 +1,6 @@
 use crate::row::Row;
 
+#[derive(Clone)]
 pub enum PlanNode {
     SeqScan(SeqScanPlanNode),
     IndexScan(IndexScanPlanNode),
@@ -32,7 +33,7 @@ pub struct InsertPlanNode {
 // retrive the affected rows.
 #[derive(Clone)]
 pub struct UpdatePlanNode {
-    pub child: SeqScanPlanNode,
+    pub child: Box<PlanNode>,
     pub new_row: Row,
     pub columns: Vec<String>,
 }
