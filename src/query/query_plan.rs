@@ -16,7 +16,7 @@ pub struct SeqScanPlanNode {
 
 #[derive(Clone)]
 pub struct IndexScanPlanNode {
-    pub predicate: String,
+    pub key: u32,
 }
 
 #[derive(Clone)]

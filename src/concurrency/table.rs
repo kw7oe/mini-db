@@ -73,11 +73,14 @@ impl Table {
         &self,
         key: u32,
         transaction: &mut RwLockWriteGuard<Transaction>,
-    ) -> Option<RowID> {
-        self.pager.search(0, key).map(|(page_id, slot_num)| {
+    ) -> Option<(RowID, Row)> {
+        self.pager.search(0, key).and_then(|(page_id, slot_num)| {
             let row_id = RowID::new(page_id, slot_num);
-            self.lock_manager.lock_shared(transaction, row_id);
-            row_id
+
+            self.get(row_id.clone(), transaction).map(|row| {
+                self.lock_manager.lock_shared(transaction, row_id);
+                (row_id, row)
+            })
         })
     }
 
@@ -238,8 +241,7 @@ mod test {
 
         let transaction = tm.begin(IsolationLevel::ReadCommited);
         let mut t = transaction.write();
-        let rid = table.index_scan(1, &mut t).unwrap();
-        let row = Row::new("1", "user1", "user1@email.com").unwrap();
+        let (rid, row) = table.index_scan(1, &mut t).unwrap();
         let new_row = Row::new("1", "john", "john@email.com").unwrap();
         let columns = vec!["username".to_string(), "email".to_string()];
         assert!(table.update(&row, &new_row, &columns, &rid, &mut t));

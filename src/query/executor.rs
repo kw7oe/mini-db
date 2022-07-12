@@ -1,6 +1,8 @@
 use parking_lot::RwLock;
 
-use super::query_plan::{DeletePlanNode, PlanNode, SeqScanPlanNode, UpdatePlanNode};
+use super::query_plan::{
+    DeletePlanNode, IndexScanPlanNode, PlanNode, SeqScanPlanNode, UpdatePlanNode,
+};
 use crate::{
     concurrency::{RowID, Table, TableIntoIter, Transaction},
     row::Row,
@@ -26,6 +28,10 @@ impl ExecutionEngine {
     pub fn execute(&self, plan_node: PlanNode) -> Vec<(RowID, Row)> {
         let mut result_set = Vec::new();
         let mut executor: Box<dyn Executor> = match plan_node {
+            PlanNode::IndexScan(plan_node) => Box::new(IndexScanExecutor::new(
+                self.execution_context.clone(),
+                plan_node,
+            )),
             PlanNode::SeqScan(plan_node) => Box::new(SequenceScanExecutor::new(
                 self.execution_context.clone(),
                 plan_node,
@@ -78,6 +84,37 @@ impl Executor for SequenceScanExecutor {
 
         let iter = self.iter.as_mut().unwrap();
         iter.next()
+    }
+}
+
+// Currently our index scan executor only support getting
+// 1 row. and index scan by row.id.
+pub struct IndexScanExecutor {
+    execution_context: Arc<ExecutionContext>,
+    plan_node: IndexScanPlanNode,
+    ended: bool,
+}
+
+impl IndexScanExecutor {
+    pub fn new(ctx: Arc<ExecutionContext>, plan_node: IndexScanPlanNode) -> Self {
+        Self {
+            plan_node,
+            execution_context: ctx,
+            ended: false,
+        }
+    }
+}
+
+impl Executor for IndexScanExecutor {
+    fn next(&mut self) -> Option<(RowID, Row)> {
+        if self.ended {
+            None
+        } else {
+            let table = &self.execution_context.table;
+            let mut t = self.execution_context.transaction.write();
+            self.ended = true;
+            table.index_scan(self.plan_node.key, &mut t)
+        }
     }
 }
 
@@ -207,6 +244,26 @@ mod test {
             assert_eq!(row.id, id);
             id += 1;
         }
+
+        cleanup_table();
+    }
+
+    #[test]
+    fn index_scan_executor() {
+        let tm = TransactionManager::new();
+        let table = setup_table(&tm);
+        let transaction = tm.begin(IsolationLevel::ReadCommited);
+        let ctx = Arc::new(ExecutionContext {
+            table: Arc::new(table),
+            transaction,
+        });
+        let execution_engine = ExecutionEngine::new(ctx);
+
+        let plan_node = IndexScanPlanNode { key: 15 };
+        let result = execution_engine.execute(PlanNode::IndexScan(plan_node));
+        assert_eq!(result.len(), 1);
+        let (_, row) = &result[0];
+        assert_eq!(row.id, 15);
 
         cleanup_table();
     }
