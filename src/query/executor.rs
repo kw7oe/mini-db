@@ -14,6 +14,12 @@ pub struct ExecutionContext {
     transaction: Arc<RwLock<Transaction>>,
 }
 
+impl ExecutionContext {
+    pub fn new(table: Arc<Table>, transaction: Arc<RwLock<Transaction>>) -> Self {
+        Self { table, transaction }
+    }
+}
+
 pub struct ExecutionEngine {
     execution_context: Arc<ExecutionContext>,
 }

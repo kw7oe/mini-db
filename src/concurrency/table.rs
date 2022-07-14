@@ -77,7 +77,7 @@ impl Table {
         self.pager.search(0, key).and_then(|(page_id, slot_num)| {
             let row_id = RowID::new(page_id, slot_num);
 
-            self.get(row_id.clone(), transaction).map(|row| {
+            self.get(row_id, transaction).map(|row| {
                 self.lock_manager.lock_shared(transaction, row_id);
                 (row_id, row)
             })
