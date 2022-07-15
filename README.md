@@ -87,6 +87,10 @@ quick breakdown on what I'm going to implement next:
     anomolies.
     - [ ] Update query executor, table to ensure lock is acquired correctly so the
       tests for read/write anomolies passed.
+    - Currently, the test is only available for index scan executor. To
+      ensure, we can test the read/write anomolies with sequence scan, we need
+      to first support where expression evaluation in our query engine.
+      Which would be a task for another day.
   - [ ] Implement concurrent query execution.
   - [ ] Implement dead lock prevention. (Wound Wait algorithm)
     _([Reference](https://15445.courses.cs.cmu.edu/fall2021/project4/#deadlock_prevention))_
