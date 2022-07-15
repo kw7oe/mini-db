@@ -83,8 +83,10 @@ quick breakdown on what I'm going to implement next:
     - [x] Implement update plan node.
     - [x] Implement update executor.
     - [x] Support usage of index scan in update plan node.
-  - [ ] Write test to ensure that two phase locking works on all read and write
+  - [x] Write test to ensure that two phase locking works on all read and write
     anomolies.
+    - [ ] Update query executor, table to ensure lock is acquired correctly so the
+      tests for read/write anomolies passed.
   - [ ] Implement concurrent query execution.
   - [ ] Implement dead lock prevention. (Wound Wait algorithm)
     _([Reference](https://15445.courses.cs.cmu.edu/fall2021/project4/#deadlock_prevention))_
