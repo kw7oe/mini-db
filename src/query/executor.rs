@@ -129,26 +129,28 @@ impl Executor for IndexScanExecutor {
             let mut t = self.execution_context.transaction.write();
             self.ended = true;
 
-            // Okay we can't do this because, while we are indeed blocking until lock is
-            // granted, we are still returning result that we obtained before we get a lock.
+            // Get Row ID first, so we could ask for a lock from the lock manager.
             //
-            // This implementation get the row id and row first before it ask a lock from
-            // the lock manager, which make the locking pointless...
-            table.index_scan(self.plan_node.key, &mut t).map(|result| {
-                // For the simplicity of implementation,
-                // let's always take an exclusive lock.
-                //
-                // Later on, we'll use lock_upgrade to
-                // upgrade our shared lock to exclusive lock
-                // in update/delete exectuor.
-                if !t.is_exclusive_lock(&result.0) {
-                    self.execution_context
-                        .lock_manager
-                        .lock_exclusive(&mut t, result.0);
-                }
+            // We can only get the row after lock manager grant us the lock.
+            table
+                .get_row_id(self.plan_node.key, &mut t)
+                .and_then(|row_id| {
+                    // For the simplicity of implementation,
+                    // let's always take an exclusive lock.
+                    //
+                    // Later on, we'll use lock_upgrade to
+                    // upgrade our shared lock to exclusive lock
+                    // in update/delete exectuor.
+                    if !t.is_exclusive_lock(&row_id) {
+                        self.execution_context
+                            .lock_manager
+                            // TODO: We should pass &row_id
+                            .lock_exclusive(&mut t, row_id);
+                    }
 
-                result
-            })
+                    // TODO: we should probably just pass &row_id as well
+                    table.get(row_id, &mut t).map(|row| (row_id, row))
+                })
         }
     }
 }

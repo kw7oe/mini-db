@@ -69,15 +69,14 @@ impl Table {
         }
     }
 
-    pub fn index_scan(
+    pub fn get_row_id(
         &self,
         key: u32,
         transaction: &mut RwLockWriteGuard<Transaction>,
-    ) -> Option<(RowID, Row)> {
-        self.pager.search(0, key).and_then(|(page_id, slot_num)| {
+    ) -> Option<RowID> {
+        self.pager.search(0, key).map(|(page_id, slot_num)| {
             let row_id = RowID::new(page_id, slot_num);
-
-            self.get(row_id, transaction).map(|row| (row_id, row))
+            row_id
         })
     }
 
@@ -121,9 +120,7 @@ impl Table {
 
     pub fn get(&self, rid: RowID, transaction: &mut RwLockWriteGuard<Transaction>) -> Option<Row> {
         if let Ok(page) = self.pager.fetch_read_page_guard(rid.page_id) {
-            let row = page.get_row(rid.slot_num);
-            println!("Row: {}", row.as_ref().unwrap().username());
-            row
+            page.get_row(rid.slot_num)
         } else {
             transaction.set_state(super::transaction::TransactionState::Aborted);
             None
@@ -243,7 +240,8 @@ mod test {
 
         let transaction = tm.begin(IsolationLevel::ReadCommited);
         let mut t = transaction.write();
-        let (rid, row) = table.index_scan(1, &mut t).unwrap();
+        let rid = table.get_row_id(1, &mut t).unwrap();
+        let row = Row::new("1", "user1", "user1@email.com").unwrap();
         let new_row = Row::new("1", "john", "john@email.com").unwrap();
         let columns = vec!["username".to_string(), "email".to_string()];
         assert!(table.update(&row, &new_row, &columns, &rid, &mut t));
