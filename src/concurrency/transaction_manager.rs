@@ -75,6 +75,7 @@ impl TransactionManager {
                 WriteRecordType::Insert => table.apply_delete(wr.key),
                 WriteRecordType::Delete => table.rollback_delete(&wr.rid),
                 WriteRecordType::Update => {
+                    println!("rollback update");
                     table.rollback_update(&wr.rid, &wr.old_row.unwrap(), &wr.columns)
                 }
             }

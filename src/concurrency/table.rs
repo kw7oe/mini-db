@@ -121,7 +121,9 @@ impl Table {
 
     pub fn get(&self, rid: RowID, transaction: &mut RwLockWriteGuard<Transaction>) -> Option<Row> {
         if let Ok(page) = self.pager.fetch_read_page_guard(rid.page_id) {
-            page.get_row(rid.slot_num)
+            let row = page.get_row(rid.slot_num);
+            println!("Row: {}", row.as_ref().unwrap().username());
+            row
         } else {
             transaction.set_state(super::transaction::TransactionState::Aborted);
             None
@@ -197,6 +199,7 @@ impl Table {
 
     pub fn rollback_update(&self, rid: &RowID, row: &Row, columns: &Vec<String>) {
         if let Ok(mut page) = self.pager.fetch_write_page_guard(rid.page_id) {
+            println!("rollback update for real: {}", row.username());
             page.update_row(rid.slot_num, row, columns);
             self.pager.unpin_page_with_write_guard(page, true);
         }

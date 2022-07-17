@@ -94,11 +94,10 @@ mod test {
         }
     }
 
-    #[ignore]
     #[test]
     fn dirty_read() {
         // A bit of fuzzing.
-        for _ in 0..100 {
+        for _ in 0..1 {
             // Dirty reads (Read of uncommited data)
             //  T1            T2
             // BEGIN
@@ -129,7 +128,9 @@ mod test {
                     new_row: Row::new("0", "new_name", "").unwrap(),
                 });
 
+                println!("T1 started");
                 let result = execution_engine.execute(index_scan_plan_node.clone());
+                println!("T1 R(A)");
                 let (_rid, row) = &result[0];
                 assert_eq!(row.id, 5);
                 assert_eq!(row.username(), "user5");
@@ -141,11 +142,13 @@ mod test {
                 assert_eq!(row.id, 5);
                 assert_eq!(row.username(), "new_name");
 
+                println!("T1 W(A)");
                 // Make sure that T2 finish it's transaction before we abort
                 std::thread::sleep(std::time::Duration::from_millis(20));
 
                 let mut t1 = t1.write();
                 tm.abort(&tb, &mut t1);
+                println!("T1 aborted")
             });
 
             // Transaction 2
@@ -163,13 +166,19 @@ mod test {
                 let execution_engine = ExecutionEngine::new(ctx2);
                 let index_scan_plan_node = PlanNode::IndexScan(IndexScanPlanNode { key: 5 });
 
+                // Make sure T1 started first
+                std::thread::sleep(std::time::Duration::from_millis(10));
+
+                println!("T2 started");
                 let result = execution_engine.execute(index_scan_plan_node);
+                println!("T2 R(A)");
                 let (_rid, row) = &result[0];
                 assert_eq!(row.id, 5);
                 assert_eq!(row.username(), "user5");
 
                 let mut t2 = t2.write();
                 tm.commit(&tb, &mut t2);
+                println!("T2 commit)");
             });
 
             handle.join().unwrap();

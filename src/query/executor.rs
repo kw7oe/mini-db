@@ -128,6 +128,12 @@ impl Executor for IndexScanExecutor {
             let table = &self.execution_context.table;
             let mut t = self.execution_context.transaction.write();
             self.ended = true;
+
+            // Okay we can't do this because, while we are indeed blocking until lock is
+            // granted, we are still returning result that we obtained before we get a lock.
+            //
+            // This implementation get the row id and row first before it ask a lock from
+            // the lock manager, which make the locking pointless...
             table.index_scan(self.plan_node.key, &mut t).map(|result| {
                 // For the simplicity of implementation,
                 // let's always take an exclusive lock.
