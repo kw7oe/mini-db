@@ -22,7 +22,6 @@ mod test {
     use std::str::FromStr;
     use std::sync::Arc;
 
-    #[ignore]
     #[test]
     fn repeatable_read() {
         // A bit of fuzzing.
@@ -37,8 +36,8 @@ mod test {
             //              COMMIT
             // R(A) -> 20
             // COMMIT
-            let transaction_manager = Arc::new(TransactionManager::new());
             let lock_manager = Arc::new(LockManager::new());
+            let transaction_manager = Arc::new(TransactionManager::new(lock_manager.clone()));
             let table = Arc::new(setup_table(&transaction_manager));
 
             // Transaction 1
@@ -111,8 +110,8 @@ mod test {
             //               W(A) -> +2 = 22
             //               COMMIT
             // COMMIT
-            let transaction_manager = Arc::new(TransactionManager::new());
             let lock_manager = Arc::new(LockManager::new());
+            let transaction_manager = Arc::new(TransactionManager::new(lock_manager.clone()));
             let table = Arc::new(setup_table(&transaction_manager));
 
             // Transaction 1
@@ -181,7 +180,6 @@ mod test {
     }
 
     #[test]
-    #[ignore]
     fn write_write() {
         // A bit of fuzzing.
         for _ in 0..100 {
@@ -200,8 +198,8 @@ mod test {
             //
             // Result: 20, And
             // Corrrct result: 10, And | 20, Lin (Depending on which transaction commit last)
-            let transaction_manager = Arc::new(TransactionManager::new());
             let lock_manager = Arc::new(LockManager::new());
+            let transaction_manager = Arc::new(TransactionManager::new(lock_manager.clone()));
             let table = Arc::new(setup_table(&transaction_manager));
 
             // Transaction 1

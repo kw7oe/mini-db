@@ -8,7 +8,7 @@ use std::sync::{self, atomic::AtomicU32, Arc};
 pub struct TransactionManager {
     next_txn_id: AtomicU32,
     transaction_map: Arc<RwLock<HashMap<u32, Arc<RwLock<Transaction>>>>>,
-    lock_manager: LockManager,
+    lock_manager: Arc<LockManager>,
 }
 
 // A couple of things we have potentially not implemented:
@@ -16,11 +16,11 @@ pub struct TransactionManager {
 //   - Cleaning up `transaction_map`. Currently, aborted and committed transactions
 //     are not removed from the map yet.
 impl TransactionManager {
-    pub fn new() -> Self {
+    pub fn new(lock_manager: Arc<LockManager>) -> Self {
         Self {
             next_txn_id: AtomicU32::new(1),
             transaction_map: Arc::new(RwLock::new(HashMap::new())),
-            lock_manager: LockManager::new(),
+            lock_manager,
         }
     }
 
@@ -106,9 +106,10 @@ impl TransactionManager {
 
 #[cfg(test)]
 mod test {
-    use super::{IsolationLevel, TransactionManager, TransactionState};
+    use super::{IsolationLevel, LockManager, TransactionManager, TransactionState};
     use crate::{concurrency::table::Table, row::Row};
     use std::str::FromStr;
+    use std::sync::Arc;
 
     fn setup_table() -> Table {
         Table::new(format!("test-{:?}.db", std::thread::current().id()), 4)
@@ -120,7 +121,8 @@ mod test {
 
     #[test]
     fn transaction_operations() {
-        let tm = TransactionManager::new();
+        let lm = LockManager::new();
+        let tm = TransactionManager::new(Arc::new(lm));
         let transaction = tm.begin(IsolationLevel::ReadUncommited);
         let transaction = transaction.read();
         assert_eq!(transaction.txn_id, 1);
@@ -144,7 +146,8 @@ mod test {
 
     #[test]
     fn execute_transaction() {
-        let tm = TransactionManager::new();
+        let lm = LockManager::new();
+        let tm = TransactionManager::new(Arc::new(lm));
         let table = setup_table();
         let row = Row::from_str("1 apple apple@apple.com").unwrap();
         tm.execute(&table, IsolationLevel::ReadCommited, |transaction, _tm| {
@@ -163,7 +166,8 @@ mod test {
 
     #[test]
     fn abort_transaction() {
-        let tm = TransactionManager::new();
+        let lm = LockManager::new();
+        let tm = TransactionManager::new(Arc::new(lm));
         let table = setup_table();
         let row = Row::from_str("1 apple apple@apple.com").unwrap();
         let rid = tm.execute(&table, IsolationLevel::ReadCommited, |transaction, tm| {
@@ -196,7 +200,8 @@ mod test {
 
     #[test]
     fn delete_abort_and_commit_transaction() {
-        let tm = TransactionManager::new();
+        let lm = LockManager::new();
+        let tm = TransactionManager::new(Arc::new(lm));
         let table = setup_table();
         let row = Row::from_str("1 apple apple@apple.com").unwrap();
         let rid = tm.execute(&table, IsolationLevel::ReadCommited, |transaction, _tm| {
@@ -247,7 +252,8 @@ mod test {
 
     #[test]
     fn update_abort_and_commit_transaction() {
-        let tm = TransactionManager::new();
+        let lm = LockManager::new();
+        let tm = TransactionManager::new(Arc::new(lm));
         let table = setup_table();
         let row = Row::from_str("1 apple apple@apple.com").unwrap();
         let rid = tm.execute(&table, IsolationLevel::ReadCommited, |transaction, _tm| {

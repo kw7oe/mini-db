@@ -77,10 +77,7 @@ impl Table {
         self.pager.search(0, key).and_then(|(page_id, slot_num)| {
             let row_id = RowID::new(page_id, slot_num);
 
-            self.get(row_id, transaction).map(|row| {
-                self.lock_manager.lock_shared(transaction, row_id);
-                (row_id, row)
-            })
+            self.get(row_id, transaction).map(|row| (row_id, row))
         })
     }
 
@@ -214,7 +211,8 @@ mod test {
 
     #[test]
     fn iter() {
-        let tm = TransactionManager::new();
+        let lock_manager = Arc::new(LockManager::new());
+        let tm = TransactionManager::new(lock_manager);
         let table = setup_table(&tm);
 
         let mut rid = 1;
@@ -236,7 +234,8 @@ mod test {
 
     #[test]
     fn update_row() {
-        let tm = TransactionManager::new();
+        let lock_manager = Arc::new(LockManager::new());
+        let tm = TransactionManager::new(lock_manager);
         let table = setup_table(&tm);
 
         let transaction = tm.begin(IsolationLevel::ReadCommited);

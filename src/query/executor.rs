@@ -128,7 +128,21 @@ impl Executor for IndexScanExecutor {
             let table = &self.execution_context.table;
             let mut t = self.execution_context.transaction.write();
             self.ended = true;
-            table.index_scan(self.plan_node.key, &mut t)
+            table.index_scan(self.plan_node.key, &mut t).map(|result| {
+                // For the simplicity of implementation,
+                // let's always take an exclusive lock.
+                //
+                // Later on, we'll use lock_upgrade to
+                // upgrade our shared lock to exclusive lock
+                // in update/delete exectuor.
+                if !t.is_exclusive_lock(&result.0) {
+                    self.execution_context
+                        .lock_manager
+                        .lock_exclusive(&mut t, result.0);
+                }
+
+                result
+            })
         }
     }
 }
@@ -247,14 +261,14 @@ mod test {
         let plan_node = SeqScanPlanNode {
             predicate: "".to_string(),
         };
-        let tm = TransactionManager::new();
-        let lm = LockManager::new();
+        let lm = Arc::new(LockManager::new());
+        let tm = TransactionManager::new(lm.clone());
         let table = setup_table(&tm);
         let transaction = tm.begin(IsolationLevel::ReadCommited);
 
         let ctx = Arc::new(ExecutionContext {
             table: Arc::new(table),
-            lock_manager: Arc::new(lm),
+            lock_manager: lm.clone(),
             transaction,
         });
 
@@ -273,14 +287,14 @@ mod test {
 
     #[test]
     fn index_scan_executor() {
-        let tm = TransactionManager::new();
-        let lm = LockManager::new();
+        let lm = Arc::new(LockManager::new());
+        let tm = TransactionManager::new(lm.clone());
         let table = setup_table(&tm);
         let transaction = tm.begin(IsolationLevel::ReadCommited);
 
         let ctx = Arc::new(ExecutionContext {
             table: Arc::new(table),
-            lock_manager: Arc::new(lm),
+            lock_manager: lm.clone(),
             transaction,
         });
         let execution_engine = ExecutionEngine::new(ctx);
@@ -300,14 +314,14 @@ mod test {
         // expression evaluation for it to work.
         let predicate = "name = 'user2'".to_string();
         let plan_node = SeqScanPlanNode { predicate };
-        let tm = TransactionManager::new();
-        let lm = LockManager::new();
+        let lm = Arc::new(LockManager::new());
+        let tm = TransactionManager::new(lm.clone());
         let table = setup_table(&tm);
         let transaction = tm.begin(IsolationLevel::ReadCommited);
 
         let ctx = Arc::new(ExecutionContext {
             table: Arc::new(table),
-            lock_manager: Arc::new(lm),
+            lock_manager: lm.clone(),
             transaction,
         });
         let mut executor = SequenceScanExecutor::new(ctx, plan_node);
@@ -327,14 +341,14 @@ mod test {
         let seq_plan_node = SeqScanPlanNode {
             predicate: predicate.clone(),
         };
-        let tm = TransactionManager::new();
-        let lm = LockManager::new();
+        let lm = Arc::new(LockManager::new());
+        let tm = TransactionManager::new(lm.clone());
         let table = setup_table(&tm);
         let transaction = tm.begin(IsolationLevel::ReadCommited);
 
         let ctx = Arc::new(ExecutionContext {
             table: Arc::new(table),
-            lock_manager: Arc::new(lm),
+            lock_manager: lm.clone(),
             transaction,
         });
 
@@ -366,14 +380,14 @@ mod test {
         let seq_plan_node = SeqScanPlanNode {
             predicate: predicate.clone(),
         };
-        let tm = TransactionManager::new();
-        let lm = LockManager::new();
+        let lm = Arc::new(LockManager::new());
+        let tm = TransactionManager::new(lm.clone());
         let table = setup_table(&tm);
         let transaction = tm.begin(IsolationLevel::ReadCommited);
 
         let ctx = Arc::new(ExecutionContext {
             table: Arc::new(table),
-            lock_manager: Arc::new(lm),
+            lock_manager: lm.clone(),
             transaction,
         });
 
@@ -408,14 +422,14 @@ mod test {
 
     #[test]
     fn update_executor_with_index_scan() {
-        let tm = TransactionManager::new();
-        let lm = LockManager::new();
+        let lm = Arc::new(LockManager::new());
+        let tm = TransactionManager::new(lm.clone());
         let table = setup_table(&tm);
         let transaction = tm.begin(IsolationLevel::ReadCommited);
 
         let ctx = Arc::new(ExecutionContext {
             table: Arc::new(table),
-            lock_manager: Arc::new(lm),
+            lock_manager: lm.clone(),
             transaction,
         });
         let execution_engine = ExecutionEngine::new(ctx);
