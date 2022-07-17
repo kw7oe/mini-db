@@ -4,6 +4,7 @@ mod transaction;
 mod transaction_manager;
 
 pub use {
+    lock_manager::LockManager,
     table::{RowID, Table, TableIntoIter},
     transaction::{IsolationLevel, Transaction},
     transaction_manager::TransactionManager,
@@ -11,6 +12,7 @@ pub use {
 
 #[cfg(test)]
 mod test {
+    use super::lock_manager::LockManager;
     use super::transaction_manager::TransactionManager;
     use super::{IsolationLevel, Table};
     use crate::query::{
@@ -36,14 +38,16 @@ mod test {
             // R(A) -> 20
             // COMMIT
             let transaction_manager = Arc::new(TransactionManager::new());
+            let lock_manager = Arc::new(LockManager::new());
             let table = Arc::new(setup_table(&transaction_manager));
 
             // Transaction 1
             let tm = transaction_manager.clone();
+            let lm = lock_manager.clone();
             let tb = table.clone();
             let handle = std::thread::spawn(move || {
                 let t1 = tm.begin(IsolationLevel::ReadCommited);
-                let ctx1 = Arc::new(ExecutionContext::new(tb.clone(), t1.clone()));
+                let ctx1 = Arc::new(ExecutionContext::new(tb.clone(), lm.clone(), t1.clone()));
                 let execution_engine = ExecutionEngine::new(ctx1);
                 let index_scan_plan_node = PlanNode::IndexScan(IndexScanPlanNode { key: 5 });
                 let result = execution_engine.execute(index_scan_plan_node.clone());
@@ -62,10 +66,11 @@ mod test {
 
             // Transaction 2
             let tm = transaction_manager.clone();
+            let lm = lock_manager.clone();
             let tb = table.clone();
             let handle2 = std::thread::spawn(move || {
                 let t2 = tm.begin(IsolationLevel::ReadCommited);
-                let ctx2 = Arc::new(ExecutionContext::new(tb.clone(), t2.clone()));
+                let ctx2 = Arc::new(ExecutionContext::new(tb.clone(), lm.clone(), t2.clone()));
                 let execution_engine = ExecutionEngine::new(ctx2);
                 let index_scan_plan_node = PlanNode::IndexScan(IndexScanPlanNode { key: 5 });
                 let update_plan_node = PlanNode::Update(UpdatePlanNode {
@@ -107,14 +112,16 @@ mod test {
             //               COMMIT
             // COMMIT
             let transaction_manager = Arc::new(TransactionManager::new());
+            let lock_manager = Arc::new(LockManager::new());
             let table = Arc::new(setup_table(&transaction_manager));
 
             // Transaction 1
             let tm = transaction_manager.clone();
+            let lm = lock_manager.clone();
             let tb = table.clone();
             let handle = std::thread::spawn(move || {
                 let t1 = tm.begin(IsolationLevel::ReadCommited);
-                let ctx1 = Arc::new(ExecutionContext::new(tb.clone(), t1.clone()));
+                let ctx1 = Arc::new(ExecutionContext::new(tb.clone(), lm.clone(), t1.clone()));
                 let execution_engine = ExecutionEngine::new(ctx1);
                 let index_scan_plan_node = PlanNode::IndexScan(IndexScanPlanNode { key: 5 });
                 let update_plan_node = PlanNode::Update(UpdatePlanNode {
@@ -149,10 +156,11 @@ mod test {
             //
             // So the R(A) will only be executed after T1 abort it transactions.
             let tm = transaction_manager.clone();
+            let lm = lock_manager.clone();
             let tb = table.clone();
             let handle2 = std::thread::spawn(move || {
                 let t2 = tm.begin(IsolationLevel::ReadCommited);
-                let ctx2 = Arc::new(ExecutionContext::new(tb.clone(), t2.clone()));
+                let ctx2 = Arc::new(ExecutionContext::new(tb.clone(), lm.clone(), t2.clone()));
                 let execution_engine = ExecutionEngine::new(ctx2);
                 let index_scan_plan_node = PlanNode::IndexScan(IndexScanPlanNode { key: 5 });
 
@@ -193,14 +201,16 @@ mod test {
             // Result: 20, And
             // Corrrct result: 10, And | 20, Lin (Depending on which transaction commit last)
             let transaction_manager = Arc::new(TransactionManager::new());
+            let lock_manager = Arc::new(LockManager::new());
             let table = Arc::new(setup_table(&transaction_manager));
 
             // Transaction 1
             let tm = transaction_manager.clone();
+            let lm = lock_manager.clone();
             let tb = table.clone();
             let handle = std::thread::spawn(move || {
                 let t1 = tm.begin(IsolationLevel::ReadCommited);
-                let ctx1 = Arc::new(ExecutionContext::new(tb.clone(), t1.clone()));
+                let ctx1 = Arc::new(ExecutionContext::new(tb.clone(), lm.clone(), t1.clone()));
                 let execution_engine = ExecutionEngine::new(ctx1);
                 let index_scan_plan_node = PlanNode::IndexScan(IndexScanPlanNode { key: 5 });
                 let update_plan_node_a = PlanNode::Update(UpdatePlanNode {
@@ -231,10 +241,11 @@ mod test {
 
             // Transaction 2
             let tm = transaction_manager.clone();
+            let lm = lock_manager.clone();
             let tb = table.clone();
             let handle2 = std::thread::spawn(move || {
                 let t2 = tm.begin(IsolationLevel::ReadCommited);
-                let ctx2 = Arc::new(ExecutionContext::new(tb.clone(), t2.clone()));
+                let ctx2 = Arc::new(ExecutionContext::new(tb.clone(), lm.clone(), t2.clone()));
                 let execution_engine = ExecutionEngine::new(ctx2);
                 let index_scan_plan_node = PlanNode::IndexScan(IndexScanPlanNode { key: 5 });
                 let update_plan_node_a = PlanNode::Update(UpdatePlanNode {
