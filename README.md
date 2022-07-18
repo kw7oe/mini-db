@@ -16,16 +16,39 @@ _(including previous years archive, since each year they have students
 implement different structure)_.
 
 While our B+ tree now support concurrent operations, it's still a single
-threaded database system.
+threaded database system, as our frontend (network/cli layer) doesn't support
+handling concurrent requests yet.
 
 _This is by no mean an idiomatic Rust implementation as I'm learning Rust
 along the way._
 
-## What's Next?
+## End Goal
+
+The main focus to write a storage engine from scratch. This project now
+includes it's own B+ Tree data structure, buffer pool, LRU replacement policy,
+transaction manager, and lock manager.
+
+What's next is to implement the recovery system by implement a log manager for
+our Write Ahead Log (WAL) and ARIES protocol.
+
+## Non Goals
+
+We won't go deep into the query engine. Currently, we have two variance of the
+query engine, one is written during the early phase where it just parse string
+and execute functions directly. The newer implementation includes a simplify
+query engine with query plan and query executor.
+
+We won't write our SQL query parser, query rewriter and optimizer for the time
+being.
+
+We would just write a simple enough query engine so we can test out our
+implementation.
+
+## Progress
 
 Since we have completed through the tutorial of Let's Build a Simple Database,
 we will have to come up with our own checklist for this project. Here's a
-quick breakdown on what I'm going to implement next:
+quick breakdown of my journey and what I'm going to implement next:
 
 - [x] Add test case for splitting node and updating parent, where the new node is not the most right child.
 - [x] Implement split on internal node.
@@ -78,7 +101,7 @@ quick breakdown on what I'm going to implement next:
   - [x] Implement a query executor.
     - Implemented both sequence scan and delete executor and plan node.
     - It is not integrated into the other part of the systems yet.
-  - [ ] Support update operation. This is important as it allow us to produce
+  - [x] Support update operation. This is important as it allow us to produce
   test case that can lead to read/write anomalies.
     - [x] Implement update plan node.
     - [x] Implement update executor.
@@ -95,28 +118,14 @@ quick breakdown on what I'm going to implement next:
   - [ ] Implement dead lock prevention. (Wound Wait algorithm)
     _([Reference](https://15445.courses.cs.cmu.edu/fall2021/project4/#deadlock_prevention))_
   - [ ] Implement dead lock detection.
+- [ ] Integrate with `pg_query.rs` to support SQL.
+  - This will allow us to easily test things by using SQL statement instead of
+    manually writing our query plan.
 - [ ] Implement recovery mechanism for our database.
   - [ ] Implement WAL.
   - [ ] Implement ARIES.
 
 _(subject to changes as we progress)_
-
-## End Goal
-
-The main focus is writing a storage engine from scratch. This means
-writing our own B+ Tree data structure, buffer pool and
-maybe WAL as well.
-
-If possible, we would also be writing the transaction, recovery
-and lock manager for our storage engine.
-
-## Non Goals
-
-We won't go deep into the query parser and optimizer, as well
-as our execution engine.
-
-We would just write a simple enough query and execution engine
-so we can test out our database.
 
 ## References
 
