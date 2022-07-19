@@ -177,15 +177,14 @@ impl Table {
         rid: &RowID,
         transaction: &mut RwLockWriteGuard<Transaction>,
     ) -> bool {
-        if let Ok(mut page) = self.pager.fetch_write_page_guard(rid.page_id) {
-            if transaction.is_shared_lock(rid) {
-                assert!(self.lock_manager.lock_upgrade(transaction, *rid));
-                println!("{:?}", transaction);
-            }
+        // Make sure we have access to a lock first before we acquire the write page
+        // from our pager.
+        if transaction.is_shared_lock(rid) {
+            assert!(self.lock_manager.lock_upgrade(transaction, *rid));
+        }
 
-            println!("update_row");
+        if let Ok(mut page) = self.pager.fetch_write_page_guard(rid.page_id) {
             assert!(page.update_row(rid.slot_num, new_row, columns));
-            println!("updated_row");
             self.pager.unpin_page_with_write_guard(page, true);
 
             let mut write_record = WriteRecord::new(WriteRecordType::Update, *rid, row.id);

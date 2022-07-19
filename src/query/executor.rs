@@ -135,7 +135,6 @@ impl Executor for IndexScanExecutor {
             table
                 .get_row_id(self.plan_node.key, &mut t)
                 .and_then(|row_id| {
-                    println!("got row_id");
                     // For the simplicity of implementation,
                     // let's always take an exclusive lock.
                     //
@@ -148,8 +147,6 @@ impl Executor for IndexScanExecutor {
                             // TODO: We should pass &row_id
                             .lock_shared(&mut t, row_id);
                     }
-
-                    println!("{:?}", t);
 
                     // TODO: we should probably just pass &row_id as well
                     table.get(row_id, &mut t).map(|row| (row_id, row))

@@ -277,7 +277,6 @@ impl LockManager {
                 .iter()
                 .any(|r| r.txn_id != transaction.txn_id && r.granted));
 
-            println!("proceed to upgrade lock");
             let result = request_queue
                 .iter_mut()
                 .find(|r| r.txn_id == transaction.txn_id)

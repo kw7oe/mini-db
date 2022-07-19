@@ -49,25 +49,19 @@ mod test {
                 let ctx1 = Arc::new(ExecutionContext::new(tb.clone(), lm.clone(), t1.clone()));
                 let execution_engine = ExecutionEngine::new(ctx1);
                 let index_scan_plan_node = PlanNode::IndexScan(IndexScanPlanNode { key: 5 });
-                println!("T1 read");
                 let result = execution_engine.execute(index_scan_plan_node.clone());
                 let (_rid, row) = &result[0];
                 assert_eq!(row.id, 5);
                 assert_eq!(row.username(), "user5");
-                println!("T1 readed");
 
                 // Make sure that T2 finish it's read write first before we attempt to read again.
                 std::thread::sleep(std::time::Duration::from_millis(15));
-                println!("T1 awake");
-                println!("T1 read");
                 let (_, row) = &execution_engine.execute(index_scan_plan_node)[0];
                 assert_eq!(row.id, 5);
                 assert_eq!(row.username(), "user5");
-                println!("T1 readed");
 
                 let mut t1 = t1.write();
                 tm.commit(&tb, &mut t1);
-                println!("T1 commit");
             });
 
             // Transaction 2
@@ -87,14 +81,10 @@ mod test {
 
                 // Make sure that T2 start later than T1..
                 std::thread::sleep(std::time::Duration::from_millis(10));
-                println!("T2 read");
                 execution_engine.execute(index_scan_plan_node);
-                println!("T2 update");
                 execution_engine.execute(update_plan_node);
-                println!("T2 updated");
                 let mut t2 = t2.write();
                 tm.commit(&tb, &mut t2);
-                println!("T2 commit");
             });
 
             handle.join().unwrap();
