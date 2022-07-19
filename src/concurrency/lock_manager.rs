@@ -182,7 +182,6 @@ impl LockManager {
 
         if let Some(inner) = lock_table.get(&rid) {
             let (request_queue, condvar) = &*inner.clone();
-            println!("{lock_table:?}");
             drop(lock_table);
 
             let mut request_queue = request_queue.lock();
@@ -218,7 +217,6 @@ impl LockManager {
                     break;
                 }
             }
-            println!("lock granted for {transaction:?}");
 
             // We are looping manually to ensure that
             // we don't have any request infront that still have
@@ -244,7 +242,6 @@ impl LockManager {
             queue.push_back(request);
             let mut lock_table = RwLockUpgradableReadGuard::upgrade(lock_table);
             lock_table.insert(rid, Arc::new((Mutex::new(queue), Condvar::new())));
-            println!("lock granted for {transaction:?}: {lock_table:?}");
             drop(lock_table);
 
             transaction.exclusive_lock_sets.insert(rid);
@@ -280,6 +277,7 @@ impl LockManager {
                 .iter()
                 .any(|r| r.txn_id != transaction.txn_id && r.granted));
 
+            println!("proceed to upgrade lock");
             let result = request_queue
                 .iter_mut()
                 .find(|r| r.txn_id == transaction.txn_id)

@@ -135,18 +135,21 @@ impl Executor for IndexScanExecutor {
             table
                 .get_row_id(self.plan_node.key, &mut t)
                 .and_then(|row_id| {
+                    println!("got row_id");
                     // For the simplicity of implementation,
                     // let's always take an exclusive lock.
                     //
                     // Later on, we'll use lock_upgrade to
                     // upgrade our shared lock to exclusive lock
                     // in update/delete exectuor.
-                    if !t.is_exclusive_lock(&row_id) {
+                    if !(t.is_shared_lock(&row_id) || t.is_exclusive_lock(&row_id)) {
                         self.execution_context
                             .lock_manager
                             // TODO: We should pass &row_id
-                            .lock_exclusive(&mut t, row_id);
+                            .lock_shared(&mut t, row_id);
                     }
+
+                    println!("{:?}", t);
 
                     // TODO: we should probably just pass &row_id as well
                     table.get(row_id, &mut t).map(|row| (row_id, row))
@@ -245,7 +248,6 @@ impl Executor for UpdateExecutor {
                 &rid,
                 &mut t,
             );
-
             drop(t);
             self.affected_row += 1;
             Some((rid, row))
@@ -271,7 +273,7 @@ mod test {
         };
         let lm = Arc::new(LockManager::new());
         let tm = TransactionManager::new(lm.clone());
-        let table = setup_table(&tm);
+        let table = setup_table(&tm, lm.clone());
         let transaction = tm.begin(IsolationLevel::ReadCommited);
 
         let ctx = Arc::new(ExecutionContext {
@@ -297,7 +299,7 @@ mod test {
     fn index_scan_executor() {
         let lm = Arc::new(LockManager::new());
         let tm = TransactionManager::new(lm.clone());
-        let table = setup_table(&tm);
+        let table = setup_table(&tm, lm.clone());
         let transaction = tm.begin(IsolationLevel::ReadCommited);
 
         let ctx = Arc::new(ExecutionContext {
@@ -324,7 +326,7 @@ mod test {
         let plan_node = SeqScanPlanNode { predicate };
         let lm = Arc::new(LockManager::new());
         let tm = TransactionManager::new(lm.clone());
-        let table = setup_table(&tm);
+        let table = setup_table(&tm, lm.clone());
         let transaction = tm.begin(IsolationLevel::ReadCommited);
 
         let ctx = Arc::new(ExecutionContext {
@@ -351,7 +353,7 @@ mod test {
         };
         let lm = Arc::new(LockManager::new());
         let tm = TransactionManager::new(lm.clone());
-        let table = setup_table(&tm);
+        let table = setup_table(&tm, lm.clone());
         let transaction = tm.begin(IsolationLevel::ReadCommited);
 
         let ctx = Arc::new(ExecutionContext {
@@ -390,7 +392,7 @@ mod test {
         };
         let lm = Arc::new(LockManager::new());
         let tm = TransactionManager::new(lm.clone());
-        let table = setup_table(&tm);
+        let table = setup_table(&tm, lm.clone());
         let transaction = tm.begin(IsolationLevel::ReadCommited);
 
         let ctx = Arc::new(ExecutionContext {
@@ -432,7 +434,7 @@ mod test {
     fn update_executor_with_index_scan() {
         let lm = Arc::new(LockManager::new());
         let tm = TransactionManager::new(lm.clone());
-        let table = setup_table(&tm);
+        let table = setup_table(&tm, lm.clone());
         let transaction = tm.begin(IsolationLevel::ReadCommited);
 
         let ctx = Arc::new(ExecutionContext {
@@ -465,8 +467,8 @@ mod test {
         cleanup_table();
     }
 
-    fn setup_table(tm: &TransactionManager) -> Table {
-        let table = Table::new(format!("test-{:?}.db", std::thread::current().id()), 4);
+    fn setup_table(tm: &TransactionManager, lm: Arc<LockManager>) -> Table {
+        let table = Table::new(format!("test-{:?}.db", std::thread::current().id()), 4, lm);
         let transaction = tm.begin(IsolationLevel::ReadCommited);
         let mut t = transaction.write();
         for i in 1..50 {

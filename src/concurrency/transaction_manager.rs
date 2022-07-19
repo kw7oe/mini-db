@@ -112,8 +112,8 @@ mod test {
     use std::str::FromStr;
     use std::sync::Arc;
 
-    fn setup_table() -> Table {
-        Table::new(format!("test-{:?}.db", std::thread::current().id()), 4)
+    fn setup_table(lm: Arc<LockManager>) -> Table {
+        Table::new(format!("test-{:?}.db", std::thread::current().id()), 4, lm)
     }
 
     fn cleanup_table() {
@@ -122,8 +122,8 @@ mod test {
 
     #[test]
     fn transaction_operations() {
-        let lm = LockManager::new();
-        let tm = TransactionManager::new(Arc::new(lm));
+        let lm = Arc::new(LockManager::new());
+        let tm = TransactionManager::new(lm.clone());
         let transaction = tm.begin(IsolationLevel::ReadUncommited);
         let transaction = transaction.read();
         assert_eq!(transaction.txn_id, 1);
@@ -138,7 +138,7 @@ mod test {
         assert_eq!(tx.txn_id, 1);
         assert_eq!(tx.state, TransactionState::Growing);
 
-        let table = setup_table();
+        let table = setup_table(lm);
         tm.commit(&table, &mut tx);
         assert_eq!(tx.state, TransactionState::Committed);
 
@@ -147,9 +147,9 @@ mod test {
 
     #[test]
     fn execute_transaction() {
-        let lm = LockManager::new();
-        let tm = TransactionManager::new(Arc::new(lm));
-        let table = setup_table();
+        let lm = Arc::new(LockManager::new());
+        let tm = TransactionManager::new(lm.clone());
+        let table = setup_table(lm.clone());
         let row = Row::from_str("1 apple apple@apple.com").unwrap();
         tm.execute(&table, IsolationLevel::ReadCommited, |transaction, _tm| {
             let mut t = transaction.write();
@@ -167,9 +167,9 @@ mod test {
 
     #[test]
     fn abort_transaction() {
-        let lm = LockManager::new();
-        let tm = TransactionManager::new(Arc::new(lm));
-        let table = setup_table();
+        let lm = Arc::new(LockManager::new());
+        let tm = TransactionManager::new(lm.clone());
+        let table = setup_table(lm.clone());
         let row = Row::from_str("1 apple apple@apple.com").unwrap();
         let rid = tm.execute(&table, IsolationLevel::ReadCommited, |transaction, tm| {
             let mut t = transaction.write();
@@ -201,9 +201,9 @@ mod test {
 
     #[test]
     fn delete_abort_and_commit_transaction() {
-        let lm = LockManager::new();
-        let tm = TransactionManager::new(Arc::new(lm));
-        let table = setup_table();
+        let lm = Arc::new(LockManager::new());
+        let tm = TransactionManager::new(lm.clone());
+        let table = setup_table(lm.clone());
         let row = Row::from_str("1 apple apple@apple.com").unwrap();
         let rid = tm.execute(&table, IsolationLevel::ReadCommited, |transaction, _tm| {
             let mut t = transaction.write();
@@ -253,9 +253,9 @@ mod test {
 
     #[test]
     fn update_abort_and_commit_transaction() {
-        let lm = LockManager::new();
-        let tm = TransactionManager::new(Arc::new(lm));
-        let table = setup_table();
+        let lm = Arc::new(LockManager::new());
+        let tm = TransactionManager::new(lm.clone());
+        let table = setup_table(lm.clone());
         let row = Row::from_str("1 apple apple@apple.com").unwrap();
         let rid = tm.execute(&table, IsolationLevel::ReadCommited, |transaction, _tm| {
             let mut t = transaction.write();

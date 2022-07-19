@@ -22,7 +22,7 @@ impl RowID {
 
 pub struct Table {
     pager: Arc<Pager>,
-    lock_manager: LockManager,
+    lock_manager: Arc<LockManager>,
 }
 
 pub struct TableIntoIter {
@@ -61,11 +61,11 @@ impl Iterator for TableIntoIter {
 }
 
 impl Table {
-    pub fn new(path: impl AsRef<Path>, pool_size: usize) -> Table {
+    pub fn new(path: impl AsRef<Path>, pool_size: usize, lock_manager: Arc<LockManager>) -> Table {
         let pager = Pager::new(path, pool_size);
         Table {
             pager: Arc::new(pager),
-            lock_manager: LockManager::new(),
+            lock_manager,
         }
     }
 
@@ -74,10 +74,9 @@ impl Table {
         key: u32,
         transaction: &mut RwLockWriteGuard<Transaction>,
     ) -> Option<RowID> {
-        self.pager.search(0, key).map(|(page_id, slot_num)| {
-            let row_id = RowID::new(page_id, slot_num);
-            row_id
-        })
+        self.pager
+            .search(0, key)
+            .map(|(page_id, slot_num)| RowID::new(page_id, slot_num))
     }
 
     pub fn iter(&self) -> TableIntoIter {
@@ -178,9 +177,15 @@ impl Table {
         rid: &RowID,
         transaction: &mut RwLockWriteGuard<Transaction>,
     ) -> bool {
-        // Store old row? So that we can rollback the the old row when it is aborted.
         if let Ok(mut page) = self.pager.fetch_write_page_guard(rid.page_id) {
+            if transaction.is_shared_lock(rid) {
+                assert!(self.lock_manager.lock_upgrade(transaction, *rid));
+                println!("{:?}", transaction);
+            }
+
+            println!("update_row");
             assert!(page.update_row(rid.slot_num, new_row, columns));
+            println!("updated_row");
             self.pager.unpin_page_with_write_guard(page, true);
 
             let mut write_record = WriteRecord::new(WriteRecordType::Update, *rid, row.id);
@@ -196,7 +201,6 @@ impl Table {
 
     pub fn rollback_update(&self, rid: &RowID, row: &Row, columns: &Vec<String>) {
         if let Ok(mut page) = self.pager.fetch_write_page_guard(rid.page_id) {
-            println!("rollback update for real: {}", row.username());
             page.update_row(rid.slot_num, row, columns);
             self.pager.unpin_page_with_write_guard(page, true);
         }
@@ -212,8 +216,8 @@ mod test {
     #[test]
     fn iter() {
         let lock_manager = Arc::new(LockManager::new());
-        let tm = TransactionManager::new(lock_manager);
-        let table = setup_table(&tm);
+        let tm = TransactionManager::new(lock_manager.clone());
+        let table = setup_table(&tm, lock_manager.clone());
 
         let mut rid = 1;
         for (_, row) in table.iter() {
@@ -235,8 +239,8 @@ mod test {
     #[test]
     fn update_row() {
         let lock_manager = Arc::new(LockManager::new());
-        let tm = TransactionManager::new(lock_manager);
-        let table = setup_table(&tm);
+        let tm = TransactionManager::new(lock_manager.clone());
+        let table = setup_table(&tm, lock_manager.clone());
 
         let transaction = tm.begin(IsolationLevel::ReadCommited);
         let mut t = transaction.write();
@@ -255,8 +259,8 @@ mod test {
         cleanup_table();
     }
 
-    fn setup_table(tm: &TransactionManager) -> Table {
-        let table = Table::new(format!("test-{:?}.db", std::thread::current().id()), 4);
+    fn setup_table(tm: &TransactionManager, lm: Arc<LockManager>) -> Table {
+        let table = Table::new(format!("test-{:?}.db", std::thread::current().id()), 4, lm);
         let transaction = tm.begin(IsolationLevel::ReadCommited);
         let mut t = transaction.write();
         for i in 1..50 {
