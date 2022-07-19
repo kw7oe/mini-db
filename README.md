@@ -121,9 +121,11 @@ quick breakdown of my journey and what I'm going to implement next:
 - [ ] Implement recovery mechanism for our database.
   - [ ] Implement WAL.
   - [ ] Implement ARIES.
-- [ ] Update our query parser to integrate with our new query executor.
-  - This will allow us to easily test things by using SQL statement instead of
-    manually writing our query plan.
+- [ ] Update our query parser to integrate with our new query executor. This will allow us to
+  easily test things by using SQL statement instead of manually writing our query plan.
+  - [ ] Implement insert executor.
+  - [ ] Parse query into query plan.
+  - [ ] Replace the query engine with the new onw in `main.rs`.
 
 _(subject to changes as we progress)_
 
