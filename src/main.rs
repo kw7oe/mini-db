@@ -13,6 +13,7 @@ big_array! {
 
 mod concurrency;
 mod query;
+mod recovery;
 mod row;
 mod storage;
 mod table;

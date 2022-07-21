@@ -5,10 +5,11 @@ use super::{
 use crate::storage::{Node, NodeType, Pager};
 use crate::{row::Row, storage::Page};
 use parking_lot::{RwLockUpgradableReadGuard, RwLockWriteGuard};
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Deserialize, Serialize, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct RowID {
     page_id: usize,
     slot_num: usize,

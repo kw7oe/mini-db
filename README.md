@@ -118,7 +118,7 @@ quick breakdown of my journey and what I'm going to implement next:
   - [ ] Implement dead lock detection.
   - [ ] Implement dead lock prevention. (Wound Wait algorithm)
     _([Reference](https://15445.courses.cs.cmu.edu/fall2021/project4/#deadlock_prevention))_
-- [ ] Implement recovery mechanism for our database.
+- [ ] Implement recovery mechanism for our database. ([Reference][6])
   - [ ] Implement WAL.
   - [ ] Implement ARIES.
 - [ ] Update our query parser to integrate with our new query executor. This will allow us to
@@ -142,3 +142,4 @@ _(subject to changes as we progress)_
 [3]: https://15445.courses.cs.cmu.edu/fall2020/project2/
 [4]: https://15445.courses.cs.cmu.edu/fall2020/project4/
 [5]: https://15445.courses.cs.cmu.edu/fall2021/assignments.html
+[6]: https://15445.courses.cs.cmu.edu/fall2018/project4/
