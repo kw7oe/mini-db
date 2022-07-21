@@ -2,7 +2,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
-enum LogRecordType {
+pub enum LogRecordType {
     Invalid,
     Insert,
     MarkDelete,
@@ -15,14 +15,11 @@ enum LogRecordType {
     NewPage,
 }
 
-pub const LOG_RECORD_HEADER_SIZE: usize =
-    std::mem::size_of::<LogRecordType>() + std::mem::size_of::<u32>() * 5;
-
 #[derive(Debug, Serialize, Deserialize)]
-struct LogRecord {
+pub struct LogRecord {
     // Common Header
     size: u32,
-    lsn: Option<u32>,
+    pub lsn: Option<u32>,
     txn_id: u32,
     prev_lsn: Option<u32>,
     log_type: LogRecordType,
@@ -47,7 +44,7 @@ struct LogRecord {
 impl LogRecord {
     pub fn new(txn_id: u32, prev_lsn: Option<u32>, log_type: LogRecordType) -> Self {
         Self {
-            size: LOG_RECORD_HEADER_SIZE as u32,
+            size: 0,
             lsn: None,
             txn_id,
             prev_lsn,
@@ -67,8 +64,12 @@ impl LogRecord {
         }
     }
 
-    fn header_size() -> usize {
-        LOG_RECORD_HEADER_SIZE
+    pub fn from_bytes(bytes: Vec<u8>) -> Self {
+        bincode::deserialize(&bytes).unwrap()
+    }
+
+    fn as_bytes(&self) -> Vec<u8> {
+        bincode::serialize(self).unwrap()
     }
 }
 
@@ -77,8 +78,16 @@ mod test {
     use super::*;
 
     #[test]
-    fn header_size() {
-        let size = LogRecord::header_size();
-        println!("{size}");
+    fn test() {
+        let lr = LogRecord::new(1, None, LogRecordType::Begin);
+        let lr2 = LogRecord::new(2, Some(1), LogRecordType::Insert);
+        println!("{:?}", lr);
+        println!("{:?}", lr2);
+
+        let bytes = lr.as_bytes();
+        println!("{}", bytes.len());
+
+        let bytes = lr2.as_bytes();
+        println!("{}", bytes.len());
     }
 }
