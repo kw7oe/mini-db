@@ -23,6 +23,16 @@ impl LogManager {
         }
     }
 
+    pub fn next_lsn(&self) -> u32 {
+        self.next_lsn.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    pub fn persistent_lsn(&self) -> Option<u32> {
+        self.persistent_lsn
+            .as_ref()
+            .map(|p_lsn| p_lsn.load(std::sync::atomic::Ordering::SeqCst))
+    }
+
     pub fn append_log(&self, log_record: &mut LogRecord) -> u32 {
         let lsn = self
             .next_lsn
@@ -33,5 +43,27 @@ impl LogManager {
         // TODO: Append to buffer or flush to disk if buffer full?
 
         lsn
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::recovery::log_record::LogRecordType;
+
+    #[test]
+    fn append_log() {
+        let lm = LogManager::new("test.wal");
+        let mut lr = LogRecord::new(1, None, LogRecordType::Insert);
+        assert_eq!(lm.next_lsn(), 1);
+
+        lm.append_log(&mut lr);
+        assert_eq!(lr.lsn, Some(1));
+
+        assert_eq!(lm.next_lsn(), 2);
+        lm.append_log(&mut lr);
+        assert_eq!(lr.lsn, Some(2));
+
+        _ = std::fs::remove_file("test.wal");
     }
 }
