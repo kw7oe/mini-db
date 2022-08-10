@@ -2,7 +2,7 @@ use tracing::trace;
 
 use super::log_record::LogRecord;
 use crate::storage::DiskManager;
-use std::{path::Path, sync::atomic::AtomicU32, thread::JoinHandle};
+use std::{path::Path, sync::atomic::AtomicU32, sync::Mutex, thread::JoinHandle};
 
 const LOG_BUFFER_SIZE: usize = 4096;
 
@@ -10,9 +10,14 @@ struct LogManager {
     disk_manager: DiskManager,
     next_lsn: AtomicU32,
     persistent_lsn: Option<AtomicU32>,
-    log_buffer: [u8; LOG_BUFFER_SIZE],
-    flush_buffer: [u8; LOG_BUFFER_SIZE],
-    pub offset: usize,
+
+    // Alternatively, we should wrap the following 3 fields
+    // in its own data structure and so we can just use a single Mutex to
+    // wrap around it.
+    log_buffer: Mutex<[u8; LOG_BUFFER_SIZE]>,
+    flush_buffer: Mutex<[u8; LOG_BUFFER_SIZE]>,
+    pub offset: Mutex<usize>,
+
     join_handle: Option<JoinHandle<()>>,
 }
 
@@ -22,16 +27,17 @@ impl LogManager {
             disk_manager: DiskManager::new(path),
             next_lsn: AtomicU32::new(1),
             persistent_lsn: None,
-            log_buffer: [0; LOG_BUFFER_SIZE],
-            flush_buffer: [0; LOG_BUFFER_SIZE],
-            offset: 0,
+            log_buffer: Mutex::new([0; LOG_BUFFER_SIZE]),
+            flush_buffer: Mutex::new([0; LOG_BUFFER_SIZE]),
+            offset: Mutex::new(0),
             join_handle: None,
         }
     }
 
     pub fn flush(&self) {
         trace!("flush WAL to disk");
-        self.disk_manager.write_page(1, &self.flush_buffer).unwrap();
+        let flush_buffer = self.flush_buffer.lock().unwrap();
+        self.disk_manager.write_page(1, &*flush_buffer).unwrap();
     }
 
     pub fn next_lsn(&self) -> u32 {
@@ -44,11 +50,16 @@ impl LogManager {
             .map(|p_lsn| p_lsn.load(std::sync::atomic::Ordering::SeqCst))
     }
 
-    pub fn log_buffer(&self) -> &[u8] {
-        &self.log_buffer
+    pub fn offset(&self) -> usize {
+        *self.offset.lock().unwrap()
     }
 
-    pub fn append_log(&mut self, log_record: &mut LogRecord) -> u32 {
+    pub fn log_buffer(&self) -> [u8; 4096] {
+        *self.log_buffer.lock().unwrap()
+    }
+
+    pub fn append_log(&self, log_record: &mut LogRecord) -> u32 {
+        // One Lock
         let lsn = self
             .next_lsn
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -58,25 +69,40 @@ impl LogManager {
         // TODO: Append to buffer or flush to disk if buffer full?
         let bytes = bincode::serialize(&log_record).unwrap();
         println!("bytes: {:?}", bytes);
-        let mut end = self.offset + bytes.len();
+
+        // Another lock
+        let mut offset = self.offset.lock().unwrap();
+        let mut log_buffer = self.log_buffer.lock().unwrap();
+        let mut end = *offset + bytes.len();
 
         // If our log buffer is full, we swap it with the flush_buffer
         // so we can just flush to disk from the flush buffer while
         // continue using the log buffer.
-        if end > self.log_buffer.len() {
+        if end > log_buffer.len() {
             println!("log buffer full, swapping with flush_buffer");
-            std::mem::swap(&mut self.log_buffer, &mut self.flush_buffer);
+
+            let mut flush_buffer = self.flush_buffer.lock().unwrap();
+
+            // Since we are wrapping both buffer in a Mutex, we need to
+            // dereference it before swapping. Else, we are essentially
+            // swapping the MutexGuard.
+            //
+            // This will cause a deadlock as we aren't dropping the correct
+            // MutexGuard of flush_buffer. It caused self.flush() to attempt
+            // to acquire the same lock and lead to deadlock.
+            std::mem::swap(&mut *log_buffer, &mut *flush_buffer);
+            drop(flush_buffer);
 
             // Reset the range as well.
-            self.offset = 0;
-            end = self.offset + bytes.len();
+            *offset = 0;
+            end = *offset + bytes.len();
 
             // Flush manually once we full.
             self.flush();
         }
 
-        self.log_buffer[self.offset..end].copy_from_slice(&bytes[..]);
-        self.offset += bytes.len();
+        log_buffer[*offset..end].copy_from_slice(&bytes[..]);
+        *offset += bytes.len();
 
         lsn
     }
@@ -86,6 +112,7 @@ impl LogManager {
 mod test {
     use super::*;
     use crate::recovery::log_record::LogRecordType;
+    use std::sync::Arc;
 
     #[test]
     fn append_log() {
@@ -105,7 +132,7 @@ mod test {
 
     #[test]
     fn swap_and_flush_when_log_buffer_full() {
-        let mut lm = LogManager::new("test.wal");
+        let lm = LogManager::new("test.wal");
         let mut lr = LogRecord::new(1, None, LogRecordType::Insert);
 
         // Sample LSN to calculate number of lr accurately
@@ -123,8 +150,29 @@ mod test {
         // Offset should be bytes.len(), since we fill the log_buffer
         // by extra one record. So the new offset should be the same
         // as the len of a single log record.
-        assert_eq!(lm.offset, bytes.len());
+        assert_eq!(lm.offset(), bytes.len());
 
         let _ = std::fs::remove_file("test.wal");
+    }
+
+    #[test]
+    fn append_log_concurrently() {
+        let log_manager = Arc::new(LogManager::new("test.wal"));
+
+        let lm = log_manager.clone();
+        let handle = std::thread::spawn(move || {
+            let mut lr = LogRecord::new(1, None, LogRecordType::Insert);
+            lm.append_log(&mut lr);
+        });
+
+        let lm = log_manager;
+        let handle2 = std::thread::spawn(move || {
+            let mut lr = LogRecord::new(2, None, LogRecordType::Insert);
+            lm.append_log(&mut lr);
+        });
+
+        for h in [handle, handle2] {
+            h.join().unwrap();
+        }
     }
 }
