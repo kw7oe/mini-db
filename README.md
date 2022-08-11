@@ -119,7 +119,11 @@ quick breakdown of my journey and what I'm going to implement next:
   - [ ] Implement dead lock prevention. (Wound Wait algorithm)
     _([Reference](https://15445.courses.cs.cmu.edu/fall2021/project4/#deadlock_prevention))_
 - [ ] Implement recovery mechanism for our database. ([Reference][6])
-  - [ ] Implement WAL.
+  - [x] Implement basic log manager and log record.
+  - [ ] Update page struct to contain additional information required for
+    recovery. E.g. LSN.
+  - [ ] Implement WAL in other subsystems, such as buffer pool (pager) and transaction
+    manager.
   - [ ] Implement ARIES.
 - [ ] Update our query parser to integrate with our new query executor. This will allow us to
   easily test things by using SQL statement instead of manually writing our query plan.
