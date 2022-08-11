@@ -68,7 +68,6 @@ impl LogManager {
 
         // TODO: Append to buffer or flush to disk if buffer full?
         let bytes = bincode::serialize(&log_record).unwrap();
-        println!("bytes: {:?}", bytes);
 
         // Another lock
         let mut offset = self.offset.lock().unwrap();
@@ -116,7 +115,7 @@ mod test {
 
     #[test]
     fn append_log() {
-        let mut lm = LogManager::new("test.wal");
+        let lm = LogManager::new("test.wal");
         let mut lr = LogRecord::new(1, None, LogRecordType::Insert);
         assert_eq!(lm.next_lsn(), 1);
 
@@ -174,5 +173,31 @@ mod test {
         for h in [handle, handle2] {
             h.join().unwrap();
         }
+    }
+
+    #[test]
+    fn test_race_condition_of_swapping_buffer() {
+        let log_manager = Arc::new(LogManager::new("test.wal"));
+
+        let mut handles = Vec::new();
+        for i in 1..500 {
+            let lm = log_manager.clone();
+            let handle = std::thread::spawn(move || {
+                let mut lr = LogRecord::new(i, None, LogRecordType::Insert);
+                lm.append_log(&mut lr);
+            });
+            handles.push(handle);
+        }
+
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        // TODO: Verify that a race condition doesn't happen
+        // when we are swapping log_buffer and flush_buffer, and invoke
+        // a flush to disk.
+        //
+        // One way is to implement flush correctly and assert that we
+        // have all log records of  1..500.
     }
 }
