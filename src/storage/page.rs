@@ -4,6 +4,7 @@ use crate::row::Row;
 #[derive(Debug)]
 pub struct Page {
     pub page_id: Option<usize>,
+    pub lsn: u32,
     pub is_dirty: bool,
     pub pin_count: usize,
     pub node: Option<Node>,
@@ -13,6 +14,7 @@ impl Page {
     pub fn new(page_id: Option<usize>) -> Self {
         Self {
             page_id,
+            lsn: 0,
             is_dirty: false,
             pin_count: 0,
             node: None,
@@ -24,6 +26,12 @@ impl Page {
         self.node = None;
         self.is_dirty = false;
         self.pin_count = 0;
+    }
+
+    pub fn as_bytes(&self) -> Vec<u8> {
+        assert!(self.page_id.is_some());
+        assert!(self.node.is_some());
+        self.node.as_ref().unwrap().to_bytes()
     }
 
     pub fn get_row(&self, slot_num: usize) -> Option<Row> {

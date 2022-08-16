@@ -199,8 +199,7 @@ impl Pager {
     }
 
     pub fn flush_write_page(&self, page_id: usize, page: &RwLockWriteGuard<Page>) {
-        let node = page.node.as_ref().unwrap();
-        let bytes = node.to_bytes();
+        let bytes = page.as_bytes();
         self.disk_manager.write_page(page_id, &bytes).unwrap();
     }
 
@@ -211,8 +210,8 @@ impl Pager {
                 break;
             }
 
-            if let Some(node) = &page.node {
-                let bytes = node.to_bytes();
+            if page.node.is_some() {
+                let bytes = page.as_bytes();
                 self.disk_manager
                     .write_page(page.page_id.unwrap(), &bytes)
                     .unwrap();
