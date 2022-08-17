@@ -1,3 +1,4 @@
+use super::page::PAGE_HEADER_BYTES;
 use super::{Cursor, PAGE_SIZE};
 use crate::row::{Row, ROW_SIZE};
 use crate::BigArray;
@@ -26,7 +27,7 @@ impl From<u8> for NodeType {
     }
 }
 
-const MAX_NODE_SIZE: usize = 4096;
+const MAX_NODE_SIZE: usize = PAGE_SIZE - PAGE_HEADER_BYTES;
 pub const COMMON_NODE_HEADER_SIZE: usize =
     std::mem::size_of::<NodeType>() + std::mem::size_of::<bool>() + std::mem::size_of::<u32>();
 
@@ -267,6 +268,7 @@ impl Node {
             }
         }
 
+        // Outdated a bit:
         // Okay, we need to backfill the space because we are assuming
         // per page is always with PAGE_SIZE.
         //
@@ -278,7 +280,7 @@ impl Node {
         // page to find out the next page offset.
         //
         // So long story short, let's just backfill the space...
-        let remaining_space = PAGE_SIZE - bytes.len();
+        let remaining_space = MAX_NODE_SIZE - bytes.len();
         let mut vec = vec![0; remaining_space];
         bytes.append(&mut vec);
 

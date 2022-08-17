@@ -3,12 +3,17 @@ use serde::{Deserialize, Serialize};
 use super::node::Node;
 use crate::row::Row;
 
-const PAGE_HEADER_BYTES: usize = std::mem::size_of::<usize>() + std::mem::size_of::<u32>();
+// Since bincode serialize Option<usize> as [0, 0, 0, 0, 0]
+//                                           -  ----------
+//                                           ^       ^
+//                                        Option   usize
+//
+// Hence, we need to add one more byte.
+pub const PAGE_HEADER_BYTES: usize = 1 + std::mem::size_of::<usize>() + std::mem::size_of::<u32>();
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct Page {
     // Header
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub page_id: Option<usize>,
     pub lsn: u32,
 
@@ -35,10 +40,10 @@ impl Page {
     }
 
     pub fn from_bytes(bytes: &[u8]) -> Self {
-        let header_bytes = &bytes[..=PAGE_HEADER_BYTES];
+        let header_bytes = &bytes[..PAGE_HEADER_BYTES];
         let mut page: Page = bincode::deserialize(header_bytes).unwrap();
 
-        let body_bytes = &bytes[PAGE_HEADER_BYTES + 1..];
+        let body_bytes = &bytes[PAGE_HEADER_BYTES..];
         let node = Node::new_from_bytes(body_bytes);
         page.node = Some(node);
 
