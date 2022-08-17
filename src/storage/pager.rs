@@ -200,6 +200,7 @@ impl Pager {
 
     pub fn flush_write_page(&self, page_id: usize, page: &RwLockWriteGuard<Page>) {
         let bytes = page.as_bytes();
+        println!("page_id: {:?}, page_id: {:?}", page_id, page.page_id);
         self.disk_manager.write_page(page_id, &bytes).unwrap();
     }
 
@@ -598,7 +599,17 @@ impl Pager {
 
             match self.disk_manager.read_page(page_id) {
                 Ok(bytes) => {
-                    page.node = Some(Node::new_from_bytes(&bytes));
+                    // Somehow, our page id is incorrect for now, so temporarily
+                    // commented it out, and manually passing the value like this:
+
+                    let page_from_disk = Page::from_bytes(&bytes);
+                    page.lsn = page_from_disk.lsn;
+                    // println!(
+                    //     "page_id: {:?}, disk_page_id: {:?}",
+                    //     page.page_id, page_from_disk.page_id
+                    // );
+                    // page.page_id = page_from_disk.page_id;
+                    page.node = page_from_disk.node;
                 }
                 Err(_err) => {
                     // This either mean the file is corrupted or is a partial page

@@ -1,13 +1,26 @@
+use serde::{Deserialize, Serialize};
+
 use super::node::Node;
 use crate::row::Row;
 
-#[derive(Debug)]
+const PAGE_HEADER_BYTES: usize = std::mem::size_of::<usize>() + std::mem::size_of::<u32>();
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct Page {
+    // Header
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub page_id: Option<usize>,
     pub lsn: u32,
-    pub is_dirty: bool,
-    pub pin_count: usize,
+
+    // Body (we will serialize/deserialize manually)
+    #[serde(skip)]
     pub node: Option<Node>,
+
+    // Metadata (in mem only)
+    #[serde(skip)]
+    pub is_dirty: bool,
+    #[serde(skip)]
+    pub pin_count: usize,
 }
 
 impl Page {
@@ -21,6 +34,17 @@ impl Page {
         }
     }
 
+    pub fn from_bytes(bytes: &[u8]) -> Self {
+        let header_bytes = &bytes[..=PAGE_HEADER_BYTES];
+        let mut page: Page = bincode::deserialize(header_bytes).unwrap();
+
+        let body_bytes = &bytes[PAGE_HEADER_BYTES + 1..];
+        let node = Node::new_from_bytes(body_bytes);
+        page.node = Some(node);
+
+        page
+    }
+
     pub fn deallocate(&mut self) {
         self.page_id = None;
         self.node = None;
@@ -29,9 +53,16 @@ impl Page {
     }
 
     pub fn as_bytes(&self) -> Vec<u8> {
+        // To ensure that we can only serialize if page_id and node
+        // is not None.
         assert!(self.page_id.is_some());
         assert!(self.node.is_some());
-        self.node.as_ref().unwrap().to_bytes()
+
+        let mut header_bytes = bincode::serialize(&self).unwrap();
+        let mut body_bytes = self.node.as_ref().unwrap().to_bytes();
+
+        header_bytes.append(&mut body_bytes);
+        header_bytes
     }
 
     pub fn get_row(&self, slot_num: usize) -> Option<Row> {
@@ -86,6 +117,33 @@ mod test {
         assert_eq!(page.node, None);
         assert_eq!(page.pin_count, 0);
         assert!(!page.is_dirty);
+    }
+
+    #[test]
+    fn test_as_bytes_from_bytes() {
+        let mut page = Page::new(Some(0));
+        let mut node = Node::new(true, NodeType::Leaf);
+        assert_eq!(page.get_row(0), None);
+
+        let cursor = Cursor {
+            page_num: 0,
+            cell_num: 0,
+            end_of_table: false,
+            key_existed: false,
+        };
+        let row = Row::new("1", "name", "email").unwrap();
+        node.insert(&row, &cursor);
+        page.node = Some(node);
+        page.lsn = 10;
+
+        let bytes = page.as_bytes();
+        let from_byte_page = Page::from_bytes(&bytes);
+
+        // struct is equal
+        // assert_eq!(from_byte_page, page);
+
+        // bytes is equal
+        assert_eq!(bytes, from_byte_page.as_bytes());
     }
 
     #[test]
