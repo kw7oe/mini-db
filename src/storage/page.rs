@@ -70,6 +70,14 @@ impl Page {
         header_bytes
     }
 
+    // TRADEOFF: We are always cloning/copying the row values
+    // to a new memory location.
+    //
+    // This might be fine for a prototype, but we should reduce the cost
+    // of serialization and deserialization as much as possible.
+    //
+    // We should consider exploring the using of references to our data. But
+    // this mean I have to potentially deal with lifetime and borrowing issue.
     pub fn get_row(&self, slot_num: usize) -> Option<Row> {
         self.node.as_ref().and_then(|node| node.get_row(slot_num))
     }

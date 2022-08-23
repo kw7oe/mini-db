@@ -46,6 +46,19 @@ impl PageMetadata {
     }
 }
 
+// TRADEOFF: We are using the most naive replacement policies.
+//
+// We are replacing pages by considering the recency of a page instead
+// of frequency of access.
+//
+// This might not be the best for our database system. For example,
+// a root node will be the most frequently accessed page, however, it is
+// also the very first page that we would always access.
+//
+// Hence, it can be contradicting sometime to replace based on recency.
+//
+// So, a better algorithms will be using Least Frequencyly Used (LFU)
+// replacement policies.
 #[derive(Debug)]
 struct LRUReplacer {
     // We are using Vec instead of HashMap as the size
@@ -98,6 +111,12 @@ pub enum PagerError {
     FailToAcquirePageLock,
 }
 
+// TRADEOFF: This isn't exactly a Pager or Buffer Pool manager.
+//
+// Since, we includes the B+ tree operations here in this module as well.
+// This isn't the best structure for our code. Ideally, the logic of B+ tree
+// operations should be move to a separate module and it would use Pager
+// to access page as needed.
 #[derive(Debug)]
 pub struct Pager {
     disk_manager: DiskManager,
@@ -768,6 +787,13 @@ impl Pager {
 
                 // If num cell = MAX CELL, inserting into it cause it to overflow
                 // which mean we need to insert and split.
+                //
+                // TRADEOFF: We are only splitting nodes when it's full.
+                //
+                // However, it could be done better by delaying splitting by moving cell
+                // to sibling nodes when necessary, which is called load balancing.
+                //
+                // This result in higher occupancy and delayed of node splitting.
                 if num_of_cells >= LEAF_NODE_MAX_CELLS {
                     self.concurrent_insert_and_split_node(parent_page_guards, page, &cursor, row);
                 } else {
@@ -922,6 +948,13 @@ impl Pager {
         self.unpin_page_with_write_guard(page, true);
     }
 
+    // TRADEOFF (Parent pointer):
+    //
+    // Upon parent pointer changes (due to split/merge), we will need to update
+    // all the childrens parent offset. Our internal nodes can store around 500
+    // child pointer. If we were to update around 250 child nodes parent offset
+    // during a split/merge (since only half of the childrens will be move),
+    // the cost of page in/out and potentially disk I/O will add up.
     pub fn update_parent_offset(&self, page_id: usize, parent_page_id: usize) {
         let mut page = self.fetch_write_page_guard_with_retry(page_id);
         let child = page.node.as_mut().unwrap();
@@ -1080,6 +1113,12 @@ impl Pager {
     ) {
         let node = page.node.as_ref().unwrap();
 
+        // TRADEOFF: We could leave the node to be underflow.
+        //
+        // We avoid load balancing or even merging because we are hoping
+        // for the subsequent insert or defragmentation to resolve it.
+        //
+        // Study has show that, rebalancing on deletion can be considered harmful.
         if node.node_type == NodeType::Leaf
             && node.num_of_cells <= LEAF_NODE_MAX_CELLS as u32 / 2
             && !node.is_root

@@ -91,6 +91,10 @@ impl Cell {
         self.0[offset + ROW_SIZE - 1] = 0;
     }
 
+    // TRADEOFF: We are a clustered table.
+    //
+    // Where our rows is not stored in a separate heap file but together
+    // with the B+ Tree file.
     pub fn write_value(&mut self, row: &Row) {
         let offset = LEAF_NODE_KEY_SIZE;
         let row_in_bytes = bincode::serialize(row).unwrap();
@@ -167,6 +171,14 @@ pub struct Node {
     // Common
     pub node_type: NodeType,
     pub is_root: bool,
+
+    // TRADEOFF: We are tracking parent pointer of a node here.
+    //
+    // It's actually quite expensive to maintain the parent pointer
+    // as a split or merge. As you will need to hold the locks for a longer
+    // time, and have multiple page in/out of child nodes.
+    //
+    // It probably incurs more disk I/O.
     pub parent_offset: u32,
 
     // Leaf
