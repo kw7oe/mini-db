@@ -2,7 +2,7 @@ use super::table::RowID;
 use crate::row::Row;
 use std::collections::HashSet;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum WriteRecordType {
     Insert,
     Delete,
@@ -37,7 +37,7 @@ pub enum IsolationLevel {
     RepeatableRead,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum TransactionState {
     Growing,
     Shrinking,
@@ -53,6 +53,9 @@ pub struct Transaction {
     write_sets: Vec<WriteRecord>,
     pub shared_lock_sets: HashSet<RowID>,
     pub exclusive_lock_sets: HashSet<RowID>,
+
+    // The LSN of the last record written by the transaciton
+    prev_lsn: Option<u32>,
 }
 
 impl Transaction {
@@ -64,7 +67,12 @@ impl Transaction {
             write_sets: Vec::new(),
             shared_lock_sets: HashSet::new(),
             exclusive_lock_sets: HashSet::new(),
+            prev_lsn: None,
         }
+    }
+
+    pub fn update_prev_lsn(&mut self, lsn: u32) {
+        self.prev_lsn = Some(lsn);
     }
 
     pub fn set_state(&mut self, state: TransactionState) {
