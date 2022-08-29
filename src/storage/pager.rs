@@ -1,7 +1,7 @@
 use parking_lot::{Mutex, RwLock, RwLockUpgradableReadGuard, RwLockWriteGuard};
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::Arc;
 use tracing::{debug, warn};
 
@@ -17,7 +17,7 @@ pub const PAGE_SIZE: usize = 4096;
 const SLEEP_MS: u64 = 10;
 const MAX_RETRY: usize = 3000 / SLEEP_MS as usize;
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Eq)]
 pub enum Operation {
     Insert,
     Delete,
@@ -128,6 +128,8 @@ pub struct Pager {
     free_list: Mutex<Vec<usize>>,
     // Mapping page id to frame id
     page_table: Arc<RwLock<HashMap<usize, usize>>>,
+
+    flushed_lsn: Option<AtomicU32>,
 }
 
 impl Pager {
@@ -162,6 +164,7 @@ impl Pager {
             next_page_id: AtomicUsize::new(next_page_id),
             free_list: Mutex::new(free_list),
             page_table: Arc::new(RwLock::new(HashMap::new())),
+            flushed_lsn: None,
         }
     }
 
@@ -218,6 +221,10 @@ impl Pager {
     }
 
     pub fn flush_write_page(&self, page_id: usize, page: &RwLockWriteGuard<Page>) {
+        // TODO (Recovery): Check page_lsn and flushed_lsn before flushing to disk.
+        //
+        // This is to ensure that all of the logs that lead to the changes of the
+        // page is flushed to disk. Thus, enabling recovery if crash happens.
         let bytes = page.as_bytes();
         self.disk_manager.write_page(page_id, &bytes).unwrap();
     }
@@ -1837,11 +1844,11 @@ mod test {
     // }
 
     fn setup_test_table() -> Table {
-        return Table::new(format!("test-{:?}.db", std::thread::current().id()), 8);
+        Table::new(format!("test-{:?}.db", std::thread::current().id()), 8)
     }
 
     fn setup_test_pager() -> Pager {
-        return Pager::new(format!("test-{:?}.db", std::thread::current().id()), 8);
+        Pager::new(format!("test-{:?}.db", std::thread::current().id()), 8)
     }
 
     fn setup_test_db_file() {

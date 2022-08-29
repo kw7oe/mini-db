@@ -37,6 +37,7 @@ impl DiskManager {
         let mut write_file = self.write_file.lock().unwrap();
         write_file.seek(SeekFrom::Start(offset as u64))?;
         write_file.write_all(page_bytes)?;
+        // TODO: We probably need to call sync_all(), to ensure that fsync is executed.
         write_file.flush()
     }
 
