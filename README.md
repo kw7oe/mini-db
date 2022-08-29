@@ -125,6 +125,7 @@ quick breakdown of my journey and what I'm going to implement next:
   - [ ] Implement WAL in other subsystems, such as buffer pool (pager) and transaction
     manager.
   - [ ] Implement ARIES.
+  - [ ] Implement a stop the world checkpointing.
 - [ ] Update our query parser to integrate with our new query executor. This will allow us to
   easily test things by using SQL statement instead of manually writing our query plan.
   - [ ] Implement insert executor.
