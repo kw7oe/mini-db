@@ -22,6 +22,14 @@ handling concurrent requests yet.
 _This is by no mean an idiomatic Rust implementation as I'm learning Rust
 along the way._
 
+-----
+
+_Update (25/09/2022): The project is kind of on hold as I just started a new job and
+still adapting to the new schedule I have. Hence, the progress will be slower.
+Hopefully, I can regain my momentum after a couple of weeks._
+
+----
+
 ## End Goal
 
 The main focus to write a storage engine from scratch. This project now
