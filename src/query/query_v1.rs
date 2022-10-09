@@ -11,7 +11,7 @@ pub enum MetaCommand {
     PrintPages,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum StatementType {
     Select,
     Insert,

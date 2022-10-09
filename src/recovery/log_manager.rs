@@ -115,7 +115,8 @@ mod test {
 
     #[test]
     fn append_log() {
-        let lm = LogManager::new("test.wal");
+        let file = format!("test_{:?}.wal", std::thread::current().id());
+        let lm = Arc::new(LogManager::new("test.wal"));
         let mut lr = LogRecord::new(1, None, LogRecordType::Insert);
         assert_eq!(lm.next_lsn(), 1);
 
@@ -126,12 +127,13 @@ mod test {
         lm.append_log(&mut lr);
         assert_eq!(lr.lsn, Some(2));
 
-        _ = std::fs::remove_file("test.wal");
+        let _ = std::fs::remove_file(file);
     }
 
     #[test]
     fn swap_and_flush_when_log_buffer_full() {
-        let lm = LogManager::new("test.wal");
+        let file = format!("test_{:?}.wal", std::thread::current().id());
+        let lm = Arc::new(LogManager::new("test.wal"));
         let mut lr = LogRecord::new(1, None, LogRecordType::Insert);
 
         // Sample LSN to calculate number of lr accurately
@@ -151,11 +153,12 @@ mod test {
         // as the len of a single log record.
         assert_eq!(lm.offset(), bytes.len());
 
-        let _ = std::fs::remove_file("test.wal");
+        let _ = std::fs::remove_file(file);
     }
 
     #[test]
     fn append_log_concurrently() {
+        let file = format!("test_{:?}.wal", std::thread::current().id());
         let log_manager = Arc::new(LogManager::new("test.wal"));
 
         let lm = log_manager.clone();
@@ -173,10 +176,13 @@ mod test {
         for h in [handle, handle2] {
             h.join().unwrap();
         }
+
+        let _ = std::fs::remove_file(file);
     }
 
     #[test]
     fn test_race_condition_of_swapping_buffer() {
+        let file = format!("test_{:?}.wal", std::thread::current().id());
         let log_manager = Arc::new(LogManager::new("test.wal"));
 
         let mut handles = Vec::new();
@@ -199,5 +205,6 @@ mod test {
         //
         // One way is to implement flush correctly and assert that we
         // have all log records of  1..500.
+        let _ = std::fs::remove_file(file);
     }
 }

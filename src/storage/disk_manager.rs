@@ -32,6 +32,16 @@ impl DiskManager {
         }
     }
 
+    pub fn append(&self, bytes: &[u8]) -> Result<(), std::io::Error> {
+        let mut file = self.write_file.lock().unwrap();
+        file.write_all(bytes)?;
+        file.sync_all()
+    }
+
+    pub fn read_exact(&self, buf: &mut [u8]) {
+        self.read_file.lock().unwrap().read_exact(buf).unwrap();
+    }
+
     pub fn write_page(&self, page_id: usize, page_bytes: &[u8]) -> Result<(), std::io::Error> {
         let offset = page_id * PAGE_SIZE;
         let mut write_file = self.write_file.lock().unwrap();
@@ -61,8 +71,22 @@ mod test {
     use super::*;
 
     #[test]
+    fn append() {
+        let file = format!("test_file_{:?}", std::thread::current().id());
+        let dm = DiskManager::new(&file);
+        dm.append(b"hello").unwrap();
+        dm.append(b" world").unwrap();
+
+        let mut buf = [0; 11];
+        dm.read_exact(&mut buf);
+        assert_eq!(&buf, b"hello world");
+        let _ = std::fs::remove_file(file);
+    }
+
+    #[test]
     fn read_file_concurrently() {
-        let disk_manager = Arc::new(DiskManager::new("test_file"));
+        let file = format!("test_file_{:?}", std::thread::current().id());
+        let disk_manager = Arc::new(DiskManager::new(&file));
 
         // Setup file
         for i in 0..8 {
@@ -84,12 +108,13 @@ mod test {
             }
         }
 
-        let _ = std::fs::remove_file("test_file");
+        let _ = std::fs::remove_file(file);
     }
 
     #[test]
     fn write_file_concurrently() {
-        let disk_manager = Arc::new(DiskManager::new("test_file"));
+        let file = format!("test_file_{:?}", std::thread::current().id());
+        let disk_manager = Arc::new(DiskManager::new(&file));
 
         let mut handles = vec![];
         for i in 0..8 {
@@ -108,12 +133,12 @@ mod test {
             assert_eq!(result, [i as u8; 4096]);
         }
 
-        let _ = std::fs::remove_file("test_file");
+        let _ = std::fs::remove_file(file);
     }
-
     #[test]
     fn write_and_read_file_concurrently() {
-        let disk_manager = Arc::new(DiskManager::new("test_file"));
+        let file = format!("test_file_{:?}", std::thread::current().id());
+        let disk_manager = Arc::new(DiskManager::new(&file));
 
         // Setup file
         for i in 0..8 {
@@ -152,6 +177,6 @@ mod test {
             assert_eq!(result, [i as u8; 4096]);
         }
 
-        let _ = std::fs::remove_file("test_file");
+        let _ = std::fs::remove_file(file);
     }
 }
