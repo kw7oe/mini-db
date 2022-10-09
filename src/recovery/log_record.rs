@@ -21,7 +21,7 @@ pub struct LogRecord {
     log_type: LogRecordType,
     size: u32,
     pub lsn: Option<u32>,
-    txn_id: u32,
+    pub txn_id: u32,
 
     // This is not required but it makes recovery implementation easier,
     // as we could just tranverse the log records of a transaction through

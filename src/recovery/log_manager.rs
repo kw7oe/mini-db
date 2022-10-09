@@ -2,7 +2,7 @@ use tracing::trace;
 
 use super::log_record::LogRecord;
 use crate::storage::DiskManager;
-use std::{path::Path, sync::atomic::AtomicU32, sync::Mutex, thread::JoinHandle};
+use std::{io::Read, path::Path, sync::atomic::AtomicU32, sync::Mutex, thread::JoinHandle};
 
 const LOG_BUFFER_SIZE: usize = 4096;
 
@@ -37,7 +37,7 @@ impl LogManager {
     pub fn flush(&self) {
         trace!("flush WAL to disk");
         let flush_buffer = self.flush_buffer.lock().unwrap();
-        self.disk_manager.write_page(1, &*flush_buffer).unwrap();
+        self.disk_manager.append(&*flush_buffer).unwrap();
     }
 
     pub fn next_lsn(&self) -> u32 {
@@ -105,18 +105,37 @@ impl LogManager {
 
         lsn
     }
+
+    pub fn get_logs(&self) -> Vec<LogRecord> {
+        let mut reader = self.disk_manager.reader();
+        let mut bytes = [0; 18];
+        let mut records = Vec::new();
+
+        while let Ok(()) = reader.read_exact(&mut bytes) {
+            if let Ok(record) = bincode::deserialize(&bytes) {
+                records.push(record);
+            } else {
+                // If we failed to deserialize it could be
+                // that we have some padding in between, so let's
+                // move the offset and try again.
+                let _ = reader.seek_relative(1);
+            }
+        }
+
+        records
+    }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
     use crate::recovery::log_record::LogRecordType;
-    use std::sync::Arc;
+    use std::{fs::File, sync::Arc};
 
     #[test]
     fn append_log() {
         let file = format!("test_{:?}.wal", std::thread::current().id());
-        let lm = Arc::new(LogManager::new("test.wal"));
+        let lm = Arc::new(LogManager::new(&file));
         let mut lr = LogRecord::new(1, None, LogRecordType::Insert);
         assert_eq!(lm.next_lsn(), 1);
 
@@ -133,7 +152,7 @@ mod test {
     #[test]
     fn swap_and_flush_when_log_buffer_full() {
         let file = format!("test_{:?}.wal", std::thread::current().id());
-        let lm = Arc::new(LogManager::new("test.wal"));
+        let lm = Arc::new(LogManager::new(&file));
         let mut lr = LogRecord::new(1, None, LogRecordType::Insert);
 
         // Sample LSN to calculate number of lr accurately
@@ -159,7 +178,7 @@ mod test {
     #[test]
     fn append_log_concurrently() {
         let file = format!("test_{:?}.wal", std::thread::current().id());
-        let log_manager = Arc::new(LogManager::new("test.wal"));
+        let log_manager = Arc::new(LogManager::new(&file));
 
         let lm = log_manager.clone();
         let handle = std::thread::spawn(move || {
@@ -183,28 +202,31 @@ mod test {
     #[test]
     fn test_race_condition_of_swapping_buffer() {
         let file = format!("test_{:?}.wal", std::thread::current().id());
-        let log_manager = Arc::new(LogManager::new("test.wal"));
+        let log_manager = Arc::new(LogManager::new(&file));
 
-        let mut handles = Vec::new();
+        // let mut handles = Vec::new();
         for i in 1..500 {
             let lm = log_manager.clone();
-            let handle = std::thread::spawn(move || {
-                let mut lr = LogRecord::new(i, None, LogRecordType::Insert);
-                lm.append_log(&mut lr);
-            });
-            handles.push(handle);
+            // let handle = std::thread::spawn(move || {
+            let mut lr = LogRecord::new(i, None, LogRecordType::Insert);
+            lm.append_log(&mut lr);
+            // });
+            // handles.push(handle);
         }
 
-        for h in handles {
-            h.join().unwrap();
+        // for h in handles {
+        //     h.join().unwrap();
+        // }
+
+        // log_manager.flush();
+
+        let mut result = log_manager.get_logs();
+        println!("{}", result.len());
+        result.sort_by(|a, b| a.txn_id.cmp(&b.txn_id));
+        for r in result {
+            println!("{r:?}");
         }
 
-        // TODO: Verify that a race condition doesn't happen
-        // when we are swapping log_buffer and flush_buffer, and invoke
-        // a flush to disk.
-        //
-        // One way is to implement flush correctly and assert that we
-        // have all log records of  1..500.
         let _ = std::fs::remove_file(file);
     }
 }

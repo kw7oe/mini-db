@@ -2,7 +2,7 @@ use super::pager::PAGE_SIZE;
 use std::{
     fs::{File, OpenOptions},
     io::SeekFrom,
-    io::{Read, Seek, Write},
+    io::{BufReader, Read, Seek, Write},
     path::Path,
     sync::Mutex,
 };
@@ -11,6 +11,7 @@ use std::{
 pub struct DiskManager {
     write_file: Mutex<File>,
     read_file: Mutex<File>,
+    path: String,
     pub file_len: usize,
 }
 
@@ -28,6 +29,7 @@ impl DiskManager {
         Self {
             write_file: Mutex::new(write_file),
             read_file: Mutex::new(read_file),
+            path: path.as_ref().to_str().unwrap().into(),
             file_len,
         }
     }
@@ -40,6 +42,11 @@ impl DiskManager {
 
     pub fn read_exact(&self, buf: &mut [u8]) {
         self.read_file.lock().unwrap().read_exact(buf).unwrap();
+    }
+
+    pub fn reader(&self) -> BufReader<File> {
+        let file = File::open(&self.path).unwrap();
+        BufReader::new(file)
     }
 
     pub fn write_page(&self, page_id: usize, page_bytes: &[u8]) -> Result<(), std::io::Error> {
