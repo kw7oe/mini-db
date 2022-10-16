@@ -34,12 +34,6 @@ impl LogManager {
         }
     }
 
-    pub fn flush(&self) {
-        trace!("flush WAL to disk");
-        let flush_buffer = self.flush_buffer.lock().unwrap();
-        self.disk_manager.append(&*flush_buffer).unwrap();
-    }
-
     pub fn next_lsn(&self) -> u32 {
         self.next_lsn.load(std::sync::atomic::Ordering::SeqCst)
     }
@@ -63,10 +57,8 @@ impl LogManager {
         let lsn = self
             .next_lsn
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-
         log_record.lsn = Some(lsn);
 
-        // TODO: Append to buffer or flush to disk if buffer full?
         let bytes = bincode::serialize(&log_record).unwrap();
 
         // Another lock
@@ -78,7 +70,7 @@ impl LogManager {
         // so we can just flush to disk from the flush buffer while
         // continue using the log buffer.
         if end > log_buffer.len() {
-            println!("log buffer full, swapping with flush_buffer");
+            trace!("log buffer full at lsn: {lsn}, swapping with flush_buffer");
 
             let mut flush_buffer = self.flush_buffer.lock().unwrap();
 
@@ -92,18 +84,32 @@ impl LogManager {
             std::mem::swap(&mut *log_buffer, &mut *flush_buffer);
             drop(flush_buffer);
 
+            // Flush manually once we full.
+            self.flush(*offset);
+
             // Reset the range as well.
             *offset = 0;
             end = *offset + bytes.len();
-
-            // Flush manually once we full.
-            self.flush();
         }
 
         log_buffer[*offset..end].copy_from_slice(&bytes[..]);
         *offset += bytes.len();
 
         lsn
+    }
+
+    pub fn flush(&self, offset: usize) {
+        trace!("flush WAL to disk up to offset {offset}");
+        let mut flush_buffer = self.flush_buffer.lock().unwrap();
+        self.disk_manager.append(&flush_buffer[0..offset]).unwrap();
+        *flush_buffer = [0; LOG_BUFFER_SIZE];
+    }
+
+    pub fn flush_log_buffer(&self) {
+        let log_buffer = self.log_buffer.lock().unwrap();
+        let offset = self.offset.lock().unwrap();
+        trace!("flush WAL from log_buffer up to offset: {offset}");
+        self.disk_manager.append(&log_buffer[0..*offset]).unwrap();
     }
 
     pub fn get_logs(&self) -> Vec<LogRecord> {
@@ -130,7 +136,7 @@ impl LogManager {
 mod test {
     use super::*;
     use crate::recovery::log_record::LogRecordType;
-    use std::{fs::File, sync::Arc};
+    use std::sync::Arc;
 
     #[test]
     fn append_log() {
@@ -152,25 +158,25 @@ mod test {
     #[test]
     fn swap_and_flush_when_log_buffer_full() {
         let file = format!("test_{:?}.wal", std::thread::current().id());
-        let lm = Arc::new(LogManager::new(&file));
-        let mut lr = LogRecord::new(1, None, LogRecordType::Insert);
+        let log_manager = Arc::new(LogManager::new(&file));
 
-        // Sample LSN to calculate number of lr accurately
-        lr.lsn = Some(1);
-        let bytes = bincode::serialize(&lr).unwrap();
-        let number_of_lr = LOG_BUFFER_SIZE / bytes.len();
-
-        // Reset lsn to None, since it will be added when append_log
-        // is called.
-        lr.lsn = None;
-        for _ in 0..number_of_lr + 1 {
+        for i in 1..500 {
+            let lm = log_manager.clone();
+            let mut lr = LogRecord::new(i, None, LogRecordType::Insert);
             lm.append_log(&mut lr);
         }
 
-        // Offset should be bytes.len(), since we fill the log_buffer
-        // by extra one record. So the new offset should be the same
-        // as the len of a single log record.
-        assert_eq!(lm.offset(), bytes.len());
+        log_manager.flush_log_buffer();
+
+        let mut result = log_manager.get_logs();
+        assert_eq!(result.len(), 499);
+
+        result.sort_by(|a, b| a.lsn.unwrap().cmp(&b.lsn.unwrap()));
+        let mut lsn = 1;
+        for r in result {
+            assert_eq!(r.lsn.unwrap(), lsn);
+            lsn += 1;
+        }
 
         let _ = std::fs::remove_file(file);
     }
@@ -204,27 +210,30 @@ mod test {
         let file = format!("test_{:?}.wal", std::thread::current().id());
         let log_manager = Arc::new(LogManager::new(&file));
 
-        // let mut handles = Vec::new();
+        let mut handles = Vec::new();
         for i in 1..500 {
             let lm = log_manager.clone();
-            // let handle = std::thread::spawn(move || {
-            let mut lr = LogRecord::new(i, None, LogRecordType::Insert);
-            lm.append_log(&mut lr);
-            // });
-            // handles.push(handle);
+            let handle = std::thread::spawn(move || {
+                let mut lr = LogRecord::new(i, None, LogRecordType::Insert);
+                lm.append_log(&mut lr);
+            });
+            handles.push(handle);
         }
 
-        // for h in handles {
-        //     h.join().unwrap();
-        // }
+        for h in handles {
+            h.join().unwrap();
+        }
 
-        // log_manager.flush();
+        log_manager.flush_log_buffer();
 
         let mut result = log_manager.get_logs();
-        println!("{}", result.len());
-        result.sort_by(|a, b| a.txn_id.cmp(&b.txn_id));
+        assert_eq!(result.len(), 499);
+
+        result.sort_by(|a, b| a.lsn.unwrap().cmp(&b.lsn.unwrap()));
+        let mut lsn = 1;
         for r in result {
-            println!("{r:?}");
+            assert_eq!(r.lsn.unwrap(), lsn);
+            lsn += 1;
         }
 
         let _ = std::fs::remove_file(file);
